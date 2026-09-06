@@ -58,6 +58,12 @@ export const OBJECTIVES: { value: Objective; label: string; blurb: string }[] = 
 ]
 
 export interface CandidateLeg extends EvalLeg {
+  /**
+   * Only priced legs, meaning legs with a real sportsbook price behind them,
+   * are allowed into an entry. Unpriced legs reach the board for information but
+   * never reach expected-value arithmetic.
+   */
+  status: "priced" | "unpriced"
   confidence: number
   /** Model mean minus the line, in units of the stat. */
   lineEdge: number
@@ -208,10 +214,11 @@ export function optimizeSlips(all: CandidateLeg[], opts: OptimizeOptions): Built
     return []
   }
 
-  // Single-leg filter, then keep the strongest legs by how far the model is from
-  // the line relative to that stat's own noise.
+  // Single-leg filter. Unpriced legs are excluded unconditionally: an entry is
+  // only as trustworthy as its weakest input, and a leg with no market price
+  // behind it cannot be given an expected value with a straight face.
   const filtered = all
-    .filter((l) => l.pWin >= c.minLegProb && l.confidence >= c.minConfidence)
+    .filter((l) => l.status === "priced" && l.pWin >= c.minLegProb && l.confidence >= c.minConfidence)
     .sort((a, b) => legStrength(b) - legStrength(a))
     .slice(0, poolSize)
 
@@ -230,6 +237,7 @@ export function optimizeSlips(all: CandidateLeg[], opts: OptimizeOptions): Built
         correlation: cfg,
         matrix: submatrix(pool, idx),
         seed: hashString(idx.join(",") + objective),
+        benchmarkMode: opts.mode,
       })
       if (evaluation.avgPairCorrelation > c.maxAvgCorrelation) continue
       results.push({
@@ -363,7 +371,17 @@ function rationaleFor(objective: Objective, legs: CandidateLeg[], e: SlipEvaluat
 
 function warningsFor(legs: CandidateLeg[], e: SlipEvaluation): string[] {
   const w: string[] = []
-  if (e.ev <= 0) w.push("Negative expected value under the current payout table. Do not bet it as priced.")
+  if (e.ev <= 0) w.push("Negative expected value under this payout table. Do not bet it as priced.")
+  if (e.ev > 0.2) {
+    w.push(
+      `Expected value of ${(e.ev * 100).toFixed(0)}% is far larger than these markets normally offer. The usual cause is a wrong payout multiplier or a stale line, not a real edge. Re-check the multiplier and the prices before staking.`,
+    )
+  }
+  if (e.breakEvenLegProb != null && (e.breakEvenLegProb < 0.35 || e.breakEvenLegProb > 0.85)) {
+    w.push(
+      `Break-even sits at ${(e.breakEvenLegProb * 100).toFixed(1)}% per leg, which is outside the plausible range for a pick'em entry. The captured payout table is probably wrong.`,
+    )
+  }
   if (e.correlationShrinkage > 0.2) {
     w.push(
       `The correlation matrix needed ${(e.correlationShrinkage * 100).toFixed(0)}% shrinkage toward independence to stay valid, so the joint probability is less reliable than usual.`,

@@ -1,3 +1,6 @@
+import { binomialPmf } from "./binomial"
+import { bisect } from "./math"
+
 /**
  * Payout structures for the apps in the user's rotation.
  *
@@ -208,13 +211,144 @@ export function supportedPickCounts(mode: PayoutMode): number[] {
 }
 
 /**
- * Break-even per-leg probability for an all-or-nothing entry, assuming
- * independent legs of equal strength. Useful as a sanity benchmark: a 4-pick
- * paying 10x needs each leg at 10^(-1/4) = 56.2% just to break even, which is
- * why "hit rate over 50%" is nowhere near good enough on these apps.
+ * Expected gross return per unit staked, if every leg were an independent coin
+ * with probability p.
+ *
+ * This sums across EVERY paying tier, not just the all-hit tier:
+ *
+ *   E[M] = sum over k of  C(n,k) p^k (1-p)^(n-k) * M(n,k)
+ *
+ * Independence is a simplifying assumption used only for these benchmark
+ * figures. Real entries are priced by the correlated simulator.
+ */
+export function expectedMultipleAtLegProb(mode: PayoutMode, picks: number, p: number): number {
+  const tiers = mode.table[picks]
+  if (!tiers) return 0
+  let acc = 0
+  for (const [correctStr, mult] of Object.entries(tiers)) {
+    const k = Number(correctStr)
+    acc += binomialPmf(picks, k, p) * mult
+  }
+  return acc
+}
+
+/**
+ * Break-even per-leg probability: the p at which the entry returns exactly the
+ * stake.
+ *
+ * For an all-or-nothing table this reduces to M^(-1/n), but for anything with
+ * partial-payout tiers that shortcut is badly wrong, because it ignores every
+ * dollar the lower tiers return. A PrizePicks 5-pick flex paying 10x / 2x / 0.4x
+ * breaks even near 54.3%, where the all-hit shortcut would claim 63.1% and talk
+ * you out of entries that are actually fine.
+ *
+ * Expected return is monotone increasing in p (higher tiers never pay less), so
+ * bisection is safe.
  */
 export function breakEvenLegProb(mode: PayoutMode, picks: number): number | null {
-  const mult = payoutMultiple(mode, picks, picks)
-  if (mult <= 0) return null
-  return Math.pow(1 / mult, 1 / picks)
+  const tiers = mode.table[picks]
+  if (!tiers || Object.keys(tiers).length === 0) return null
+  const f = (p: number) => expectedMultipleAtLegProb(mode, picks, p) - 1
+  if (f(1) <= 0) return null // even a perfect card cannot return the stake
+  if (f(0) >= 0) return 0 // a tier pays out on zero correct
+  return bisect(f, 0, 1, 1e-12, 200)
+}
+
+/**
+ * Expected value per unit staked at a given per-leg probability, again assuming
+ * independence. Used to show what a slip's expected value SHOULD look like for
+ * its legs, so a mistyped multiplier stands out immediately.
+ */
+export function evAtLegProb(mode: PayoutMode, picks: number, p: number): number {
+  return expectedMultipleAtLegProb(mode, picks, p) - 1
+}
+
+// ---------------------------------------------------------------------------
+// Captured payouts
+// ---------------------------------------------------------------------------
+
+/**
+ * A payout table read off the app's own screen at the moment an entry was built.
+ *
+ * The stored tables above are defaults, and defaults drift: operators change
+ * multipliers by state, by promotion and by sport, and boosted picks override
+ * them outright. The number the app displays while you are building the entry is
+ * ground truth, so that is what gets captured and stored with the slip.
+ *
+ * `tiers` maps correct-leg count to the gross multiple returned on a one-unit
+ * stake. `confirmed` records whether a human actually checked it. An
+ * unconfirmed payout is not used to price anything.
+ */
+export interface CapturedPayout {
+  picks: number
+  tiers: Record<number, number>
+  confirmed: boolean
+  capturedAt: string
+}
+
+/** Seed a capture form from a stored table, so the common case is one click. */
+export function capturedFromMode(mode: PayoutMode, picks: number): CapturedPayout {
+  const tiers = mode.table[picks] ?? {}
+  return {
+    picks,
+    tiers: { ...tiers },
+    confirmed: false,
+    capturedAt: new Date().toISOString(),
+  }
+}
+
+/** Wrap a captured payout so the simulator can price against it. */
+export function capturedToMode(c: CapturedPayout, label = "Captured"): PayoutMode {
+  return {
+    id: "captured",
+    label,
+    blurb: "Priced from the multipliers you read off the app.",
+    table: { [c.picks]: { ...c.tiers } },
+  }
+}
+
+export interface CaptureProblem {
+  field: string
+  message: string
+}
+
+/**
+ * Validate a captured payout before it is allowed to price anything.
+ * Every rejection here is a case where a typo would silently produce a
+ * confident, wrong expected value.
+ */
+export function validateCapture(c: CapturedPayout): CaptureProblem[] {
+  const problems: CaptureProblem[] = []
+  if (!Number.isInteger(c.picks) || c.picks < 2 || c.picks > 12) {
+    problems.push({ field: "picks", message: "Entry size must be between 2 and 12 picks." })
+  }
+  const keys = Object.keys(c.tiers).map(Number).sort((a, b) => a - b)
+  if (keys.length === 0) {
+    problems.push({ field: "tiers", message: "Enter at least the all-correct multiplier." })
+  }
+  for (const k of keys) {
+    const v = c.tiers[k]
+    if (!Number.isFinite(k) || k < 0 || k > c.picks) {
+      problems.push({ field: `tier-${k}`, message: `${k} correct is not possible on a ${c.picks}-pick entry.` })
+    }
+    if (!Number.isFinite(v) || v < 0) {
+      problems.push({ field: `tier-${k}`, message: `Multiplier for ${k} correct must be a number of zero or more.` })
+    }
+    if (v > 1000) {
+      problems.push({ field: `tier-${k}`, message: `A ${v}x multiplier is implausible. Check for a typo.` })
+    }
+  }
+  if (keys.length > 0 && !keys.includes(c.picks)) {
+    problems.push({ field: "tiers", message: "The all-correct tier is missing, which is the one that matters most." })
+  }
+  // Payouts must not decrease as you get more legs right.
+  for (let i = 1; i < keys.length; i++) {
+    if (c.tiers[keys[i]] < c.tiers[keys[i - 1]]) {
+      problems.push({
+        field: `tier-${keys[i]}`,
+        message: `${keys[i]} correct pays less than ${keys[i - 1]} correct, which no app does. Check the values.`,
+      })
+    }
+  }
+  return problems
 }

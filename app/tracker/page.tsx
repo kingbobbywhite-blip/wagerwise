@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { brierScore, calibrationBias, calibrationBuckets, logLoss, summarise, type Observation } from "@/lib/quant/calibration"
 import { dfsPayout } from "@/lib/quant/evaluate"
-import { findApp, findMode } from "@/lib/quant/payouts"
+import { breakEvenLegProb, capturedToMode, findApp, findMode } from "@/lib/quant/payouts"
 import { useStore } from "@/lib/store/provider"
 import type { LegResult, TrackedSlip } from "@/lib/store/schema"
 import { money, multiple, pct, shortDate, signedPct } from "@/lib/format"
@@ -60,11 +60,13 @@ export default function TrackerPage() {
       const settledAll = legs.every((l) => l.result !== "PENDING")
       if (!settledAll) return { ...s, legs, status: "PENDING", actualMultiple: null, settledAt: null }
 
-      const app = findApp(state.settings.apps, s.appId)
-      const mode = findMode(app, s.modeId)
+      // Settle against the payout captured when the entry was built, not the
+      // stored table, which may have changed since.
       const wins = legs.filter((l) => l.result === "WIN").length
       const pushes = legs.filter((l) => l.result === "PUSH").length
-      const actualMultiple = mode ? dfsPayout(mode)(wins, pushes, legs.length) : 0
+      const actualMultiple = s.capturedPayout
+        ? dfsPayout(capturedToMode(s.capturedPayout))(wins, pushes, legs.length)
+        : 0
       return { ...s, legs, status: "SETTLED", actualMultiple, settledAt: new Date().toISOString() }
     })
   }
@@ -169,6 +171,7 @@ export default function TrackerPage() {
           const app = findApp(state.settings.apps, s.appId)
           const mode = findMode(app, s.modeId)
           const wins = s.legs.filter((l) => l.result === "WIN").length
+          const be = s.capturedPayout ? breakEvenLegProb(capturedToMode(s.capturedPayout), s.legs.length) : null
           return (
             <div key={s.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -179,7 +182,23 @@ export default function TrackerPage() {
                   <div className="font-mono text-[10px] text-muted-foreground">
                     {shortDate(s.createdAt)} · {money(s.stake)} · model said {pct(s.pAllHitAtEntry)} to sweep,{" "}
                     {signedPct(s.evAtEntry)} EV
+                    {be != null ? ` · break-even ${pct(be)}` : ""}
                   </div>
+                  {s.capturedPayout ? (
+                    <div className="font-mono text-[10px] text-muted-foreground">
+                      payout captured:{" "}
+                      {Object.entries(s.capturedPayout.tiers)
+                        .sort((a, b) => Number(b[0]) - Number(a[0]))
+                        .map(([k, v]) => `${k}/${s.capturedPayout.picks} ${v}x`)
+                        .join(" · ")}
+                      {s.capturedPayout.confirmed ? "" : " (unconfirmed)"}
+                    </div>
+                  ) : (
+                    <div className="font-mono text-[10px] text-accent">
+                      No payout captured for this entry, so it was settled at zero. Entries logged before payout capture
+                      existed cannot be scored.
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {s.status === "SETTLED" ? (

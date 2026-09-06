@@ -25,7 +25,9 @@ describe("parseSlate", () => {
     expect(first.bookLine).toBe(25.5)
     expect(first.overOdds).toBe(-112)
     expect(first.app).toBe("prizepicks")
-    expect(first.hitRate).toBe("7/10")
+    // The worked example carries a sharp book so the projections have real
+    // market data behind them rather than a nameless price.
+    expect(first.book).toBe("pinnacle")
   })
 
   it("reads a JSON array", () => {

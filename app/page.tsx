@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { MARKETS } from "@/lib/nba/markets"
 import { formatAmerican } from "@/lib/quant/odds"
 import { breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
+import { bookProfile } from "@/lib/quant/books"
 import { useDerivedSlate } from "@/lib/store/hooks"
 import { useStore } from "@/lib/store/provider"
 import { pct, shortDate, signedNumber } from "@/lib/format"
@@ -30,6 +31,7 @@ export default function BoardPage() {
   const [market, setMarket] = React.useState("ALL")
   const [app, setApp] = React.useState("ALL")
   const [sort, setSort] = React.useState<SortKey>("prob")
+  const [showUnpriced, setShowUnpriced] = React.useState(true)
 
   const apps = React.useMemo(() => {
     const s = new Set<string>()
@@ -50,6 +52,7 @@ export default function BoardPage() {
       if (q && !r.player.toLowerCase().includes(q) && !r.marketLabel.toLowerCase().includes(q)) return false
       if (market !== "ALL" && r.marketKey !== market) return false
       if (app !== "ALL" && !r.offers.some((o) => o.app === app)) return false
+      if (!showUnpriced && r.status === "unpriced") return false
       return true
     })
     const by: Record<SortKey, (a: typeof out[number], b: typeof out[number]) => number> = {
@@ -60,13 +63,15 @@ export default function BoardPage() {
       player: (a, b) => a.player.localeCompare(b.player),
     }
     return [...out].sort(by[sort])
-  }, [rows, query, market, app, sort])
+  }, [rows, query, market, app, sort, showUnpriced])
 
+  const pricedRows = React.useMemo(() => rows.filter((r) => r.status === "priced"), [rows])
   const clearing = React.useMemo(
-    () => (breakEven == null ? 0 : rows.filter((r) => (r.recommended?.pWin ?? 0) >= breakEven).length),
-    [rows, breakEven],
+    () => (breakEven == null ? 0 : pricedRows.filter((r) => (r.recommended?.pWin ?? 0) >= breakEven).length),
+    [pricedRows, breakEven],
   )
-  const shoppable = React.useMemo(() => rows.filter((r) => r.shoppingGainPct >= 2).length, [rows])
+  const shoppable = React.useMemo(() => pricedRows.filter((r) => r.shoppingGainPct >= 2).length, [pricedRows])
+  const sharpCount = React.useMemo(() => pricedRows.filter((r) => r.hasSharpBook).length, [pricedRows])
 
   if (!ready) {
     return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading local data…</p>
@@ -101,8 +106,18 @@ export default function BoardPage() {
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile
+            label="Priced"
+            value={`${pricedRows.length}/${rows.length}`}
+            tone={pricedRows.length === rows.length ? "good" : "warn"}
+            hint={
+              pricedRows.length === rows.length
+                ? "Every row has a sportsbook price behind it."
+                : `${rows.length - pricedRows.length} rows have no market price and cannot be built into entries.`
+            }
+          />
+          <StatTile
             label="Clearing break-even"
-            value={`${clearing}/${rows.length}`}
+            value={`${clearing}/${pricedRows.length}`}
             tone={clearing > 0 ? "good" : "neutral"}
             hint={
               breakEven == null
@@ -114,18 +129,13 @@ export default function BoardPage() {
             label="Line shopping"
             value={String(shoppable)}
             tone={shoppable > 0 ? "warn" : "neutral"}
-            hint="Player-markets where one app posts a number worth 2 or more probability points over another."
+            hint="Player-markets where one app posts a number worth 2 or more probability points over another. This is the most reliable edge on the board."
           />
           <StatTile
-            label="Median confidence"
-            value={String(median(rows.map((r) => r.confidence)))}
-            hint="How much evidence sits behind the projections. Market prices score highest, season averages lowest."
-          />
-          <StatTile
-            label="Unpriceable rows"
-            value={String(unpriceable)}
-            tone={unpriceable > 0 ? "warn" : "neutral"}
-            hint="Imported lines with no odds, projection or form data. They are dropped rather than guessed at."
+            label="Sharp-book backed"
+            value={`${sharpCount}/${pricedRows.length}`}
+            tone={sharpCount === pricedRows.length && pricedRows.length > 0 ? "good" : "warn"}
+            hint="Rows where a market-making book contributed. Retail-only prices follow the market rather than setting it."
           />
         </div>
 
@@ -166,6 +176,14 @@ export default function BoardPage() {
               <SelectItem value="player">Player</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            variant={showUnpriced ? "secondary" : "ghost"}
+            size="sm"
+            className="h-9 font-mono text-xs"
+            onClick={() => setShowUnpriced((v) => !v)}
+          >
+            {showUnpriced ? "Hide unpriced" : "Show unpriced"}
+          </Button>
           <span className="ml-auto font-mono text-[11px] text-muted-foreground">{filtered.length} shown</span>
         </div>
 
@@ -175,6 +193,7 @@ export default function BoardPage() {
               <tr className="border-b border-border/60 bg-card/40 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
                 <th className="px-3 py-2">Player</th>
                 <th className="px-3 py-2">Market</th>
+                <th className="px-3 py-2">Source</th>
                 <th className="px-3 py-2 text-right">Best line</th>
                 <th className="px-3 py-2">Side</th>
                 <th className="px-3 py-2 text-right">Projection</th>
@@ -189,8 +208,16 @@ export default function BoardPage() {
                 const rec = r.recommended
                 if (!rec) return null
                 const clears = breakEven != null && rec.pWin >= breakEven
+                const unpriced = r.status === "unpriced"
+                const blank = !r.hasEstimate
                 return (
-                  <tr key={r.key} className="border-b border-border/40 last:border-0 hover:bg-card/40">
+                  <tr
+                    key={r.key}
+                    className={cn(
+                      "border-b border-border/40 last:border-0 hover:bg-card/40",
+                      unpriced && "opacity-55",
+                    )}
+                  >
                     <td className="px-3 py-2">
                       <div className="font-medium leading-tight">{r.player}</div>
                       <div className="font-mono text-[10px] text-muted-foreground">
@@ -207,6 +234,41 @@ export default function BoardPage() {
                           <TooltipContent className="max-w-xs text-xs">{r.warnings.join(" ")}</TooltipContent>
                         </Tooltip>
                       ) : null}
+                    </td>
+                    <td className="px-3 py-2">
+                      {unpriced ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge variant="outline" className="h-4 px-1 py-0 font-mono text-[9px] text-muted-foreground">
+                              {blank ? "no data" : "unpriced"}
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-xs">
+                            {r.unpricedReason} It is shown for context but is excluded from expected value and from the
+                            optimizer.
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "h-4 px-1 py-0 font-mono text-[9px]",
+                                r.hasSharpBook ? "border-primary/40 text-primary" : "text-accent",
+                              )}
+                            >
+                              {r.books[0] ? bookProfile(r.books[0].book).name.slice(0, 9) : "priced"}
+                              {r.books.length > 1 ? ` +${r.books.length - 1}` : ""}
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-xs">
+                            {r.books.map((b) => `${b.name} ${b.line} (weight ${b.weight.toFixed(2)})`).join(" · ")}
+                            {r.holdPct != null ? `. Hold ${r.holdPct.toFixed(1)}%.` : ""}
+                            {r.isStale ? " Prices are stale; re-pull before betting." : ""}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="font-mono tabular-nums">{rec.offer.line}</div>
@@ -227,28 +289,51 @@ export default function BoardPage() {
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-3 py-2"><SideBadge side={rec.side} /></td>
+                    <td className="px-3 py-2">{blank ? null : <SideBadge side={rec.side} />}</td>
+                    {/* A row with no projection shows dashes. Rendering a
+                        placeholder as a probability would be worse than an
+                        empty cell, because it reads like information. */}
                     <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {r.mean.toFixed(1)}
-                      <span className="ml-1 text-[10px] text-muted-foreground">±{r.sd.toFixed(1)}</span>
+                      {blank ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <>
+                          {r.mean.toFixed(1)}
+                          <span className="ml-1 text-[10px] text-muted-foreground">±{r.sd.toFixed(1)}</span>
+                        </>
+                      )}
                     </td>
                     <td
                       className={cn(
                         "px-3 py-2 text-right font-mono tabular-nums",
-                        Math.abs(rec.lineEdgeZ) >= 0.25 ? "text-primary" : "text-muted-foreground",
+                        !blank && Math.abs(rec.lineEdgeZ) >= 0.25 ? "text-primary" : "text-muted-foreground",
                       )}
                     >
-                      {signedNumber(rec.lineEdge, 1)}
-                      <span className="ml-1 text-[10px] opacity-70">{signedNumber(rec.lineEdgeZ, 2)}σ</span>
+                      {blank ? (
+                        "—"
+                      ) : (
+                        <>
+                          {signedNumber(rec.lineEdge, 1)}
+                          <span className="ml-1 text-[10px] opacity-70">{signedNumber(rec.lineEdgeZ, 2)}σ</span>
+                        </>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <div className={cn("font-mono tabular-nums", clears ? "text-primary" : "")}>{pct(rec.pWin)}</div>
-                      <ProbBar value={rec.pWin} breakEven={breakEven ?? undefined} className="mt-1 w-16 justify-self-end" />
+                      {blank ? (
+                        <span className="font-mono text-muted-foreground">—</span>
+                      ) : (
+                        <>
+                          <div className={cn("font-mono tabular-nums", clears ? "text-primary" : "")}>{pct(rec.pWin)}</div>
+                          <ProbBar value={rec.pWin} breakEven={breakEven ?? undefined} className="mt-1 w-16 justify-self-end" />
+                        </>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
-                      {formatAmerican(rec.fairAmerican)}
+                      {blank ? "—" : formatAmerican(rec.fairAmerican)}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">{r.confidence}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
+                      {blank ? "—" : r.confidence}
+                    </td>
                   </tr>
                 )
               })}
@@ -261,7 +346,8 @@ export default function BoardPage() {
           <span>
             Win probability is the model's own number, not the app's. The vertical marker on each bar is the per-leg rate
             you need just to break even on a {state.settings.constraints.picks}-pick entry. A leg above 50% is not
-            automatically a bet.
+            automatically a bet, and an edge that looks large is far more often a stale price or a bad input than a real
+            opportunity.
           </span>
         </p>
       </div>

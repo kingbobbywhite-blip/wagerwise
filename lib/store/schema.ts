@@ -1,6 +1,6 @@
 import { DEFAULT_CORRELATION, type CorrelationSettings } from "@/lib/quant/correlation"
 import { DEFAULT_CONSTRAINTS, type OptimizerConstraints } from "@/lib/quant/optimizer"
-import { DEFAULT_APPS, type BookApp } from "@/lib/quant/payouts"
+import { DEFAULT_APPS, type BookApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow } from "@/lib/quant/projection"
 import type { MarketKey } from "@/lib/nba/markets"
 
@@ -25,8 +25,24 @@ export const DEFAULT_BANKROLL: BankrollSettings = {
   minEvPct: 0,
 }
 
+export interface OddsFeedSettings {
+  /** The Odds API key. Stored in this browser only and sent only to that API. */
+  apiKey: string
+  /** Books to request, in preference order. */
+  books: string[]
+  /** Regions parameter for the feed. */
+  regions: string
+}
+
+export const DEFAULT_ODDS_FEED: OddsFeedSettings = {
+  apiKey: "",
+  books: ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel"],
+  regions: "us,us2,eu",
+}
+
 export interface AppSettings {
   bankroll: BankrollSettings
+  oddsFeed: OddsFeedSettings
   projection: ProjectionSettings
   correlation: CorrelationSettings
   constraints: OptimizerConstraints
@@ -37,6 +53,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   bankroll: DEFAULT_BANKROLL,
+  oddsFeed: DEFAULT_ODDS_FEED,
   projection: DEFAULT_PROJECTION_SETTINGS,
   correlation: DEFAULT_CORRELATION,
   constraints: DEFAULT_CONSTRAINTS,
@@ -56,6 +73,8 @@ export interface Slate {
 
 export type LegResult = "PENDING" | "WIN" | "LOSS" | "PUSH"
 export type SlipStatus = "PENDING" | "SETTLED" | "VOID"
+
+
 
 export interface TrackedLeg {
   player: string
@@ -78,6 +97,12 @@ export interface TrackedSlip {
   modeId: string
   legs: TrackedLeg[]
   stake: number
+  /**
+   * The payout the app actually displayed when the entry was built, captured
+   * rather than read back from a stored table. Stored tables drift; the number
+   * on screen at build time is ground truth.
+   */
+  capturedPayout: CapturedPayout
   /** Snapshot of what the model believed when the bet went in. */
   evAtEntry: number
   pAllHitAtEntry: number
@@ -115,10 +140,10 @@ export function migrate(raw: unknown): AppState {
     version: STATE_VERSION,
     settings: {
       bankroll: { ...DEFAULT_BANKROLL, ...(s.bankroll ?? {}) },
+      oddsFeed: { ...DEFAULT_ODDS_FEED, ...(s.oddsFeed ?? {}) },
       projection: {
         ...DEFAULT_PROJECTION_SETTINGS,
         ...(s.projection ?? {}),
-        weights: { ...DEFAULT_PROJECTION_SETTINGS.weights, ...(s.projection?.weights ?? {}) },
         dispersion: { ...DEFAULT_PROJECTION_SETTINGS.dispersion, ...(s.projection?.dispersion ?? {}) },
       },
       correlation: { ...DEFAULT_CORRELATION, ...(s.correlation ?? {}) },

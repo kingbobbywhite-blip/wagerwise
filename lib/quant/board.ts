@@ -1,5 +1,5 @@
 import type { CandidateLeg } from "./optimizer"
-import type { ProjectedProp } from "./projection"
+import type { PricingStatus, ProjectedProp } from "./projection"
 import { normalizeName } from "./correlation"
 import { probToAmerican } from "./odds"
 
@@ -9,9 +9,11 @@ import { probToAmerican } from "./odds"
  * A player's points prop can be posted at 24.5 on one app and 25.5 on another.
  * That one-point gap is frequently a larger edge than anything a projection
  * model will find, and it is free: the same opinion is simply worth more on the
- * app with the better number. This module groups every posted line for a
- * player/market, works out which app offers the best price on each side, and
- * flags the spread between apps.
+ * app with the better number.
+ *
+ * Rows carry a pricing status through to the board. A row with no sportsbook
+ * price behind it is shown, because knowing what is on the board is useful, but
+ * it is marked unpriced and never becomes a candidate leg.
  */
 
 export interface BoardOffer {
@@ -22,6 +24,7 @@ export interface BoardOffer {
   pPush: number
   source: string | null
   propId: string
+  status: PricingStatus
 }
 
 export interface BoardRow {
@@ -34,17 +37,32 @@ export interface BoardRow {
   marketKey: ProjectedProp["marketKey"]
   marketLabel: string
 
-  /** Consensus projection across every offer for this player and market. */
+  /** Priced when at least one contributing offer had a sportsbook price. */
+  status: PricingStatus
+  unpricedReason: string | null
+  /**
+   * False when no projection exists for this row at all, priced or otherwise.
+   * The UI shows dashes rather than numbers, because a placeholder rendered as
+   * a probability is worse than an empty cell.
+   */
+  hasEstimate: boolean
+
   mean: number
   sd: number
   confidence: number
 
+  /** Books behind the consensus, best first. */
+  books: ProjectedProp["books"]
+  hasSharpBook: boolean
+  bookDisagreement: number
+  quoteAgeMinutes: number | null
+  isStale: boolean
+  holdPct: number | null
+
   offers: BoardOffer[]
-  /** Best line to take if you want the over, and the app offering it. */
   bestOver: { offer: BoardOffer; pWin: number } | null
   bestUnder: { offer: BoardOffer; pWin: number } | null
 
-  /** The side the model actually likes, with the best available number. */
   recommended: {
     side: "OVER" | "UNDER"
     offer: BoardOffer
@@ -54,9 +72,7 @@ export interface BoardRow {
     lineEdgeZ: number
   } | null
 
-  /** Difference between the widest and narrowest line posted across apps. */
   lineSpread: number
-  /** Probability gained by taking the best number instead of the worst. */
   shoppingGainPct: number
   warnings: string[]
   sources: ProjectedProp["sources"]
@@ -78,13 +94,23 @@ export function buildBoard(props: ProjectedProp[]): BoardRow[] {
   const rows: BoardRow[] = []
   for (const [key, items] of groups) {
     const base = items[0]
+    const priced = items.filter((p) => p.status === "priced")
+    const status: PricingStatus = priced.length > 0 ? "priced" : "unpriced"
 
-    // Weight the consensus mean by each offer's confidence: a line derived from
-    // a real two-way market should dominate one derived from season averages.
-    const wTotal = items.reduce((a, p) => a + Math.max(p.confidence, 1), 0)
-    const mean = items.reduce((a, p) => a + p.mean * Math.max(p.confidence, 1), 0) / wTotal
-    const sd = items.reduce((a, p) => a + p.sd * Math.max(p.confidence, 1), 0) / wTotal
-    const confidence = Math.round(items.reduce((a, p) => a + p.confidence, 0) / items.length)
+    // Once any offer carries a real market price, the unpriced estimates are
+    // discarded from the consensus rather than diluting it.
+    const contributing = priced.length > 0 ? priced : items
+
+    /** True when nothing on this row carries any projection at all. */
+    const hasEstimate = contributing.some((p) => p.confidence > 0)
+
+    const wTotal = contributing.reduce((a, p) => a + Math.max(p.confidence, 1), 0)
+    const mean = contributing.reduce((a, p) => a + p.mean * Math.max(p.confidence, 1), 0) / wTotal
+    const sd = contributing.reduce((a, p) => a + p.sd * Math.max(p.confidence, 1), 0) / wTotal
+    const confidence = Math.round(contributing.reduce((a, p) => a + p.confidence, 0) / contributing.length)
+
+    // Book metadata comes from whichever contributing prop had the best books.
+    const bestBooked = [...contributing].sort((a, b) => b.books.length - a.books.length)[0]
 
     const offers: BoardOffer[] = items.map((p) => ({
       app: p.app,
@@ -94,9 +120,9 @@ export function buildBoard(props: ProjectedProp[]): BoardRow[] {
       pPush: p.pPush,
       source: p.source,
       propId: p.id,
+      status: p.status,
     }))
 
-    // Best over is the lowest line; best under is the highest line.
     let bestOver: BoardRow["bestOver"] = null
     let bestUnder: BoardRow["bestUnder"] = null
     for (const o of offers) {
@@ -128,9 +154,6 @@ export function buildBoard(props: ProjectedProp[]): BoardRow[] {
       shoppingGainPct = (Math.max(...probs) - Math.min(...probs)) * 100
     }
 
-    const warnings = Array.from(new Set(items.flatMap((p) => p.warnings)))
-    const sources = Array.from(new Set(items.flatMap((p) => p.sources)))
-
     rows.push({
       key,
       player: base.player,
@@ -140,28 +163,48 @@ export function buildBoard(props: ProjectedProp[]): BoardRow[] {
       gameTime: base.gameTime,
       marketKey: base.marketKey,
       marketLabel: base.marketLabel,
+      status,
+      unpricedReason: status === "unpriced" ? (base.unpricedReason ?? "No sportsbook price supplied.") : null,
+      hasEstimate,
       mean,
       sd,
       confidence,
+      books: bestBooked?.books ?? [],
+      hasSharpBook: contributing.some((p) => p.hasSharpBook),
+      bookDisagreement: Math.max(0, ...contributing.map((p) => p.bookDisagreement)),
+      quoteAgeMinutes: contributing.reduce<number | null>(
+        (a, p) => (p.quoteAgeMinutes == null ? a : a == null ? p.quoteAgeMinutes : Math.min(a, p.quoteAgeMinutes)),
+        null,
+      ),
+      isStale: contributing.some((p) => p.isStale),
+      holdPct: contributing.find((p) => p.holdPct != null)?.holdPct ?? null,
       offers,
       bestOver,
       bestUnder,
       recommended,
       lineSpread,
       shoppingGainPct,
-      warnings,
-      sources,
+      warnings: Array.from(new Set(items.flatMap((p) => p.warnings))),
+      sources: Array.from(new Set(contributing.flatMap((p) => p.sources))),
     })
   }
 
-  return rows.sort((a, b) => (b.recommended?.pWin ?? 0) - (a.recommended?.pWin ?? 0))
+  return rows.sort((a, b) => {
+    // Priced rows first: they are the only ones you can act on. Rows with no
+    // projection at all sink to the bottom.
+    if (a.status !== b.status) return a.status === "priced" ? -1 : 1
+    if (a.hasEstimate !== b.hasEstimate) return a.hasEstimate ? -1 : 1
+    return (b.recommended?.pWin ?? 0) - (a.recommended?.pWin ?? 0)
+  })
 }
 
 /**
  * Turn board rows into optimizer candidates.
+ *
  * Only the recommended side of each row becomes a candidate: offering both sides
- * of the same number to the optimizer invites it to build slips that cannot all
- * win.
+ * of the same number to the optimizer invites it to build entries that cannot
+ * all win. Unpriced rows are carried through with their status so the optimizer
+ * can reject them explicitly rather than silently.
  */
 export function boardToCandidates(rows: BoardRow[], appFilter?: string | null): CandidateLeg[] {
   const out: CandidateLeg[] = []
@@ -181,6 +224,7 @@ export function boardToCandidates(rows: BoardRow[], appFilter?: string | null): 
       pWin: r.recommended.pWin,
       pPush: r.recommended.offer.pPush,
       american: null,
+      status: r.status,
       confidence: r.confidence,
       lineEdge: r.recommended.lineEdge,
       lineEdgeZ: r.recommended.lineEdgeZ,

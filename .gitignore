@@ -8,3 +8,5 @@ node_modules
 .next/
 .env*.local
 .DS_Store
+# Odds feed key, if you use a local env file
+.env

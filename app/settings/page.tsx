@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Switch } from "@/components/ui/switch"
+import { BOOK_PROFILES, RETAIL_WEIGHT_CAP } from "@/lib/quant/books"
 import { DEVIG_METHODS, type DevigMethod } from "@/lib/quant/odds"
 import { payoutMultiple, supportedPickCounts } from "@/lib/quant/payouts"
 import { exportState, importState } from "@/lib/store/local"
@@ -65,6 +67,7 @@ export default function SettingsPage() {
         <TabsList className="font-mono text-xs">
           <TabsTrigger value="bankroll">Bankroll</TabsTrigger>
           <TabsTrigger value="model">Model</TabsTrigger>
+          <TabsTrigger value="feed">Odds feed</TabsTrigger>
           <TabsTrigger value="payouts">Payouts</TabsTrigger>
           <TabsTrigger value="data">Data</TabsTrigger>
         </TabsList>
@@ -126,44 +129,34 @@ export default function SettingsPage() {
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                 {DEVIG_METHODS.find((m) => m.value === s.projection.devigMethod)?.blurb}
               </p>
+              {s.projection.devigMethod === "multiplicative" ? (
+                <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-relaxed text-accent">
+                  <TriangleAlert className="mt-0.5 size-3 shrink-0" />
+                  Proportional devigging overstates longshot probability, which on a prop board means it overstates
+                  exactly the sides furthest from the number. Power is the better default.
+                </p>
+              ) : null}
             </div>
 
-            <SliderRow
-              label="Weight on market prices"
-              value={s.projection.weights.market}
-              min={0}
-              max={1}
-              step={0.02}
-              format={(v) => v.toFixed(2)}
-              onChange={(v) =>
-                setSettings((p) => ({ ...p, projection: { ...p.projection, weights: { ...p.projection.weights, market: v } } }))
-              }
-              hint="A devigged two-way sportsbook price is the strongest free projection available. Lowering this below your own model's weight is a strong claim about your model."
-            />
-            <SliderRow
-              label="Weight on your projections"
-              value={s.projection.weights.projection}
-              min={0}
-              max={1}
-              step={0.02}
-              format={(v) => v.toFixed(2)}
-              onChange={(v) =>
-                setSettings((p) => ({ ...p, projection: { ...p.projection, weights: { ...p.projection.weights, projection: v } } }))
-              }
-              hint="How much to trust an explicit projection column in your import."
-            />
-            <SliderRow
-              label="Weight on recent form"
-              value={s.projection.weights.form}
-              min={0}
-              max={1}
-              step={0.02}
-              format={(v) => v.toFixed(2)}
-              onChange={(v) =>
-                setSettings((p) => ({ ...p, projection: { ...p.projection, weights: { ...p.projection.weights, form: v } } }))
-              }
-              hint="Season, last ten and last five averages. Noisy on its own, and already partly priced into the market number."
-            />
+            <div className="md:col-span-2 flex items-start justify-between gap-3 rounded-lg border border-border/50 p-3">
+              <div>
+                <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Require a market-making book
+                </Label>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  When on, a prop priced only by retail books is treated as unpriced. Retail books follow the sharp
+                  market rather than setting it, so their number carries much less information. Strict, and correct if
+                  you are betting seriously.
+                </p>
+              </div>
+              <Switch
+                checked={s.projection.requireSharpBook}
+                onCheckedChange={(v) =>
+                  setSettings((p) => ({ ...p, projection: { ...p.projection, requireSharpBook: v } }))
+                }
+              />
+            </div>
+
             <SliderRow
               label="Outcome spread"
               value={s.projection.dispersion.global ?? 1}
@@ -187,26 +180,122 @@ export default function SettingsPage() {
               hint="Scales every correlation between legs. Zero reproduces the naive assumption that legs are independent, which is what most tools do and is wrong."
             />
             <SliderRow
-              label="Hit-rate prior"
-              value={s.projection.hitRatePrior}
-              min={5}
-              max={100}
+              label="Stale after"
+              value={s.projection.staleQuoteMinutes}
+              min={10}
+              max={180}
               step={5}
-              format={(v) => `${v} games`}
-              onChange={(v) => setSettings((p) => ({ ...p, projection: { ...p.projection, hitRatePrior: v } }))}
-              hint="How much a small hit-rate sample gets shrunk toward the model. At 30, a 10-game sample carries a quarter of the weight."
+              format={(v) => `${v} min`}
+              onChange={(v) => setSettings((p) => ({ ...p, projection: { ...p.projection, staleQuoteMinutes: v } }))}
+              hint="Quotes older than this are flagged. Lines move on injury news, so a price from before the inactives were posted is worse than no price."
             />
+            <SliderRow
+              label="Discard after"
+              value={s.projection.maxQuoteAgeMinutes}
+              min={30}
+              max={720}
+              step={30}
+              format={(v) => `${(v / 60).toFixed(1)} h`}
+              onChange={(v) => setSettings((p) => ({ ...p, projection: { ...p.projection, maxQuoteAgeMinutes: v } }))}
+              hint="Quotes older than this are thrown out entirely and the prop reverts to unpriced."
+            />
+          </div>
+
+          <div className="rounded-lg border border-border/60 bg-card/40 p-4">
+            <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Book weighting</h3>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Not every price carries the same information. A handful of books make the market; the rest copy them.
+              Weighting them equally throws away the point of using market data, and because retail books copy the same
+              source, five of them is one opinion counted five times rather than five opinions.
+            </p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[420px] text-xs">
+                <thead>
+                  <tr className="text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                    <th className="pb-1">Book</th>
+                    <th className="pb-1">Tier</th>
+                    <th className="pb-1 text-right">Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {BOOK_PROFILES.map((b) => (
+                    <tr key={b.id} className="border-t border-border/40">
+                      <td className="py-1.5">{b.name}</td>
+                      <td className="py-1.5 font-mono text-[11px] text-muted-foreground">{b.tier}</td>
+                      <td className="py-1.5 text-right font-mono tabular-nums">{b.weight.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              The combined retail weight is capped at {RETAIL_WEIGHT_CAP.toFixed(2)} regardless of how many retail books
+              are present.
+            </p>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="feed" className="mt-4 space-y-4">
+          <div className="space-y-4 rounded-lg border border-border/60 bg-card/40 p-4">
+            <div>
+              <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                Odds API key
+              </Label>
+              <Input
+                type="password"
+                value={s.oddsFeed.apiKey}
+                onChange={(e) => setSettings((p) => ({ ...p, oddsFeed: { ...p.oddsFeed, apiKey: e.target.value } }))}
+                placeholder="the-odds-api.com key"
+                className="mt-1.5 font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Stored in this browser and sent only to the odds feed, through this app's own server so it never appears
+                in page JavaScript. You can also set ODDS_API_KEY in the environment instead, which takes precedence.
+              </p>
+            </div>
+
+            <div>
+              <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                Books to request
+              </Label>
+              <Input
+                value={s.oddsFeed.books.join(", ")}
+                onChange={(e) =>
+                  setSettings((p) => ({
+                    ...p,
+                    oddsFeed: { ...p.oddsFeed, books: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) },
+                  }))
+                }
+                className="mt-1.5 font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Put Pinnacle first. Player props are billed per market per event, so a narrow book list and a short
+                market list is the difference between a usable quota and an exhausted one.
+              </p>
+            </div>
+
+            <div>
+              <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Regions</Label>
+              <Input
+                value={s.oddsFeed.regions}
+                onChange={(e) => setSettings((p) => ({ ...p, oddsFeed: { ...p.oddsFeed, regions: e.target.value } }))}
+                className="mt-1.5 font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Pinnacle sits in the eu region, so leaving it out silently removes the most useful price on the board.
+              </p>
+            </div>
           </div>
         </TabsContent>
 
         <TabsContent value="payouts" className="mt-4 space-y-4">
-          <p className="flex items-start gap-2 rounded-lg border border-accent/40 bg-accent/10 p-3 text-xs leading-relaxed text-accent">
-            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <p className="flex items-start gap-2 rounded-lg border border-border/60 bg-card/40 p-3 text-xs leading-relaxed text-muted-foreground">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-accent" />
             <span>
-              These multipliers ship as defaults and are not verified against any live app. Operators change them by
-              state, by promotion and by sport, and boosted picks override them entirely. Every expected-value number in
-              this app is only as correct as the table below, so check the real payout in the app before you stake
-              anything.
+              These tables no longer price anything. They only pre-fill the capture form on the build screen, where you
+              read the multipliers off the app and confirm them before any expected value is computed. That is the only
+              way to be sure the number being used is the number you will actually be paid, since operators change these
+              by state, by promotion and by sport, and boosted picks override them outright.
             </span>
           </p>
           <div className="space-y-3">

@@ -25,6 +25,7 @@ function pool(pWins: number[]): CandidateLeg[] {
     pWin: p,
     pPush: 0,
     american: null,
+    status: "priced" as const,
     confidence: 70,
     lineEdge: (p - 0.5) * 10,
     lineEdgeZ: (p - 0.5) * 2,
@@ -33,6 +34,57 @@ function pool(pWins: number[]): CandidateLeg[] {
 }
 
 describe("optimizeSlips", () => {
+  it("refuses to build from unpriced legs", () => {
+    const legs = pool([0.7, 0.69, 0.68, 0.67, 0.66, 0.65]).map((l) => ({ ...l, status: "unpriced" as const }))
+    expect(
+      optimizeSlips(legs, { mode: power, constraints: { picks: 4, maxPerGame: 4, maxPerTeam: 4 }, objectives: ["ev"] }),
+    ).toEqual([])
+  })
+
+  it("ignores unpriced legs while still using the priced ones", () => {
+    const legs = pool([0.7, 0.69, 0.68, 0.67, 0.66, 0.65, 0.64, 0.63])
+    legs[0].status = "unpriced"
+    legs[1].status = "unpriced"
+    const slips = optimizeSlips(legs, {
+      mode: power,
+      constraints: { picks: 4, maxPerGame: 4, maxPerTeam: 4 },
+      objectives: ["ev"],
+      count: 2,
+    })
+    expect(slips.length).toBeGreaterThan(0)
+    for (const s of slips) {
+      for (const l of s.legs) expect(l.status).toBe("priced")
+      expect(s.legs.some((l) => l.id === "leg0" || l.id === "leg1")).toBe(false)
+    }
+  })
+
+  it("reports the break-even hit rate beside expected value", () => {
+    const slips = optimizeSlips(pool([0.66, 0.65, 0.64, 0.63, 0.62, 0.61]), {
+      mode: power,
+      constraints: { picks: 4, maxPerGame: 4, maxPerTeam: 4 },
+      objectives: ["ev"],
+      count: 1,
+    })
+    const e = slips[0].evaluation
+    expect(e.breakEvenLegProb).toBeCloseTo(Math.pow(1 / 10, 1 / 4), 6)
+    expect(e.avgLegProb).toBeGreaterThan(0.6)
+    expect(e.legProbMargin).toBeCloseTo(e.avgLegProb - e.breakEvenLegProb!, 8)
+    expect(e.evAtAvgLegProb).not.toBeNull()
+  })
+
+  it("warns when an implausible payout produces a huge expected value", () => {
+    const absurd = { id: "x", label: "Typo", blurb: "", table: { 4: { 4: 500 } } }
+    const slips = optimizeSlips(pool([0.66, 0.65, 0.64, 0.63, 0.62]), {
+      mode: absurd,
+      constraints: { picks: 4, maxPerGame: 4, maxPerTeam: 4 },
+      objectives: ["ev"],
+      count: 1,
+    })
+    const w = slips[0].warnings.join(" ")
+    expect(w).toMatch(/far larger than these markets normally offer/)
+    expect(w).toMatch(/Break-even sits at/)
+  })
+
   it("returns nothing when the pool is smaller than the entry", () => {
     expect(optimizeSlips(pool([0.6, 0.62]), { mode: power, constraints: { picks: 4 } })).toEqual([])
   })

@@ -10,8 +10,18 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
+import { PayoutCapture } from "@/components/payout-capture"
 import { OBJECTIVES, optimizeSlips, type BuiltSlip, type Objective } from "@/lib/quant/optimizer"
-import { breakEvenLegProb, findApp, findMode, supportedPickCounts } from "@/lib/quant/payouts"
+import {
+  breakEvenLegProb,
+  capturedFromMode,
+  capturedToMode,
+  findApp,
+  findMode,
+  supportedPickCounts,
+  validateCapture,
+  type CapturedPayout,
+} from "@/lib/quant/payouts"
 import { useDerivedSlate } from "@/lib/store/hooks"
 import { useStore } from "@/lib/store/provider"
 import { pct } from "@/lib/format"
@@ -28,22 +38,41 @@ export default function BuildPage() {
   const c = state.settings.constraints
 
   const pickOptions = React.useMemo(() => (mode ? supportedPickCounts(mode) : []), [mode])
-  const breakEven = mode ? breakEvenLegProb(mode, c.picks) : null
 
+  // The payout used for pricing is the one read off the app, not the stored
+  // table. The stored table only seeds the form.
+  const [captured, setCaptured] = React.useState<CapturedPayout>(() =>
+    mode ? capturedFromMode(mode, c.picks) : { picks: c.picks, tiers: {}, confirmed: false, capturedAt: new Date().toISOString() },
+  )
+
+  React.useEffect(() => {
+    if (mode) setCaptured(capturedFromMode(mode, c.picks))
+  }, [mode?.id, state.settings.defaultAppId, c.picks])
+
+  const captureValid = validateCapture(captured).length === 0
+  const captureReady = captureValid && captured.confirmed
+  const capturedMode = React.useMemo(
+    () => (captureValid ? capturedToMode(captured, `${app?.name ?? ""} ${mode?.label ?? ""}`.trim()) : null),
+    [captured, captureValid, app?.name, mode?.label],
+  )
+  const breakEven = capturedMode ? breakEvenLegProb(capturedMode, c.picks) : null
+
+  const unpricedCount = React.useMemo(() => candidates.filter((l) => l.status === "unpriced").length, [candidates])
+  const priced = React.useMemo(() => candidates.filter((l) => l.status === "priced"), [candidates])
   const eligible = React.useMemo(
-    () => candidates.filter((l) => l.pWin >= c.minLegProb && l.confidence >= c.minConfidence),
-    [candidates, c.minLegProb, c.minConfidence],
+    () => priced.filter((l) => l.pWin >= c.minLegProb && l.confidence >= c.minConfidence),
+    [priced, c.minLegProb, c.minConfidence],
   )
 
   const run = React.useCallback(() => {
-    if (!mode) return
+    if (!capturedMode || !captureReady) return
     setRunning(true)
     // Yield a frame so the spinner paints before the search blocks the thread.
     setTimeout(() => {
       try {
         setSlips(
           optimizeSlips(candidates, {
-            mode,
+            mode: capturedMode,
             constraints: c,
             correlation: state.settings.correlation,
             objectives: [objective],
@@ -54,11 +83,11 @@ export default function BuildPage() {
         setRunning(false)
       }
     }, 16)
-  }, [candidates, mode, c, state.settings.correlation, objective])
+  }, [candidates, capturedMode, captureReady, c, state.settings.correlation, objective])
 
   React.useEffect(() => {
     setSlips(null)
-  }, [candidates, objective, c.picks, state.settings.defaultAppId, state.settings.defaultModeId])
+  }, [candidates, objective, c.picks, state.settings.defaultAppId, state.settings.defaultModeId, captured])
 
   if (!ready) {
     return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading…</p>
@@ -68,8 +97,19 @@ export default function BuildPage() {
     return (
       <EmptyState
         title="Nothing to build from"
-        body="The optimizer needs a priced slate. Import today's lines first, ideally with sportsbook prices attached so the projections have something solid underneath them."
-        actionLabel="Import a slate"
+        body="The optimizer needs a slate. Capture today's board first, then attach sportsbook prices so the projections have something solid underneath them."
+        actionLabel="Capture a slate"
+        actionHref="/import"
+      />
+    )
+  }
+
+  if (priced.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing on this slate is priced"
+        body={`All ${candidates.length} props are missing a sportsbook price, so none of them can be given an expected value. Go back to the capture screen and attach odds. This is deliberate: a projection built from averages, compared against a line those averages cannot know better than the market, will invent an edge that is not there.`}
+        actionLabel="Attach odds"
         actionHref="/import"
       />
     )
@@ -89,8 +129,13 @@ export default function BuildPage() {
         </p>
       </header>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        <StatTile label="Legs available" value={String(candidates.length)} hint="One per player-market, on the side the model prefers." />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatTile
+          label="Priced legs"
+          value={`${priced.length}/${candidates.length}`}
+          tone={priced.length > 0 ? "good" : "bad"}
+          hint={unpricedCount > 0 ? `${unpricedCount} have no sportsbook price and are excluded.` : "Every leg has a market price behind it."}
+        />
         <StatTile
           label="Passing filters"
           value={String(eligible.length)}
@@ -101,14 +146,20 @@ export default function BuildPage() {
           label="Break-even per leg"
           value={breakEven ? pct(breakEven) : "—"}
           tone="warn"
-          hint={`What a ${c.picks}-pick ${mode?.label ?? ""} entry needs from every leg just to break even.`}
+          hint={
+            breakEven
+              ? `Summed across every paying tier of the payout you captured, not just the all-correct one.`
+              : "Confirm the payout to compute this."
+          }
         />
         <StatTile
           label="Clearing that bar"
           value={String(eligible.filter((l) => breakEven != null && l.pWin >= breakEven).length)}
-          hint="Legs the model rates above the break-even rate. Correlation can still rescue a slip below it."
+          hint="Legs the model rates above the break-even rate. Correlation can still rescue an entry below it."
         />
       </div>
+
+      <PayoutCapture value={captured} onChange={setCaptured} suggestedFrom={`${app?.name ?? ""} ${mode?.label ?? ""}`.trim()} />
 
       <div className="grid gap-4 rounded-lg border border-border/60 bg-card/40 p-4 md:grid-cols-3">
         <Field label="App">
@@ -203,15 +254,19 @@ export default function BuildPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <Button onClick={run} disabled={running || eligible.length < c.picks}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={run} disabled={running || !captureReady || eligible.length < c.picks}>
           {running ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : <RefreshCw className="mr-1 size-3.5" />}
           {slips ? "Rebuild" : "Find entries"}
         </Button>
-        {eligible.length < c.picks ? (
+        {!captureReady ? (
           <span className="text-xs text-muted-foreground">
-            Only {eligible.length} legs pass the filters, which is fewer than the {c.picks} needed. Loosen the minimum
-            probability or import more lines.
+            Confirm the payout above first. Expected value computed against a table nobody checked is decoration.
+          </span>
+        ) : eligible.length < c.picks ? (
+          <span className="text-xs text-muted-foreground">
+            Only {eligible.length} priced legs pass the filters, which is fewer than the {c.picks} needed. Loosen the
+            minimum probability or capture more of the board.
           </span>
         ) : null}
       </div>
@@ -225,7 +280,13 @@ export default function BuildPage() {
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
             {slips.map((s) => (
-              <SlipCard key={s.id} slip={s} appId={state.settings.defaultAppId} modeId={state.settings.defaultModeId} />
+              <SlipCard
+                key={s.id}
+                slip={s}
+                appId={state.settings.defaultAppId}
+                modeId={state.settings.defaultModeId}
+                capturedPayout={captured}
+              />
             ))}
           </div>
         )

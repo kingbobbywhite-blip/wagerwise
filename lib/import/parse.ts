@@ -39,7 +39,8 @@ const FIELD_ALIASES: Record<keyof RawPropRow | string, string[]> = {
   hitRate: ["hitrate", "hit_rate", "hitrate_season", "hit", "hitpct", "hit_pct"],
   l10HitRate: ["l10hitrate", "l10_hit_rate", "l10hit", "hitratel10"],
   l5HitRate: ["l5hitrate", "l5_hit_rate", "l5hit", "hitratel5"],
-  app: ["app", "book", "sportsbook", "operator", "site", "platform"],
+  app: ["app", "operator", "site", "platform", "dfs", "dfsapp"],
+  book: ["book", "sportsbook", "bookmaker", "sourcebook"],
   source: ["source", "provider", "feed"],
   notes: ["notes", "note", "comment"],
 }
@@ -97,6 +98,7 @@ function buildRow(obj: Record<string, unknown>): RawPropRow | { error: string } 
 
   return {
     player: String(player).trim(),
+    book: str(get("book")),
     team: str(get("team")),
     opponent: str(get("opponent")),
     gameId: str(get("gameId")),
@@ -238,17 +240,17 @@ function parseDelimited(text: string): ImportResult {
 }
 
 /** A worked example the import screen can load with one click. */
-export const SAMPLE_CSV = `player,team,opponent,game_id,market,line,app,book_line,over_odds,under_odds,l5,l10,season,minutes,hit_rate
-Anthony Edwards,MIN,OKC,MIN@OKC,Points,24.5,prizepicks,25.5,-112,-108,27.4,26.1,25.8,35.6,7/10
-Anthony Edwards,MIN,OKC,MIN@OKC,Points,26.5,underdog,25.5,-112,-108,27.4,26.1,25.8,35.6,7/10
-Anthony Edwards,MIN,OKC,MIN@OKC,3-Pointers Made,2.5,prizepicks,2.5,-105,-115,3.2,2.8,2.7,35.6,6/10
-Rudy Gobert,MIN,OKC,MIN@OKC,Rebounds,11.5,prizepicks,11.5,-120,100,12.6,11.9,11.4,31.2,6/10
-Shai Gilgeous-Alexander,OKC,MIN,MIN@OKC,Points,30.5,prizepicks,31.5,-110,-110,33.1,32.4,31.9,34.8,8/10
-Shai Gilgeous-Alexander,OKC,MIN,MIN@OKC,Pts+Reb+Ast,39.5,prizepicks,40.5,-108,-112,42.0,41.2,40.6,34.8,7/10
-Chet Holmgren,OKC,MIN,MIN@OKC,Blocks,1.5,prizepicks,1.5,105,-125,2.0,1.8,1.7,30.1,5/10
-Jalen Brunson,NYK,BOS,NYK@BOS,Points,26.5,prizepicks,27.5,-115,-105,29.0,28.2,27.4,35.0,7/10
-Jalen Brunson,NYK,BOS,NYK@BOS,Assists,6.5,prizepicks,6.5,-118,-102,7.4,7.0,6.8,35.0,6/10
-Jayson Tatum,BOS,NYK,NYK@BOS,Points,27.5,prizepicks,27.5,-110,-110,28.1,27.6,27.2,36.2,5/10
-Jayson Tatum,BOS,NYK,NYK@BOS,Rebounds,8.5,prizepicks,8.5,-112,-108,9.1,8.8,8.6,36.2,6/10
-Derrick White,BOS,NYK,NYK@BOS,3-Pointers Made,2.5,prizepicks,2.5,-125,105,3.1,2.9,2.8,33.4,7/10
+export const SAMPLE_CSV = `player,team,opponent,game_id,market,line,app,book,book_line,over_odds,under_odds
+Anthony Edwards,MIN,OKC,MIN@OKC,Points,24.5,prizepicks,pinnacle,25.5,-112,-108
+Anthony Edwards,MIN,OKC,MIN@OKC,Points,26.5,underdog,pinnacle,25.5,-112,-108
+Anthony Edwards,MIN,OKC,MIN@OKC,3-Pointers Made,2.5,prizepicks,pinnacle,2.5,-105,-115
+Rudy Gobert,MIN,OKC,MIN@OKC,Rebounds,11.5,prizepicks,pinnacle,11.5,-120,100
+Shai Gilgeous-Alexander,OKC,MIN,MIN@OKC,Points,30.5,prizepicks,pinnacle,31.5,-110,-110
+Shai Gilgeous-Alexander,OKC,MIN,MIN@OKC,Pts+Reb+Ast,39.5,prizepicks,pinnacle,40.5,-108,-112
+Chet Holmgren,OKC,MIN,MIN@OKC,Blocks,1.5,prizepicks,pinnacle,1.5,105,-125
+Jalen Brunson,NYK,BOS,NYK@BOS,Points,26.5,prizepicks,pinnacle,27.5,-115,-105
+Jalen Brunson,NYK,BOS,NYK@BOS,Assists,6.5,prizepicks,pinnacle,6.5,-118,-102
+Jayson Tatum,BOS,NYK,NYK@BOS,Points,27.5,prizepicks,pinnacle,27.5,-110,-110
+Jayson Tatum,BOS,NYK,NYK@BOS,Rebounds,8.5,prizepicks,pinnacle,8.5,-112,-108
+Derrick White,BOS,NYK,NYK@BOS,3-Pointers Made,2.5,prizepicks,pinnacle,2.5,-125,105
 `

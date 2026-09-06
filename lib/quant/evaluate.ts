@@ -8,7 +8,7 @@ import {
 } from "./correlation"
 import { bisect, clamp, hashString, makeRng, normalCdf, normalInvCdf } from "./math"
 import { americanToDecimal } from "./odds"
-import { payoutMultiple, type PayoutMode } from "./payouts"
+import { breakEvenLegProb, evAtLegProb, payoutMultiple, type PayoutMode } from "./payouts"
 
 export type Side = "OVER" | "UNDER"
 
@@ -136,6 +136,12 @@ export interface EvaluateOptions {
   correlation?: CorrelationSettings
   /** Fixed seed makes the same slip evaluate identically on every render. */
   seed?: number
+  /**
+   * Payout table used for the break-even benchmark shown beside expected value.
+   * Supplying it is how a mistyped multiplier becomes visible: if the break-even
+   * rate does not look like a plausible per-leg number, the table is wrong.
+   */
+  benchmarkMode?: PayoutMode
   /**
    * Pre-built correlation matrix for exactly these legs, in order. The optimizer
    * computes the full pool matrix once and slices it, which removes the dominant
@@ -332,6 +338,24 @@ export interface SlipEvaluation {
   kelly: number
   correlationShrinkage: number
   avgPairCorrelation: number
+
+  /**
+   * Per-leg hit rate at which this entry breaks even, summed across every paying
+   * tier. Displayed beside expected value so an implausible payout table is
+   * obvious on sight: a 4-pick that claims to break even at 20% is a typo, not
+   * an opportunity.
+   */
+  breakEvenLegProb: number | null
+  /** Mean of the legs' modelled win probabilities. */
+  avgLegProb: number
+  /** How far the average leg clears the break-even bar. */
+  legProbMargin: number | null
+  /**
+   * Expected value if every leg were independent at the average leg probability.
+   * A large gap against the simulated EV means correlation is doing the work,
+   * which is worth knowing before you trust it.
+   */
+  evAtAvgLegProb: number | null
 }
 
 export function evaluateSlip(
@@ -365,11 +389,20 @@ export function evaluateSlip(
   })
   const evIndependent = indep.outcomes.reduce((acc, o) => acc + o.prob * o.multiple, 0) - 1
 
+  const avgLegProb = legs.length > 0 ? legs.reduce((a, l) => a + l.pWin, 0) / legs.length : 0
+  const benchmark = opts.benchmarkMode ?? null
+  const breakEven = benchmark ? breakEvenLegProb(benchmark, legs.length) : null
+  const evAtAvg = benchmark ? evAtLegProb(benchmark, legs.length, avgLegProb) : null
+
   return {
     legs,
     simulations: sim.simulations,
     outcomes: sim.outcomes,
     hitDistribution: sim.hitDistribution,
+    breakEvenLegProb: breakEven,
+    avgLegProb,
+    legProbMargin: breakEven == null ? null : avgLegProb - breakEven,
+    evAtAvgLegProb: evAtAvg,
     ev: expectedReturn - 1,
     evPct: (expectedReturn - 1) * 100,
     expectedReturn,

@@ -190,6 +190,27 @@ export interface DispersionOverrides {
 }
 
 /**
+ * Build a distribution with an EXPLICIT variance, bypassing the dispersion prior.
+ *
+ * This is what a measured game log needs. The prior ratios below are league-wide
+ * defaults for when nothing better exists; once you have actually observed a
+ * player's spread, the observation should win. Routing a measured variance back
+ * through a multiplier on the prior is how that measurement gets quietly thrown
+ * away.
+ */
+export function distributionWithVariance(
+  marketKey: MarketKey | null,
+  mean: number,
+  variance: number,
+): OutcomeDistribution {
+  const cfg = marketKey ? MARKETS[marketKey] : null
+  const m = Math.max(mean, 0.01)
+  const v = Math.max(variance, 1e-6)
+  if (cfg?.continuous) return normalDistribution(m, v)
+  return countDistribution(m, v)
+}
+
+/**
  * Build the outcome distribution for a market at a given projected mean.
  *
  * A wider dispersion multiplier pulls every probability toward 50%, which is the
