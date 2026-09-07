@@ -3,6 +3,7 @@ import { DEFAULT_CONSTRAINTS, type OptimizerConstraints } from "@/lib/quant/opti
 import { DEFAULT_APPS, type BookApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow } from "@/lib/quant/projection"
 import type { MarketKey } from "@/lib/nba/markets"
+import type { FeedQuote } from "@/lib/quant/valuebets"
 
 export const STATE_VERSION = 1
 
@@ -40,8 +41,30 @@ export const DEFAULT_ODDS_FEED: OddsFeedSettings = {
   regions: "us,us2,eu",
 }
 
+export interface DailySettings {
+  /** Ignore value bets below this edge. */
+  minEdge: number
+  /** Require a market-making book in every reference price. */
+  requireSharpReference: boolean
+  /** Legs per parlay. */
+  parlayLegs: number
+  /** Cap on games pulled in one refresh, to protect the feed quota. */
+  maxGames: number
+  /** Feed market keys to request. Fewer markets means fewer credits. */
+  markets: string[]
+}
+
+export const DEFAULT_DAILY: DailySettings = {
+  minEdge: 0.02,
+  requireSharpReference: true,
+  parlayLegs: 3,
+  maxGames: 14,
+  markets: ["player_points", "player_rebounds", "player_assists", "player_threes"],
+}
+
 export interface AppSettings {
   bankroll: BankrollSettings
+  daily: DailySettings
   oddsFeed: OddsFeedSettings
   projection: ProjectionSettings
   correlation: CorrelationSettings
@@ -53,6 +76,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   bankroll: DEFAULT_BANKROLL,
+  daily: DEFAULT_DAILY,
   oddsFeed: DEFAULT_ODDS_FEED,
   projection: DEFAULT_PROJECTION_SETTINGS,
   correlation: DEFAULT_CORRELATION,
@@ -113,11 +137,27 @@ export interface TrackedSlip {
   notes: string
 }
 
+/**
+ * The last pull from the odds feed.
+ *
+ * Cached in local storage on purpose. Player props are billed per market per
+ * event, so a page refresh that silently re-pulls the slate is a refresh that
+ * costs money. Nothing refetches without an explicit press.
+ */
+export interface DailyCache {
+  fetchedAt: string
+  quotes: FeedQuote[]
+  events: { id: string; commence_time: string; home_team: string; away_team: string }[]
+  requestsRemaining: number | null
+  creditsSpent: number
+}
+
 export interface AppState {
   version: number
   settings: AppSettings
   slate: Slate | null
   slips: TrackedSlip[]
+  daily: DailyCache | null
 }
 
 export const EMPTY_STATE: AppState = {
@@ -125,6 +165,7 @@ export const EMPTY_STATE: AppState = {
   settings: DEFAULT_SETTINGS,
   slate: null,
   slips: [],
+  daily: null,
 }
 
 /**
@@ -140,6 +181,7 @@ export function migrate(raw: unknown): AppState {
     version: STATE_VERSION,
     settings: {
       bankroll: { ...DEFAULT_BANKROLL, ...(s.bankroll ?? {}) },
+      daily: { ...DEFAULT_DAILY, ...(s.daily ?? {}) },
       oddsFeed: { ...DEFAULT_ODDS_FEED, ...(s.oddsFeed ?? {}) },
       projection: {
         ...DEFAULT_PROJECTION_SETTINGS,
@@ -154,5 +196,6 @@ export function migrate(raw: unknown): AppState {
     },
     slate: o.slate ?? null,
     slips: Array.isArray(o.slips) ? o.slips : [],
+    daily: o.daily ?? null,
   }
 }

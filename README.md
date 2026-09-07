@@ -31,17 +31,56 @@ Everything runs in your browser. No account, no database, no telemetry.
 ## Running it
 
 ```bash
+git clone https://github.com/kingbobbywhite-blip/wagerwise.git
+cd wagerwise
 npm install
-npm run dev      # http://localhost:3000
-npm test         # 136 unit tests over the probability engine
+echo "ODDS_API_KEY=your_key_here" > .env.local
+npm run dev
+```
+
+Open **http://localhost:3000** and press **Get today's picks**. That is the whole
+workflow. Needs Node 20 or newer.
+
+The key comes from [the-odds-api.com](https://the-odds-api.com); the free tier is 500
+requests a month. You can paste it into Settings instead of using `.env.local` if you
+prefer. Without a key the app has no sportsbook prices, and it will say so rather than
+invent an edge.
+
+```bash
+npm test         # 298 unit tests over the probability engine
 npm run build
 ```
 
-## Getting data in
+## What you get, every day
 
-Two halves, and they are not equally important.
+Press one button and the app pulls today's NBA games, prices every player prop it can,
+and produces three things:
 
-### The offer side: your own screenshots
+**Best single bets.** Offers where one book is priced better than the sharp consensus of
+the others. The book being judged is always excluded from the consensus that judges it,
+and at least one market-making book has to remain, otherwise a room full of copycats
+becomes its own reference. Each row shows the price, the fair price, the edge and a
+stake sized by fractional Kelly.
+
+**Best parlays.** Built only from legs that are individually positive expected value,
+and only within a single book, because a leg at DraftKings cannot be combined with a leg
+at FanDuel onto one ticket. Correlation between legs is priced rather than ignored.
+
+**Pick'em targets.** Nothing here can see what PrizePicks or Underdog are offering, so
+instead you get the number to look for: the projection, the fair line, and the line at
+which each side becomes worth taking. Open your app, find the player, and take the side
+only if their number is at or beyond it.
+
+Nothing is fetched until you press the button, and the result is cached, because player
+props are billed per market per game and a page refresh that silently re-pulls the slate
+is a refresh that costs money.
+
+## Getting more data in
+
+The daily pull covers the common markets automatically. These paths exist for when you
+want something it does not pull, or want to work off a DFS board directly.
+
+### Your own screenshots
 
 Screenshot the board on your phone and drop the images into **Capture**. OCR runs entirely
 in this browser, using a bundled engine and language model, so nothing is uploaded and no
@@ -55,16 +94,17 @@ and a shorter list gets checked properly.
 
 You can also paste CSV, TSV, JSON, or plain text copied off a board.
 
-### The signal side: a real odds feed
+After reviewing the rows, press **Attach sportsbook odds** to price them. Props that get a
+price become priced; everything else stays unpriced and cannot be built into an entry.
 
-Add a key from [the-odds-api.com](https://the-odds-api.com) in **Settings**, then press
-**Attach sportsbook odds** on the capture screen. Props that get a price become priced;
-everything else stays unpriced and cannot be built into an entry.
+### Feed settings worth knowing
 
-This is the part worth paying for. Put Pinnacle first in the book list and keep `eu` in the
-regions, because Pinnacle sits in that region and leaving it out silently removes the most
-useful price on the board. Player props are billed per market per event, so narrow the
-market list to what is actually on your board.
+Put Pinnacle first in the book list and keep `eu` in the regions, because Pinnacle sits in
+that region and leaving it out silently removes the most useful price on the board.
+
+Player props are billed **per market per game**. Four markets across a twelve-game slate is
+48 credits for one refresh, so the free tier is about ten refreshes a month. Narrow the
+market list rather than the book list: books are free, markets are not.
 
 | Column (for pasted data) | Matters |
 | --- | --- |

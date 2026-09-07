@@ -233,3 +233,61 @@ A model that says 70% and delivers 55% will drain a bankroll while looking like 
 Calibration is the only diagnostic that catches it. It needs volume: a gap is only
 highlighted once it exceeds two standard errors on at least twenty legs, and the headline
 bias figure stays neutral until roughly a hundred legs have settled.
+
+
+## The daily pipeline
+
+The one-button flow runs the same engine over data it fetches for itself.
+
+### Finding a mispriced offer
+
+A handful of books set the number and the rest copy it, with a lag. When a retail book is
+still offering Over 24.5 at -105 while the sharp consensus says that side is worth -130,
+the difference is yours.
+
+Two rules keep this from being circular:
+
+1. **Leave-one-out.** The book being evaluated is excluded from the consensus it is
+   measured against. Otherwise a book partly prices itself and every quote looks slightly
+   like value.
+2. **A real reference.** At least one market-making book must remain after that exclusion.
+   A consensus of copies is not a reference price, it is the same lag measured twice.
+
+For each surviving offer the consensus mean is inverted into a distribution, the fair
+probability at *that book's line* is read off it, and the edge is `fairProb × decimal − 1`.
+Anything above a configurable floor is reported, with a full-Kelly fraction attached.
+
+An edge above 12% is flagged and sorted below smaller believable ones. On a liquid market
+a double-digit edge is a line that already moved, a prop matched to the wrong player, or a
+book about to void the bet, far more often than it is free money.
+
+### Building the parlay
+
+Parlays are constructed only from legs that are individually positive expected value.
+There is no combination of bad bets that becomes a good one; stacking small losses
+multiplies the loss.
+
+They are also built **one book at a time**. A leg at DraftKings cannot be combined with a
+leg at FanDuel onto a single ticket, so taking the best price for each leg across books
+produces a parlay nobody can place. Within a book every leg is priced at that book's own
+number, and the best parlay across all books wins.
+
+Payout is the exact product of the surviving legs' decimal prices, not an approximation, so
+a pushed leg drops out of the parlay rather than losing it. The break-even figure shown
+beside a parlay's expected value is the per-leg rate an equivalent all-or-nothing entry
+would need, which makes it directly comparable to the pick'em bar.
+
+The leg probability floor is lower for parlays than for pick'em entries, on purpose. On a
+DFS app every leg is roughly even money, so a leg under 50% is close to worthless. On a
+sportsbook the price carries the value: a +160 leg that hits 45% of the time is an
+excellent bet.
+
+### Pick'em targets
+
+Nothing in this codebase can see a DFS app's board. Rather than guess, the app walks
+half-point lines outward from the projection and reports the last one on each side that
+still clears the per-leg hit rate your entry size requires.
+
+That turns "tell me what to play on PrizePicks" into something answerable: here is the
+player, here is the number, take the over only at or below it. If neither side clears, the
+prop is a pass, which is the correct answer more often than people expect.

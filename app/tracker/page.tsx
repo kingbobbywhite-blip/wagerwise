@@ -64,8 +64,11 @@ export default function TrackerPage() {
       // stored table, which may have changed since.
       const wins = legs.filter((l) => l.result === "WIN").length
       const pushes = legs.filter((l) => l.result === "PUSH").length
+      // Settlement is deterministic here, so the per-leg outcome vector is
+      // built from the recorded results rather than simulated.
+      const outcomes = Int8Array.from(legs.map((l) => (l.result === "WIN" ? 1 : l.result === "PUSH" ? 0 : -1)))
       const actualMultiple = s.capturedPayout
-        ? dfsPayout(capturedToMode(s.capturedPayout))(wins, pushes, legs.length)
+        ? dfsPayout(capturedToMode(s.capturedPayout))(wins, pushes, legs.length, outcomes)
         : 0
       return { ...s, legs, status: "SETTLED", actualMultiple, settledAt: new Date().toISOString() }
     })

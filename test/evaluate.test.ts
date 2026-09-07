@@ -5,6 +5,7 @@ import {
   dfsPayout,
   evaluateSlip,
   kellyForOutcomes,
+  oddsParlayPayout,
   simulateSlip,
   type EvalLeg,
 } from "@/lib/quant/evaluate"
@@ -99,11 +100,13 @@ describe("simulateSlip", () => {
     const mode = findMode(findApp(DEFAULT_APPS, "prizepicks"), "power")!
     const payout = dfsPayout(mode)
     // 3 picks paying 5x; if one pushes it becomes a 2-pick paying 3x.
-    expect(payout(3, 0, 3)).toBe(5)
-    expect(payout(2, 1, 3)).toBe(3)
-    expect(payout(1, 1, 3)).toBe(0)
+    // DFS tables settle on counts alone, so the outcome vector is unused.
+    const none = new Int8Array(3)
+    expect(payout(3, 0, 3, none)).toBe(5)
+    expect(payout(2, 1, 3, none)).toBe(3)
+    expect(payout(1, 1, 3, none)).toBe(0)
     // Shrinking below the smallest entry refunds the stake.
-    expect(payout(1, 2, 3)).toBe(1)
+    expect(payout(1, 2, 3, none)).toBe(1)
   })
 })
 
@@ -249,5 +252,45 @@ describe("legCorrelation", () => {
     const a = { player: "A", team: "BOS", opponent: "NYK", gameId: "g1", market: "PTS" as const, isOver: true }
     const b = { player: "B", team: "DEN", opponent: "PHX", gameId: "g2", market: "PTS" as const, isOver: true }
     expect(Math.abs(legCorrelation(a, b, DEFAULT_CORRELATION))).toBeLessThan(0.05)
+  })
+})
+
+describe("oddsParlayPayout", () => {
+  const three = [
+    leg({ id: "a", player: NAMES[0], pWin: 0.6, american: -110 }),
+    leg({ id: "b", player: NAMES[1], pWin: 0.55, american: 120 }),
+    leg({ id: "c", player: NAMES[2], pWin: 0.5, american: -140 }),
+  ]
+
+  it("pays the exact product of the leg prices", () => {
+    const pay = oddsParlayPayout(three)
+    const all = Int8Array.from([1, 1, 1])
+    const expected = (1 + 100 / 110) * 2.2 * (1 + 100 / 140)
+    expect(pay(3, 0, 3, all)).toBeCloseTo(expected, 9)
+  })
+
+  it("pays nothing when a leg loses", () => {
+    expect(oddsParlayPayout(three)(2, 0, 3, Int8Array.from([1, 1, -1]))).toBe(0)
+  })
+
+  it("drops a pushed leg out of the product rather than losing the parlay", () => {
+    const pay = oddsParlayPayout(three)
+    const pushed = Int8Array.from([1, 0, 1])
+    const expected = (1 + 100 / 110) * (1 + 100 / 140)
+    expect(pay(2, 1, 3, pushed)).toBeCloseTo(expected, 9)
+  })
+
+  it("takes commission off the net winnings only", () => {
+    const plain = oddsParlayPayout(three)(3, 0, 3, Int8Array.from([1, 1, 1]))
+    const charged = oddsParlayPayout(three, 0.02)(3, 0, 3, Int8Array.from([1, 1, 1]))
+    expect(charged).toBeCloseTo(1 + (plain - 1) * 0.98, 9)
+  })
+
+  it("prices a two-leg -110 parlay at 2.64 times the stake", () => {
+    const two = [
+      leg({ id: "a", player: NAMES[0], pWin: 0.5, american: -110 }),
+      leg({ id: "b", player: NAMES[1], pWin: 0.5, american: -110 }),
+    ]
+    expect(oddsParlayPayout(two)(2, 0, 2, Int8Array.from([1, 1]))).toBeCloseTo(3.6446, 3)
   })
 })

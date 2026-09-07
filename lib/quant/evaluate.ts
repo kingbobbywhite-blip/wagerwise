@@ -159,9 +159,18 @@ export interface EvaluateOptions {
  * same model and is much faster, which matters because the optimizer runs this
  * thousands of times.
  */
+/**
+ * Maps a simulated outcome to the gross multiple returned on a one-unit stake.
+ *
+ * `outcomes[i]` is 1 when leg i cashed, 0 when it pushed and -1 when it lost.
+ * DFS tables only need the counts; a straight parlay needs to know which legs
+ * survived, because its payout is the product of their individual prices.
+ */
+export type PayoutFn = (wins: number, pushes: number, picks: number, outcomes: Int8Array) => number
+
 export function simulateSlip(
   legs: EvalLeg[],
-  payout: (wins: number, pushes: number, picks: number) => number,
+  payout: PayoutFn,
   opts: EvaluateOptions = {},
 ): SimulationResult {
   const n = legs.length
@@ -203,6 +212,7 @@ export function simulateSlip(
   let allHitCount = 0
 
   const z = new Float64Array(n)
+  const legOutcomes = new Int8Array(n)
 
   for (let s = 0; s < simulations; s++) {
     // Box-Muller pairs for the independent normals.
@@ -222,14 +232,21 @@ export function simulateSlip(
       const Li = L[i]
       for (let k = 0; k <= i; k++) acc += Li[k] * z[k]
       const u = normalCdf(acc)
-      if (u >= pushCut[i]) wins++
-      else if (u >= loseCut[i]) pushes++
+      if (u >= pushCut[i]) {
+        wins++
+        legOutcomes[i] = 1
+      } else if (u >= loseCut[i]) {
+        pushes++
+        legOutcomes[i] = 0
+      } else {
+        legOutcomes[i] = -1
+      }
     }
 
     hitCounts[wins]++
     if (wins + pushes === n) allHitCount++
 
-    const mult = payout(wins, pushes, n)
+    const mult = payout(wins, pushes, n, legOutcomes)
     multipleTally.set(mult, (multipleTally.get(mult) ?? 0) + 1)
   }
 
@@ -257,7 +274,7 @@ export function simulateSlip(
  * smaller table, which is how these apps actually settle. If the entry shrinks
  * below the smallest supported size the stake is returned.
  */
-export function dfsPayout(mode: PayoutMode): (wins: number, pushes: number, picks: number) => number {
+export function dfsPayout(mode: PayoutMode): PayoutFn {
   const sizes = Object.keys(mode.table).map(Number)
   const minSize = sizes.length ? Math.min(...sizes) : 2
   return (wins, pushes, picks) => {
@@ -268,21 +285,23 @@ export function dfsPayout(mode: PayoutMode): (wins: number, pushes: number, pick
 }
 
 /**
- * Exchange / traditional parlay payout: the product of the decimal prices of
- * every leg, paid only if all surviving legs cash, less commission on winnings.
+ * Straight parlay payout: the product of the decimal prices of the legs that
+ * actually survived, paid only if every surviving leg cashed, less commission
+ * on net winnings.
+ *
+ * A pushed leg drops out of the parlay rather than losing it, which is why the
+ * per-leg outcomes are needed and not just the counts. On half-point lines
+ * pushes are impossible, so this reduces to the plain product of all prices.
  */
-export function oddsParlayPayout(legs: EvalLeg[], commission = 0): (wins: number, pushes: number, picks: number) => number {
+export function oddsParlayPayout(legs: EvalLeg[], commission = 0): PayoutFn {
   const decimals = legs.map((l) => (l.american != null ? americanToDecimal(l.american) : 1.909))
-  // Ordering of wins within a simulation is not tracked, so we use the geometric
-  // mean price per surviving leg. Exact when leg prices are equal and a close
-  // approximation otherwise.
-  const geo = Math.exp(decimals.reduce((a, d) => a + Math.log(d), 0) / Math.max(1, decimals.length))
-  return (wins, pushes, picks) => {
-    const surviving = picks - pushes
-    if (wins < surviving) return 0
-    const gross = Math.pow(geo, surviving)
-    const net = gross - 1
-    return 1 + net * (1 - commission)
+  return (wins, pushes, picks, outcomes) => {
+    if (wins < picks - pushes) return 0
+    let gross = 1
+    for (let i = 0; i < picks; i++) {
+      if (outcomes[i] === 1) gross *= decimals[i]
+    }
+    return 1 + (gross - 1) * (1 - commission)
   }
 }
 
@@ -360,7 +379,7 @@ export interface SlipEvaluation {
 
 export function evaluateSlip(
   legs: EvalLeg[],
-  payout: (wins: number, pushes: number, picks: number) => number,
+  payout: PayoutFn,
   opts: EvaluateOptions = {},
 ): SlipEvaluation {
   const sim = simulateSlip(legs, payout, opts)

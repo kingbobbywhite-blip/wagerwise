@@ -1,7 +1,8 @@
 import { correlationMatrix, DEFAULT_CORRELATION, normalizeName, type CorrelationLeg, type CorrelationSettings } from "./correlation"
-import { dfsPayout, evaluateSlip, type EvalLeg, type SlipEvaluation } from "./evaluate"
+import { dfsPayout, evaluateSlip, oddsParlayPayout, type EvalLeg, type PayoutFn, type SlipEvaluation } from "./evaluate"
 import { clamp, hashString } from "./math"
 import { supportedPickCounts, type PayoutMode } from "./payouts"
+import { americanToDecimal } from "./odds"
 
 /**
  * Slip construction.
@@ -183,8 +184,30 @@ function avgCorrelation(pool: Pool, idx: number[]): number {
 // Beam search
 // ---------------------------------------------------------------------------
 
+/**
+ * Build the all-or-nothing table a straight parlay is equivalent to, so the same
+ * break-even machinery works on it. A three-leg parlay paying 6.2x needs each
+ * leg at 6.2^(-1/3) to break even, which is directly comparable to the DFS bar.
+ */
+export function parlayBenchmarkMode(legs: CandidateLeg[]): PayoutMode {
+  const product = legs.reduce((acc, l) => acc * (l.american != null ? americanToDecimal(l.american) : 1.909), 1)
+  return {
+    id: "parlay",
+    label: "Straight parlay",
+    blurb: "Priced from the legs' own odds.",
+    table: { [legs.length]: { [legs.length]: product } },
+  }
+}
+
 export interface OptimizeOptions {
-  mode: PayoutMode
+  /** DFS payout table. Supply this or `parlay`, not both. */
+  mode?: PayoutMode
+  /**
+   * Price as a straight parlay from each leg's own odds instead of a fixed
+   * table. Used for sportsbook parlays, where the payout is the product of the
+   * prices rather than a published multiplier.
+   */
+  parlay?: { commission?: number }
   constraints?: Partial<OptimizerConstraints>
   correlation?: CorrelationSettings
   objectives?: Objective[]
@@ -209,10 +232,18 @@ export function optimizeSlips(all: CandidateLeg[], opts: OptimizeOptions): Built
   const finalSims = opts.finalSimulations ?? 25000
   const maxOverlap = opts.maxOverlap ?? Math.max(1, c.picks - 2)
 
-  const supported = supportedPickCounts(opts.mode)
-  if (supported.length > 0 && !supported.includes(c.picks)) {
-    return []
+  const isParlay = !!opts.parlay
+  if (!isParlay && !opts.mode) return []
+  if (!isParlay) {
+    const supported = supportedPickCounts(opts.mode!)
+    if (supported.length > 0 && !supported.includes(c.picks)) return []
   }
+
+  const commission = opts.parlay?.commission ?? 0
+  const makePayout = (legs: CandidateLeg[]): PayoutFn =>
+    isParlay ? oddsParlayPayout(legs, commission) : dfsPayout(opts.mode!)
+  const benchmarkFor = (legs: CandidateLeg[]): PayoutMode =>
+    isParlay ? parlayBenchmarkMode(legs) : opts.mode!
 
   // Single-leg filter. Unpriced legs are excluded unconditionally: an entry is
   // only as trustworthy as its weakest input, and a leg with no market price
@@ -225,19 +256,18 @@ export function optimizeSlips(all: CandidateLeg[], opts: OptimizeOptions): Built
   if (filtered.length < c.picks) return []
 
   const pool = buildPool(filtered, cfg)
-  const payout = dfsPayout(opts.mode)
   const results: BuiltSlip[] = []
 
   for (const objective of objectives) {
-    const best = beamSearch(pool, payout, c, cfg, objective, beamWidth, searchSims)
+    const best = beamSearch(pool, makePayout, c, cfg, objective, beamWidth, searchSims)
     for (const idx of best) {
       const legs = idx.map((i) => pool.legs[i])
-      const evaluation = evaluateSlip(legs, payout, {
+      const evaluation = evaluateSlip(legs, makePayout(legs), {
         simulations: finalSims,
         correlation: cfg,
         matrix: submatrix(pool, idx),
         seed: hashString(idx.join(",") + objective),
-        benchmarkMode: opts.mode,
+        benchmarkMode: benchmarkFor(legs),
       })
       if (evaluation.avgPairCorrelation > c.maxAvgCorrelation) continue
       results.push({
@@ -246,8 +276,8 @@ export function optimizeSlips(all: CandidateLeg[], opts: OptimizeOptions): Built
         evaluation,
         objective,
         label: labelFor(objective, legs.length),
-        rationale: rationaleFor(objective, legs, evaluation, opts.mode),
-        warnings: warningsFor(legs, evaluation),
+        rationale: rationaleFor(objective, legs, evaluation, benchmarkFor(legs)),
+        warnings: warningsFor(legs, evaluation, isParlay),
       })
     }
   }
@@ -290,7 +320,7 @@ function legStrength(l: CandidateLeg): number {
 
 function beamSearch(
   pool: Pool,
-  payout: (wins: number, pushes: number, picks: number) => number,
+  makePayout: (legs: CandidateLeg[]) => PayoutFn,
   c: OptimizerConstraints,
   cfg: CorrelationSettings,
   objective: Objective,
@@ -320,7 +350,7 @@ function beamSearch(
         seen.add(key)
 
         const legs = idx.map((i) => pool.legs[i])
-        const evaluation = evaluateSlip(legs, payout, {
+        const evaluation = evaluateSlip(legs, makePayout(legs), {
           simulations: sims,
           correlation: cfg,
           matrix: submatrix(pool, idx),
@@ -369,15 +399,23 @@ function rationaleFor(objective: Objective, legs: CandidateLeg[], e: SlipEvaluat
   ].join(" ")
 }
 
-function warningsFor(legs: CandidateLeg[], e: SlipEvaluation): string[] {
+function warningsFor(legs: CandidateLeg[], e: SlipEvaluation, isParlay = false): string[] {
   const w: string[] = []
-  if (e.ev <= 0) w.push("Negative expected value under this payout table. Do not bet it as priced.")
-  if (e.ev > 0.2) {
+  if (e.ev <= 0) {
     w.push(
-      `Expected value of ${(e.ev * 100).toFixed(0)}% is far larger than these markets normally offer. The usual cause is a wrong payout multiplier or a stale line, not a real edge. Re-check the multiplier and the prices before staking.`,
+      isParlay
+        ? "Negative expected value at these prices. Do not bet it."
+        : "Negative expected value under this payout table. Do not bet it as priced.",
     )
   }
-  if (e.breakEvenLegProb != null && (e.breakEvenLegProb < 0.35 || e.breakEvenLegProb > 0.85)) {
+  if (e.ev > 0.2) {
+    w.push(
+      isParlay
+        ? `Expected value of ${(e.ev * 100).toFixed(0)}% comes from compounding the legs' own edges, so it is only as good as those prices still being available. A parlay multiplies the edge and the variance together: this one loses ${(e.pLoseStake * 100).toFixed(0)}% of the time. Betting the legs singly captures most of the same edge with far less swing.`
+        : `Expected value of ${(e.ev * 100).toFixed(0)}% is far larger than these markets normally offer. The usual cause is a wrong payout multiplier or a stale line, not a real edge. Re-check the multiplier and the prices before staking.`,
+    )
+  }
+  if (!isParlay && e.breakEvenLegProb != null && (e.breakEvenLegProb < 0.35 || e.breakEvenLegProb > 0.85)) {
     w.push(
       `Break-even sits at ${(e.breakEvenLegProb * 100).toFixed(1)}% per leg, which is outside the plausible range for a pick'em entry. The captured payout table is probably wrong.`,
     )
@@ -392,7 +430,11 @@ function warningsFor(legs: CandidateLeg[], e: SlipEvaluation): string[] {
     w.push(`${lowConf.length} leg${lowConf.length > 1 ? "s are" : " is"} priced from thin evidence: ${lowConf.map((l) => l.player).join(", ")}.`)
   }
   const apps = new Set(legs.map((l) => l.app).filter(Boolean))
-  if (apps.size > 1) w.push(`Legs come from ${apps.size} different apps and cannot be combined into one entry.`)
+  if (apps.size > 1) {
+    w.push(
+      `Legs sit at ${apps.size} different places (${Array.from(apps).join(", ")}) and cannot be combined into a single ticket.`,
+    )
+  }
   return w
 }
 

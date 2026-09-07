@@ -57,7 +57,17 @@ Player names are matched to feed quotes exactly, never fuzzily. Attaching Jalen 
 price to Jaylin Williams would be far worse than leaving the prop unpriced, so unmatched names
 are reported rather than guessed.
 
-## 4. The odds feed costs money and burns quota fast
+## 4. The daily picks are sportsbook bets, not pick'em picks
+
+The automatic flow finds mispriced offers **on sportsbooks**, because that is the only
+place prices can be read from. It cannot tell you what to play on PrizePicks, because it
+cannot see PrizePicks.
+
+The pick'em targets are the bridge: a number to check against your own screen. That is a
+real answer, but it is not the same as the app placing the pick for you, and no amount of
+engineering makes it one without either scraping their board or you typing it in.
+
+## 5. The odds feed costs money and burns quota fast
 
 Player props are billed per market per event. Fourteen markets across a twelve-game slate is
 168 credits for one refresh. Narrow the market list to what is on your board, narrow the book
@@ -66,47 +76,54 @@ list to the ones that carry weight, and expect to re-pull before tip rather than
 If the feed fails, props stay unpriced and the optimizer refuses to build. That is the
 intended behaviour, not a bug.
 
-## 5. Dispersion ratios are priors, not measurements
+## 6. Dispersion ratios are priors, not measurements
 
 The variance-to-mean ratios per market are reasonable NBA-wide values, not player-specific
 ones. A steady role player and a streaky shooter with the same average get the same spread
 unless you supply a game log. The tracker's calibration table is what catches this.
 
-## 6. Correlations are structural priors, not fitted
+## 7. Correlations are structural priors, not fitted
 
 The correlation values come from how basketball works, not from a fitted covariance matrix on
 real game logs. They are directionally right and conservatively sized, but a specific pairing
 could be materially off. When the assembled matrix is not a valid covariance matrix it is
 shrunk toward independence, and any entry that needed heavy shrinkage says so.
 
-## 7. Beam search does not guarantee the optimum
+## 8. Beam search does not guarantee the optimum
 
 The optimizer explores a wide but not exhaustive set of combinations. "Max expected value"
 means "best found", not "provably best".
 
-## 8. Monte Carlo numbers wobble
+## 9. Monte Carlo numbers wobble
 
 Entries are simulated 25,000 times. Two expected-value figures within about half a percentage
 point are not meaningfully different. Do not choose between entries on a 0.3-point gap.
 
-## 9. Results take a long time to mean anything
+## 10. Results take a long time to mean anything
 
 At a 5% edge with typical parlay variance, hundreds of entries are needed before profit and
 luck can be told apart. A losing month proves nothing. A winning month proves nothing either.
 Calibration converges faster than profit, which is why the tracker leads with it, and the
 headline calibration figure stays neutral until roughly a hundred legs have settled.
 
-## 10. Everything lives in one browser
+## 11. Everything lives in one browser
 
 No server, no account. Clearing site data deletes your history. Export from settings
 regularly.
 
-## 11. Exchange and prediction-market support is partial
+## 12. Exchange and prediction-market support is partial
 
 ProphetX and Polymarket are modelled in the payout registry, and their prices can be imported
 and shown on the board, but the build screen optimises DFS pick'em entries only.
 
-## 12. Legality varies
+## 13. The odds feed does not say which team a player is on
+
+Correlation between legs in a daily parlay is detected at game level, not team level. Two
+team-mates in the same game are correctly treated as correlated through pace, but the
+usage competition between them, and the assist-to-scorer link, are invisible. Slates
+captured with team columns do get the full model.
+
+## 14. Legality varies
 
 Sports betting and daily fantasy are regulated differently in every jurisdiction and are not
 legal everywhere. Nothing here is financial advice.

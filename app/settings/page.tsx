@@ -274,6 +274,60 @@ export default function SettingsPage() {
               </p>
             </div>
 
+            <div className="grid gap-4 border-t border-border/50 pt-4 md:grid-cols-2">
+              <SliderRow
+                label="Minimum edge"
+                value={s.daily.minEdge}
+                min={0}
+                max={0.15}
+                step={0.005}
+                format={(v) => `${(v * 100).toFixed(1)}%`}
+                onChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, minEdge: v } }))}
+                hint="Ignore value bets below this. Real edges on a liquid market are low single digits; anything large is usually a line that already moved."
+              />
+              <SliderRow
+                label="Parlay legs"
+                value={s.daily.parlayLegs}
+                min={2}
+                max={6}
+                step={1}
+                format={(v) => `${v} legs`}
+                onChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, parlayLegs: v } }))}
+                hint="How many legs the daily parlays are built from."
+              />
+              <SliderRow
+                label="Games per pull"
+                value={s.daily.maxGames}
+                min={1}
+                max={20}
+                step={1}
+                format={(v) => `${v} games`}
+                onChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, maxGames: v } }))}
+                hint={`Caps the credits one refresh can spend. At ${s.daily.markets.length} markets that is up to ${s.daily.maxGames * s.daily.markets.length} credits.`}
+              />
+              <div>
+                <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Markets to pull
+                </Label>
+                <Input
+                  value={s.daily.markets.join(", ")}
+                  onChange={(e) =>
+                    setSettings((p) => ({
+                      ...p,
+                      daily: {
+                        ...p.daily,
+                        markets: e.target.value.split(",").map((x) => x.trim()).filter(Boolean),
+                      },
+                    }))
+                  }
+                  className="mt-1.5 font-mono text-xs"
+                />
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Billed per market per game. Four is a sensible slate; every extra market multiplies the cost.
+                </p>
+              </div>
+            </div>
+
             <div>
               <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Regions</Label>
               <Input

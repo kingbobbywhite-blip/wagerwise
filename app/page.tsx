@@ -2,90 +2,109 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowUpDown, Info, TriangleAlert } from "lucide-react"
-import { EmptyState } from "@/components/empty-state"
-import { ProbBar } from "@/components/prob-bar"
-import { SideBadge } from "@/components/side-badge"
+import { toast } from "sonner"
+import { CalendarDays, KeyRound, Loader2, RefreshCw, TriangleAlert } from "lucide-react"
+import { SlipCard } from "@/components/slip-card"
 import { StatTile } from "@/components/stat-tile"
+import { ValueBetRow } from "@/components/value-bet-row"
+import { SideBadge } from "@/components/side-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { MARKETS } from "@/lib/nba/markets"
+import { Tooltip, TooltipProvider } from "@/components/ui/tooltip"
+import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { formatAmerican } from "@/lib/quant/odds"
-import { breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
-import { bookProfile } from "@/lib/quant/books"
-import { useDerivedSlate } from "@/lib/store/hooks"
+import { breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
+import type { FeedQuote } from "@/lib/quant/valuebets"
+import { buildDailyPicks } from "@/lib/today/build"
 import { useStore } from "@/lib/store/provider"
-import { pct, shortDate, signedNumber } from "@/lib/format"
-import { cn } from "@/lib/utils"
+import { money, pct, shortDate, signedPct } from "@/lib/format"
 
-type SortKey = "prob" | "edge" | "shop" | "confidence" | "player"
+export default function TodayPage() {
+  const { state, setDaily, ready } = useStore()
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [needsKey, setNeedsKey] = React.useState(false)
 
-export default function BoardPage() {
-  const { state, ready } = useStore()
-  const { rows, unpriceable } = useDerivedSlate()
+  const s = state.settings
+  const hasKey = s.oddsFeed.apiKey.trim().length > 0
 
-  const [query, setQuery] = React.useState("")
-  const [market, setMarket] = React.useState("ALL")
-  const [app, setApp] = React.useState("ALL")
-  const [sort, setSort] = React.useState<SortKey>("prob")
-  const [showUnpriced, setShowUnpriced] = React.useState(true)
+  // The bar a pick'em leg has to clear, used only to place the DFS targets.
+  // It comes from the stored table, which is a guide, not a priced number.
+  const dfsBreakEven = React.useMemo(() => {
+    const app = findApp(s.apps, s.defaultAppId)
+    const mode = findMode(app, s.defaultModeId)
+    if (!mode) return 0.56
+    return breakEvenLegProb(mode, s.constraints.picks) ?? 0.56
+  }, [s.apps, s.defaultAppId, s.defaultModeId, s.constraints.picks])
 
-  const apps = React.useMemo(() => {
-    const s = new Set<string>()
-    for (const r of rows) for (const o of r.offers) if (o.app) s.add(o.app)
-    return Array.from(s).sort()
-  }, [rows])
-
-  const breakEven = React.useMemo(() => {
-    const a = findApp(state.settings.apps, state.settings.defaultAppId)
-    const m = findMode(a, state.settings.defaultModeId)
-    if (!m) return null
-    return breakEvenLegProb(m, state.settings.constraints.picks)
-  }, [state.settings])
-
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const out = rows.filter((r) => {
-      if (q && !r.player.toLowerCase().includes(q) && !r.marketLabel.toLowerCase().includes(q)) return false
-      if (market !== "ALL" && r.marketKey !== market) return false
-      if (app !== "ALL" && !r.offers.some((o) => o.app === app)) return false
-      if (!showUnpriced && r.status === "unpriced") return false
-      return true
+  const picks = React.useMemo(() => {
+    if (!state.daily || state.daily.quotes.length === 0) return null
+    return buildDailyPicks(state.daily.quotes as FeedQuote[], {
+      value: {
+        projection: s.projection,
+        minEdge: s.daily.minEdge,
+        suspiciousEdge: 0.12,
+        requireSharpReference: s.daily.requireSharpReference,
+        maxAmerican: 400,
+      },
+      correlation: s.correlation ?? DEFAULT_CORRELATION,
+      constraints: { ...s.constraints, picks: s.daily.parlayLegs },
+      dfsBreakEven,
+      parlayCount: 4,
     })
-    const by: Record<SortKey, (a: typeof out[number], b: typeof out[number]) => number> = {
-      prob: (a, b) => (b.recommended?.pWin ?? 0) - (a.recommended?.pWin ?? 0),
-      edge: (a, b) => Math.abs(b.recommended?.lineEdgeZ ?? 0) - Math.abs(a.recommended?.lineEdgeZ ?? 0),
-      shop: (a, b) => b.shoppingGainPct - a.shoppingGainPct,
-      confidence: (a, b) => b.confidence - a.confidence,
-      player: (a, b) => a.player.localeCompare(b.player),
+  }, [state.daily, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven])
+
+  async function refresh() {
+    setBusy(true)
+    setError(null)
+    setNeedsKey(false)
+    try {
+      const start = new Date()
+      start.setHours(0, 0, 0, 0)
+      const end = new Date(start)
+      end.setDate(end.getDate() + 1)
+      end.setHours(11, 0, 0, 0) // catch late tips that roll past midnight UTC
+
+      const res = await fetch("/api/today", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          apiKey: s.oddsFeed.apiKey || undefined,
+          from: start.toISOString(),
+          to: end.toISOString(),
+          markets: s.daily.markets,
+          bookmakers: s.oddsFeed.books,
+          regions: s.oddsFeed.regions,
+          maxGames: s.daily.maxGames,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setNeedsKey(!!data.needsKey)
+        setError(data.error ?? `Request failed (${res.status}).`)
+        return
+      }
+      setDaily({
+        fetchedAt: data.fetchedAt ?? new Date().toISOString(),
+        quotes: data.quotes ?? [],
+        events: data.events ?? [],
+        requestsRemaining: data.requestsRemaining ?? null,
+        creditsSpent: data.estimatedCredits ?? 0,
+      })
+      const n = (data.quotes ?? []).length
+      toast.success(n > 0 ? `Pulled ${n} prices` : "No prices found for today")
+      if (data.failures?.length) {
+        toast.warning(`${data.failures.length} games could not be priced`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
     }
-    return [...out].sort(by[sort])
-  }, [rows, query, market, app, sort, showUnpriced])
-
-  const pricedRows = React.useMemo(() => rows.filter((r) => r.status === "priced"), [rows])
-  const clearing = React.useMemo(
-    () => (breakEven == null ? 0 : pricedRows.filter((r) => (r.recommended?.pWin ?? 0) >= breakEven).length),
-    [pricedRows, breakEven],
-  )
-  const shoppable = React.useMemo(() => pricedRows.filter((r) => r.shoppingGainPct >= 2).length, [pricedRows])
-  const sharpCount = React.useMemo(() => pricedRows.filter((r) => r.hasSharpBook).length, [pricedRows])
-
-  if (!ready) {
-    return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading local data…</p>
   }
 
-  if (!state.slate || rows.length === 0) {
-    return (
-      <EmptyState
-        title="No slate loaded"
-        body="Import today's NBA lines to price them. The board devigs any sportsbook prices you supply, turns them into a projection, then re-evaluates that projection against whatever number your DFS app is actually offering."
-        actionLabel="Import a slate"
-        actionHref="/import"
-      />
-    )
+  if (!ready) {
+    return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading…</p>
   }
 
   return (
@@ -93,271 +112,266 @@ export default function BoardPage() {
       <div className="space-y-6">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-mono text-lg font-semibold tracking-tight">Board</h1>
+            <h1 className="font-mono text-lg font-semibold tracking-tight">Today</h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              {state.slate.label} · imported {shortDate(state.slate.importedAt)} · {rows.length} player-markets from{" "}
-              {state.slate.rows.length} posted lines
+              {state.daily
+                ? `${state.daily.events.length} NBA games · pulled ${shortDate(state.daily.fetchedAt)}${
+                    state.daily.requestsRemaining != null
+                      ? ` · ${state.daily.requestsRemaining} feed requests left`
+                      : ""
+                  }`
+                : "Pull today's NBA slate and price it."}
             </p>
           </div>
-          <Button asChild size="sm" variant="secondary">
-            <Link href="/build">Build entries</Link>
+          <Button onClick={refresh} disabled={busy || !hasKey}>
+            {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : <RefreshCw className="mr-1 size-3.5" />}
+            {state.daily ? "Refresh" : "Get today's picks"}
           </Button>
         </header>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatTile
-            label="Priced"
-            value={`${pricedRows.length}/${rows.length}`}
-            tone={pricedRows.length === rows.length ? "good" : "warn"}
-            hint={
-              pricedRows.length === rows.length
-                ? "Every row has a sportsbook price behind it."
-                : `${rows.length - pricedRows.length} rows have no market price and cannot be built into entries.`
-            }
-          />
-          <StatTile
-            label="Clearing break-even"
-            value={`${clearing}/${pricedRows.length}`}
-            tone={clearing > 0 ? "good" : "neutral"}
-            hint={
-              breakEven == null
-                ? "Set a default app and entry size in settings."
-                : `A ${state.settings.constraints.picks}-pick entry needs ${pct(breakEven)} per leg just to break even.`
-            }
-          />
-          <StatTile
-            label="Line shopping"
-            value={String(shoppable)}
-            tone={shoppable > 0 ? "warn" : "neutral"}
-            hint="Player-markets where one app posts a number worth 2 or more probability points over another. This is the most reliable edge on the board."
-          />
-          <StatTile
-            label="Sharp-book backed"
-            value={`${sharpCount}/${pricedRows.length}`}
-            tone={sharpCount === pricedRows.length && pricedRows.length > 0 ? "good" : "warn"}
-            hint="Rows where a market-making book contributed. Retail-only prices follow the market rather than setting it."
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter player or market…"
-            className="h-9 w-full max-w-56 font-mono text-xs"
-          />
-          <Select value={market} onValueChange={setMarket}>
-            <SelectTrigger className="h-9 w-40 font-mono text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All markets</SelectItem>
-              {Object.values(MARKETS).map((m) => (
-                <SelectItem key={m.key} value={m.key}>{m.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {apps.length > 1 ? (
-            <Select value={app} onValueChange={setApp}>
-              <SelectTrigger className="h-9 w-36 font-mono text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All apps</SelectItem>
-                {apps.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          ) : null}
-          <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-            <SelectTrigger className="h-9 w-44 font-mono text-xs">
-              <ArrowUpDown className="mr-1 size-3" /><SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="prob">Win probability</SelectItem>
-              <SelectItem value="edge">Line edge</SelectItem>
-              <SelectItem value="shop">Shopping gain</SelectItem>
-              <SelectItem value="confidence">Confidence</SelectItem>
-              <SelectItem value="player">Player</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            variant={showUnpriced ? "secondary" : "ghost"}
-            size="sm"
-            className="h-9 font-mono text-xs"
-            onClick={() => setShowUnpriced((v) => !v)}
-          >
-            {showUnpriced ? "Hide unpriced" : "Show unpriced"}
-          </Button>
-          <span className="ml-auto font-mono text-[11px] text-muted-foreground">{filtered.length} shown</span>
-        </div>
-
-        <div className="overflow-x-auto rounded-lg border border-border/60">
-          <table className="w-full min-w-[880px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border/60 bg-card/40 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                <th className="px-3 py-2">Player</th>
-                <th className="px-3 py-2">Market</th>
-                <th className="px-3 py-2">Source</th>
-                <th className="px-3 py-2 text-right">Best line</th>
-                <th className="px-3 py-2">Side</th>
-                <th className="px-3 py-2 text-right">Projection</th>
-                <th className="px-3 py-2 text-right">Edge</th>
-                <th className="px-3 py-2 text-right">Win prob</th>
-                <th className="px-3 py-2 text-right">Fair</th>
-                <th className="px-3 py-2 text-right">Conf</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r) => {
-                const rec = r.recommended
-                if (!rec) return null
-                const clears = breakEven != null && rec.pWin >= breakEven
-                const unpriced = r.status === "unpriced"
-                const blank = !r.hasEstimate
-                return (
-                  <tr
-                    key={r.key}
-                    className={cn(
-                      "border-b border-border/40 last:border-0 hover:bg-card/40",
-                      unpriced && "opacity-55",
-                    )}
-                  >
-                    <td className="px-3 py-2">
-                      <div className="font-medium leading-tight">{r.player}</div>
-                      <div className="font-mono text-[10px] text-muted-foreground">
-                        {r.team ?? "—"}{r.opponent ? ` vs ${r.opponent}` : ""}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="font-mono text-xs">{r.marketLabel}</span>
-                      {r.warnings.length > 0 ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <TriangleAlert className="ml-1 inline size-3 text-accent" />
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs text-xs">{r.warnings.join(" ")}</TooltipContent>
-                        </Tooltip>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2">
-                      {unpriced ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge variant="outline" className="h-4 px-1 py-0 font-mono text-[9px] text-muted-foreground">
-                              {blank ? "no data" : "unpriced"}
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs text-xs">
-                            {r.unpricedReason} It is shown for context but is excluded from expected value and from the
-                            optimizer.
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "h-4 px-1 py-0 font-mono text-[9px]",
-                                r.hasSharpBook ? "border-primary/40 text-primary" : "text-accent",
-                              )}
-                            >
-                              {r.books[0] ? bookProfile(r.books[0].book).name.slice(0, 9) : "priced"}
-                              {r.books.length > 1 ? ` +${r.books.length - 1}` : ""}
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs text-xs">
-                            {r.books.map((b) => `${b.name} ${b.line} (weight ${b.weight.toFixed(2)})`).join(" · ")}
-                            {r.holdPct != null ? `. Hold ${r.holdPct.toFixed(1)}%.` : ""}
-                            {r.isStale ? " Prices are stale; re-pull before betting." : ""}
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <div className="font-mono tabular-nums">{rec.offer.line}</div>
-                      <div className="font-mono text-[10px] text-muted-foreground">
-                        {rec.offer.app ?? "—"}
-                        {r.lineSpread > 0 ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge variant="outline" className="ml-1 h-4 px-1 py-0 font-mono text-[9px] text-accent">
-                                +{r.shoppingGainPct.toFixed(1)}
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs text-xs">
-                              {r.offers.map((o) => `${o.app ?? "?"} ${o.line}`).join(" · ")}. Taking the best number is
-                              worth {r.shoppingGainPct.toFixed(1)} probability points on this side.
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">{blank ? null : <SideBadge side={rec.side} />}</td>
-                    {/* A row with no projection shows dashes. Rendering a
-                        placeholder as a probability would be worse than an
-                        empty cell, because it reads like information. */}
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {blank ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <>
-                          {r.mean.toFixed(1)}
-                          <span className="ml-1 text-[10px] text-muted-foreground">±{r.sd.toFixed(1)}</span>
-                        </>
-                      )}
-                    </td>
-                    <td
-                      className={cn(
-                        "px-3 py-2 text-right font-mono tabular-nums",
-                        !blank && Math.abs(rec.lineEdgeZ) >= 0.25 ? "text-primary" : "text-muted-foreground",
-                      )}
+        {!hasKey ? (
+          <div className="rounded-xl border border-accent/40 bg-accent/5 p-5">
+            <div className="flex items-start gap-3">
+              <KeyRound className="mt-0.5 size-4 shrink-0 text-accent" />
+              <div>
+                <h2 className="font-mono text-sm font-semibold">One thing to set up</h2>
+                <p className="mt-2 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                  This app needs sportsbook prices. Without them there is nothing to compare a line against, and it
+                  will refuse to guess rather than invent an edge for you.
+                </p>
+                <ol className="mt-3 max-w-2xl list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-muted-foreground">
+                  <li>
+                    Get a free key at{" "}
+                    <a
+                      href="https://the-odds-api.com"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary underline underline-offset-2"
                     >
-                      {blank ? (
-                        "—"
-                      ) : (
-                        <>
-                          {signedNumber(rec.lineEdge, 1)}
-                          <span className="ml-1 text-[10px] opacity-70">{signedNumber(rec.lineEdgeZ, 2)}σ</span>
-                        </>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {blank ? (
-                        <span className="font-mono text-muted-foreground">—</span>
-                      ) : (
-                        <>
-                          <div className={cn("font-mono tabular-nums", clears ? "text-primary" : "")}>{pct(rec.pWin)}</div>
-                          <ProbBar value={rec.pWin} breakEven={breakEven ?? undefined} className="mt-1 w-16 justify-self-end" />
-                        </>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
-                      {blank ? "—" : formatAmerican(rec.fairAmerican)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
-                      {blank ? "—" : r.confidence}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      the-odds-api.com
+                    </a>
+                    . The free tier is 500 requests a month.
+                  </li>
+                  <li>
+                    Paste it into <Link href="/settings" className="text-primary underline underline-offset-2">Settings → Odds feed</Link>,
+                    or put <code className="font-mono">ODDS_API_KEY=…</code> in a <code className="font-mono">.env.local</code> file.
+                  </li>
+                  <li>Come back here and press the button.</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
-        <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
-          <Info className="mt-0.5 size-3 shrink-0" />
-          <span>
-            Win probability is the model's own number, not the app's. The vertical marker on each bar is the per-leg rate
-            you need just to break even on a {state.settings.constraints.picks}-pick entry. A leg above 50% is not
-            automatically a bet, and an edge that looks large is far more often a stale price or a bad input than a real
-            opportunity.
-          </span>
-        </p>
+        {error ? (
+          <p className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs leading-relaxed text-destructive">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              {error}
+              {needsKey ? (
+                <>
+                  {" "}
+                  <Link href="/settings" className="underline underline-offset-2">Open settings</Link>.
+                </>
+              ) : null}
+            </span>
+          </p>
+        ) : null}
+
+        {picks ? (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatTile label="Games" value={String(picks.games.length)} hint={`${picks.stats.props} player props priced.`} />
+              <StatTile
+                label="Value bets"
+                value={String(picks.valueBets.length)}
+                tone={picks.valueBets.length > 0 ? "good" : "neutral"}
+                hint="Offers priced better than the sharp consensus of the other books."
+              />
+              <StatTile
+                label="Parlays"
+                value={String(picks.parlays.length)}
+                tone={picks.parlays.length > 0 ? "good" : "neutral"}
+                hint="Built only from legs that are individually positive expected value."
+              />
+              <StatTile
+                label="Books seen"
+                value={String(picks.stats.booksSeen.length)}
+                hint={picks.stats.booksSeen.join(", ")}
+              />
+            </div>
+
+            {picks.parlays.length > 0 ? (
+              <section className="space-y-3">
+                <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                  Best parlays today
+                </h2>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {picks.parlays.map((p) => (
+                    <SlipCard
+                      key={p.id}
+                      slip={p}
+                      appId="sportsbook"
+                      modeId="parlay"
+                      capturedPayout={{
+                        picks: p.legs.length,
+                        tiers: { [p.legs.length]: p.evaluation.topMultiple },
+                        confirmed: true,
+                        capturedAt: new Date().toISOString(),
+                      }}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-lg border border-dashed border-border/60 p-5 text-xs leading-relaxed text-muted-foreground">
+                <span className="font-mono uppercase tracking-[0.14em]">No parlay worth playing</span>
+                <p className="mt-2 max-w-2xl">
+                  A parlay is only worth building from legs that are each positive expected value on their own. There
+                  are {picks.valueBets.length} such legs on this slate, and{" "}
+                  {picks.valueBets.length < s.daily.parlayLegs
+                    ? `a ${s.daily.parlayLegs}-leg parlay needs at least that many.`
+                    : "none of the combinations cleared the correlation and diversification limits."}{" "}
+                  Betting them singly is the correct move.
+                </p>
+              </section>
+            )}
+
+            {picks.valueBets.length > 0 ? (
+              <section className="space-y-3">
+                <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                  Best single bets
+                </h2>
+                <div className="overflow-x-auto rounded-lg border border-border/60">
+                  <table className="w-full min-w-[820px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-border/60 bg-card/40 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                        <th className="px-3 py-2">Player</th>
+                        <th className="px-3 py-2">Market</th>
+                        <th className="px-3 py-2">Book</th>
+                        <th className="px-3 py-2">Side</th>
+                        <th className="px-3 py-2 text-right">Line</th>
+                        <th className="px-3 py-2 text-right">Price</th>
+                        <th className="px-3 py-2 text-right">Fair</th>
+                        <th className="px-3 py-2 text-right">Win prob</th>
+                        <th className="px-3 py-2 text-right">Edge</th>
+                        <th className="px-3 py-2 text-right">Stake</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {picks.valueBets.slice(0, 25).map((b) => (
+                        <ValueBetRow key={b.id} bet={b} bankroll={s.bankroll} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
+
+            {picks.dfsTargets.length > 0 ? (
+              <section className="space-y-3">
+                <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                  Pick'em targets
+                </h2>
+                <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
+                  Nothing here can see what PrizePicks or Underdog are offering, so instead these are the numbers to
+                  look for. Open your app, find the player, and take the side only if their line is at or beyond the
+                  number below. The bar is a {pct(dfsBreakEven)} per-leg hit rate, from your default{" "}
+                  {s.constraints.picks}-pick entry.
+                </p>
+                <div className="overflow-x-auto rounded-lg border border-border/60">
+                  <table className="w-full min-w-[760px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-border/60 bg-card/40 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                        <th className="px-3 py-2">Player</th>
+                        <th className="px-3 py-2">Market</th>
+                        <th className="px-3 py-2 text-right">Projection</th>
+                        <th className="px-3 py-2 text-right">Fair line</th>
+                        <th className="px-3 py-2">Take OVER at</th>
+                        <th className="px-3 py-2">Take UNDER at</th>
+                        <th className="px-3 py-2 text-right">Conf</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {picks.dfsTargets.slice(0, 30).map((t) => (
+                        <tr key={t.key} className="border-b border-border/40 last:border-0 hover:bg-card/40">
+                          <td className="px-3 py-2">
+                            <div className="font-medium leading-tight">{t.player}</div>
+                            <div className="font-mono text-[10px] text-muted-foreground">
+                              {t.gameId.replace("@", " at ")}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">{t.marketLabel}</td>
+                          <td className="px-3 py-2 text-right font-mono tabular-nums">
+                            {t.mean.toFixed(1)}
+                            <span className="ml-1 text-[10px] text-muted-foreground">±{t.sd.toFixed(1)}</span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
+                            {t.fairLine}
+                          </td>
+                          <td className="px-3 py-2">
+                            {t.overAt != null ? (
+                              <span className="flex items-center gap-1.5">
+                                <SideBadge side="OVER" />
+                                <span className="font-mono tabular-nums">{t.overAt} or lower</span>
+                                <span className="font-mono text-[10px] text-muted-foreground">
+                                  {pct(t.overProb ?? 0, 0)}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="font-mono text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {t.underAt != null ? (
+                              <span className="flex items-center gap-1.5">
+                                <SideBadge side="UNDER" />
+                                <span className="font-mono tabular-nums">{t.underAt} or higher</span>
+                                <span className="font-mono text-[10px] text-muted-foreground">
+                                  {pct(t.underProb ?? 0, 0)}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="font-mono text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
+                            {t.confidence}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
+
+            <section className="rounded-lg border border-border/60 bg-card/40 p-4">
+              <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Games</h2>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {picks.games.map((g) => (
+                  <Badge key={g.gameId} variant="outline" className="font-mono text-[11px]">
+                    <CalendarDays className="mr-1 size-3" />
+                    {g.awayTeam} at {g.homeTeam}
+                    <span className="ml-1.5 text-muted-foreground">{g.propCount}</span>
+                  </Badge>
+                ))}
+              </div>
+            </section>
+          </>
+        ) : hasKey && !busy ? (
+          <section className="rounded-xl border border-dashed border-border/70 bg-card/30 p-8 text-center">
+            <p className="font-mono text-sm uppercase tracking-[0.14em] text-muted-foreground">
+              {state.daily ? "No prices for today" : "Nothing pulled yet"}
+            </p>
+            <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-muted-foreground">
+              {state.daily
+                ? "The feed returned no player props in today's window. That usually means no NBA games today, or the books have not posted props yet, which is normal until a few hours before tip."
+                : "Press the button above to pull today's slate. Player props are billed per market per game, so nothing is fetched until you ask."}
+            </p>
+          </section>
+        ) : null}
       </div>
     </TooltipProvider>
   )
-}
-
-function median(xs: number[]): number {
-  if (xs.length === 0) return 0
-  const s = [...xs].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return Math.round(s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2)
 }
