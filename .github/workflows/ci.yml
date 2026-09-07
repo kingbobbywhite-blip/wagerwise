@@ -1,8 +1,12 @@
 name: CI
 
+# A branch with an open PR fires both `push` and `pull_request`, and the two
+# use different refs, so a single concurrency group cannot dedupe them. Limiting
+# push to the default branch means every commit is checked exactly once: through
+# the PR while it is open, and through main after it merges.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
 
 concurrency:
