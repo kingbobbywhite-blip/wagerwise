@@ -10,3 +10,9 @@ node_modules
 .DS_Store
 # Odds feed key, if you use a local env file
 .env
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Written by `next dev` when agentRules is enabled
+/AGENTS.md
