@@ -33,17 +33,30 @@ Everything runs in your browser. No account, no database, no telemetry.
 ```bash
 git clone https://github.com/kingbobbywhite-blip/wagerwise.git
 cd wagerwise
+git checkout claude/nba-parlay-selector-zvbuzd
 npm install
-echo "ODDS_API_KEY=your_key_here" > .env.local
 npm run dev
 ```
 
-Open **http://localhost:3000** and press **Get today's picks**. That is the whole
-workflow. Needs Node 20 or newer.
+Open **http://localhost:3000** and press **Get today's picks**. Needs Node 20 or newer.
 
-The key comes from [the-odds-api.com](https://the-odds-api.com); the free tier is 500
-requests a month. You can paste it into Settings instead of using `.env.local` if you
-prefer. Without a key the app has no sportsbook prices, and it will say so rather than
+> The `git checkout` line is needed only until pull request #1 is merged. Everything
+> lives on that branch; `main` still holds nothing but the original archive, so a plain
+> clone has no `package.json` and `npm install` fails with `ENOENT`. Once the pull
+> request is merged, drop that line.
+
+### The API key
+
+The app needs sportsbook prices. Get a key from
+[the-odds-api.com](https://the-odds-api.com) (the free tier is 500 requests a month) and
+put the **real key** in a `.env.local` file:
+
+```bash
+echo "ODDS_API_KEY=paste_your_real_key_here" > .env.local
+```
+
+You can paste it into Settings instead if you prefer; the environment variable takes
+precedence. Without a working key the app has no prices, and it will say so rather than
 invent an edge.
 
 ```bash
