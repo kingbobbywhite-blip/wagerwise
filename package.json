@@ -2,6 +2,9 @@
   "name": "wagerwise",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -73,5 +76,5 @@
     "typescript": "5.7.3",
     "vitest": "^3.2.7"
   },
-  "description": "Correlation-aware NBA prop and parlay analysis for DFS pick'em apps"
+  "description": "Correlation-aware NBA, WNBA and college basketball prop and parlay analysis for DFS pick'em apps"
 }

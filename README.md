@@ -42,7 +42,33 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:3000** and press **Get today's picks**. Needs Node 20 or newer.
+Open **http://localhost:3000**, pick a league tab, and press **Get today's picks**.
+
+**Node 22 or newer is required** (`.nvmrc` pins it; `nvm use` picks it up). Node 20 will
+install and appear to work, but CI builds on 22 and some transitive dependencies refuse to
+run below it.
+
+### Updating an existing clone
+
+```bash
+git pull origin claude/nba-parlay-selector-zvbuzd
+npm install
+npm run dev
+```
+
+If a pull ever aborts complaining about local changes to a generated file, discard it and
+retry — nothing generated is worth keeping:
+
+```bash
+git checkout -- next-env.d.ts && git pull origin claude/nba-parlay-selector-zvbuzd
+```
+
+If `npm install` reports packages that are not in `package.json` (Supabase, for example),
+the `node_modules` directory is stale from something else. Wipe and reinstall:
+
+```bash
+rm -rf node_modules && npm install
+```
 
 > The `git checkout` line is needed only until pull request #1 is merged. Everything
 > lives on that branch; `main` still holds nothing but the original archive, so a plain
