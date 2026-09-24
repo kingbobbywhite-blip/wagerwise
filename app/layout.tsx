@@ -9,9 +9,9 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-geist" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "WagerWise — NBA Prop Terminal",
+  title: "WagerWise — Basketball Prop Terminal",
   description:
-    "Correlation-aware NBA prop and parlay analysis: devigged fair lines, calibrated probabilities and expected value against real DFS payout tables.",
+    "Correlation-aware NBA, WNBA and college basketball prop and parlay analysis: devigged fair lines, calibrated probabilities and expected value against real DFS payout tables.",
 }
 
 export const viewport: Viewport = {

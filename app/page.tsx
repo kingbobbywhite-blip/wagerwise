@@ -17,16 +17,37 @@ import { breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/qua
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import { buildDailyPicks } from "@/lib/today/build"
 import { useStore } from "@/lib/store/provider"
+import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
 import { money, pct, shortDate, signedPct } from "@/lib/format"
 
 export default function TodayPage() {
-  const { state, setDaily, ready } = useStore()
+  const { state, setDaily, setSettings, ready } = useStore()
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [needsKey, setNeedsKey] = React.useState(false)
 
   const s = state.settings
   const hasKey = s.oddsFeed.apiKey.trim().length > 0
+
+  const leagueId = s.daily.league
+  const league = leagueFor(leagueId)
+  // Only ever show the cache belonging to the league on screen. Rendering an
+  // NBA pull under a WNBA heading would be worse than showing nothing.
+  const daily = state.daily[leagueId] ?? null
+  const markets = s.daily.markets ?? league.markets
+  const cost = creditWarning(leagueId, Math.min(s.daily.maxGames, league.maxGames), markets.length)
+
+  function selectLeague(next: LeagueId) {
+    setSettings((prev) => ({
+      ...prev,
+      // The game cap travels with the league: a college cap on an NBA slate
+      // misses most of the slate, and an NBA cap on a college slate is a
+      // quota-emptying pull.
+      daily: { ...prev.daily, league: next, maxGames: LEAGUES[next].maxGames },
+    }))
+    setError(null)
+    setNeedsKey(false)
+  }
 
   // The bar a pick'em leg has to clear, used only to place the DFS targets.
   // It comes from the stored table, which is a guide, not a priced number.
@@ -38,10 +59,10 @@ export default function TodayPage() {
   }, [s.apps, s.defaultAppId, s.defaultModeId, s.constraints.picks])
 
   const picks = React.useMemo(() => {
-    if (!state.daily || state.daily.quotes.length === 0) return null
-    return buildDailyPicks(state.daily.quotes as FeedQuote[], {
+    if (!daily || daily.quotes.length === 0) return null
+    return buildDailyPicks(daily.quotes as FeedQuote[], {
       value: {
-        projection: s.projection,
+        projection: { ...s.projection, league: leagueId },
         minEdge: s.daily.minEdge,
         suspiciousEdge: 0.12,
         requireSharpReference: s.daily.requireSharpReference,
@@ -52,7 +73,7 @@ export default function TodayPage() {
       dfsBreakEven,
       parlayCount: 4,
     })
-  }, [state.daily, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven])
+  }, [daily, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven])
 
   async function refresh() {
     setBusy(true)
@@ -70,9 +91,10 @@ export default function TodayPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           apiKey: s.oddsFeed.apiKey || undefined,
+          league: leagueId,
           from: start.toISOString(),
           to: end.toISOString(),
-          markets: s.daily.markets,
+          markets: s.daily.markets ?? undefined,
           bookmakers: s.oddsFeed.books,
           regions: s.oddsFeed.regions,
           maxGames: s.daily.maxGames,
@@ -85,6 +107,7 @@ export default function TodayPage() {
         return
       }
       setDaily({
+        league: leagueId,
         fetchedAt: data.fetchedAt ?? new Date().toISOString(),
         quotes: data.quotes ?? [],
         events: data.events ?? [],
@@ -92,7 +115,11 @@ export default function TodayPage() {
         creditsSpent: data.estimatedCredits ?? 0,
       })
       const n = (data.quotes ?? []).length
-      toast.success(n > 0 ? `Pulled ${n} prices` : "No prices found for today")
+      toast.success(n > 0 ? `Pulled ${n} ${league.label} prices` : data.note ?? `No ${league.label} prices for today`)
+      if (data.costSevere && data.costWarning) toast.warning(data.costWarning)
+      if (data.cappedOut > 0) {
+        toast.info(`${data.cappedOut} more games on the slate were not pulled, to protect your feed quota.`)
+      }
       if (data.failures?.length) {
         toast.warning(`${data.failures.length} games could not be priced`)
       }
@@ -110,23 +137,74 @@ export default function TodayPage() {
   return (
     <TooltipProvider delayDuration={150}>
       <div className="space-y-6">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="font-mono text-lg font-semibold tracking-tight">Today</h1>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {state.daily
-                ? `${state.daily.events.length} NBA games · pulled ${shortDate(state.daily.fetchedAt)}${
-                    state.daily.requestsRemaining != null
-                      ? ` · ${state.daily.requestsRemaining} feed requests left`
-                      : ""
-                  }`
-                : "Pull today's NBA slate and price it."}
-            </p>
+        <header className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="font-mono text-lg font-semibold tracking-tight">Today</h1>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {daily
+                  ? `${daily.events.length} ${league.label} games · pulled ${shortDate(daily.fetchedAt)}${
+                      daily.requestsRemaining != null
+                        ? ` · ${daily.requestsRemaining} feed requests left`
+                        : ""
+                    }`
+                  : `Pull today's ${league.label} slate and price it.`}
+              </p>
+            </div>
+            <Button onClick={refresh} disabled={busy || !hasKey}>
+              {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : <RefreshCw className="mr-1 size-3.5" />}
+              {daily ? "Refresh" : "Get today's picks"}
+            </Button>
           </div>
-          <Button onClick={refresh} disabled={busy || !hasKey}>
-            {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : <RefreshCw className="mr-1 size-3.5" />}
-            {state.daily ? "Refresh" : "Get today's picks"}
-          </Button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              role="tablist"
+              aria-label="League"
+              className="flex items-center gap-1 rounded-lg border border-border/60 bg-card/40 p-1"
+            >
+              {LEAGUE_IDS.map((id) => {
+                const l = LEAGUES[id]
+                const active = id === leagueId
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => selectLeague(id)}
+                    className={
+                      active
+                        ? "rounded-md bg-primary/15 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.12em] text-primary ring-1 ring-primary/30"
+                        : "rounded-md px-3 py-1 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    }
+                  >
+                    {l.short}
+                    {state.daily[id] ? <span className="ml-1.5 text-[9px] opacity-60">●</span> : null}
+                  </button>
+                )
+              })}
+            </div>
+            {!inSeason(leagueId) ? (
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                out of season
+              </span>
+            ) : null}
+            {cost.message ? (
+              <span
+                className={
+                  cost.severe
+                    ? "text-[11px] text-destructive"
+                    : "text-[11px] text-muted-foreground"
+                }
+              >
+                {cost.severe ? <TriangleAlert className="mr-1 inline size-3" /> : null}
+                {cost.message}
+              </span>
+            ) : null}
+          </div>
+
+          <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">{league.note}</p>
         </header>
 
         {!hasKey ? (
@@ -362,12 +440,14 @@ export default function TodayPage() {
         ) : hasKey && !busy ? (
           <section className="rounded-xl border border-dashed border-border/70 bg-card/30 p-8 text-center">
             <p className="font-mono text-sm uppercase tracking-[0.14em] text-muted-foreground">
-              {state.daily ? "No prices for today" : "Nothing pulled yet"}
+              {daily ? `No ${league.label} prices for today` : "Nothing pulled yet"}
             </p>
             <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-muted-foreground">
-              {state.daily
-                ? "The feed returned no player props in today's window. That usually means no NBA games today, or the books have not posted props yet, which is normal until a few hours before tip."
-                : "Press the button above to pull today's slate. Player props are billed per market per game, so nothing is fetched until you ask."}
+              {!daily
+                ? "Press the button above to pull today's slate. Player props are billed per market per game, so nothing is fetched until you ask."
+                : !inSeason(leagueId)
+                  ? `${league.label} is out of season right now, so an empty slate is expected rather than a fault. Switch leagues above, or come back when the season starts.`
+                  : `The feed returned no ${league.label} player props in today's window. That usually means no games today, or the books have not posted props yet, which is normal until a few hours before tip.`}
             </p>
           </section>
         ) : null}

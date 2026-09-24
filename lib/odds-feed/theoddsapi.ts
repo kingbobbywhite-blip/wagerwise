@@ -1,4 +1,5 @@
 import type { MarketKey } from "@/lib/nba/markets"
+import { DEFAULT_LEAGUE, leagueFor, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 import type { BookQuote } from "@/lib/quant/projection"
 import type { FeedEvent, FeedEventOdds } from "./types"
@@ -17,6 +18,14 @@ import type { FeedEvent, FeedEventOdds } from "./types"
  */
 
 export const NBA_SPORT_KEY = "basketball_nba"
+
+/**
+ * Feed market keys the API exposes per league.
+ *
+ * The map below is the full basketball taxonomy. Which of these a given league
+ * actually posts is a league question, answered in lib/leagues, because asking
+ * for a market a league never posts costs a credit and returns nothing.
+ */
 
 /** Feed market keys mapped to our own taxonomy. */
 export const FEED_MARKET_MAP: Record<string, MarketKey> = {
@@ -222,14 +231,15 @@ export function attachQuotes<T extends { player: string; marketKey: MarketKey | 
 
 const BASE = "https://api.the-odds-api.com/v4"
 
-export function eventsUrl(apiKey: string): string {
-  return `${BASE}/sports/${NBA_SPORT_KEY}/events?apiKey=${encodeURIComponent(apiKey)}`
+export function eventsUrl(apiKey: string, league: LeagueId = DEFAULT_LEAGUE): string {
+  const sport = leagueFor(league).sportKey
+  return `${BASE}/sports/${sport}/events?apiKey=${encodeURIComponent(apiKey)}`
 }
 
 export function eventOddsUrl(
   apiKey: string,
   eventId: string,
-  opts: { markets: string[]; regions: string; bookmakers?: string[] },
+  opts: { markets: string[]; regions: string; bookmakers?: string[]; league?: LeagueId },
 ): string {
   const params = new URLSearchParams({
     apiKey,
@@ -238,7 +248,8 @@ export function eventOddsUrl(
     oddsFormat: "american",
   })
   if (opts.bookmakers && opts.bookmakers.length > 0) params.set("bookmakers", opts.bookmakers.join(","))
-  return `${BASE}/sports/${NBA_SPORT_KEY}/events/${encodeURIComponent(eventId)}/odds?${params.toString()}`
+  const sport = leagueFor(opts.league ?? DEFAULT_LEAGUE).sportKey
+  return `${BASE}/sports/${sport}/events/${encodeURIComponent(eventId)}/odds?${params.toString()}`
 }
 
 /**

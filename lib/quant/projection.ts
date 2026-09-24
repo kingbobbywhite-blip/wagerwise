@@ -1,4 +1,5 @@
 import { distributionFor, distributionWithVariance, normalizeMarket, MARKETS, type DispersionOverrides, type MarketKey } from "@/lib/nba/markets"
+import { DEFAULT_LEAGUE, leagueFor, type LeagueId } from "@/lib/leagues"
 import { bookConsensus, bookProfile, consensusQuality, type ConsensusResult } from "./books"
 import { meanImpliedByLine, resolveLine, type OutcomeDistribution } from "./distributions"
 import { estimateFromGameLog, parseGameLog, type GameLogEntry, type MinutesContext } from "./gamelog"
@@ -79,6 +80,14 @@ export interface ProjectionSettings {
   devigMethod: DevigMethod
   assumedHoldPct: number
   dispersion: DispersionOverrides
+  /**
+   * Which league these props come from.
+   *
+   * Changes the dispersion prior and the plausibility ceilings, nothing else.
+   * The pricing maths is identical across leagues; only the expected shape of a
+   * player's game-to-game spread differs.
+   */
+  league: LeagueId
   /** Quotes older than this are flagged stale. */
   staleQuoteMinutes: number
   /** Refuse to price from a book price older than this at all. */
@@ -94,6 +103,7 @@ export const DEFAULT_PROJECTION_SETTINGS: ProjectionSettings = {
   devigMethod: "power",
   assumedHoldPct: 4.5,
   dispersion: { global: 1 },
+  league: DEFAULT_LEAGUE,
   staleQuoteMinutes: 45,
   maxQuoteAgeMinutes: 360,
   requireSharpBook: false,
@@ -390,8 +400,17 @@ export function projectProp(
   const warnings: string[] = []
   if (!norm.key) warnings.push(`Unrecognised market "${row.market}". Priced with a generic spread model.`)
 
-  const priorDispersion = norm.key ? MARKETS[norm.key].dispersion : 1.8
-  const build = (m: number) => distributionFor(norm.key, m, settings.dispersion)
+  // Fold the league's volatility scale into the user's own dispersion dial.
+  // A college scorer's minutes are less predictable than an NBA scorer's, so
+  // the same projected mean deserves a wider distribution and therefore a
+  // probability closer to 50%.
+  const league = leagueFor(settings.league)
+  const leagueDispersion: DispersionOverrides = {
+    ...settings.dispersion,
+    global: (settings.dispersion.global ?? 1) * league.dispersionScale,
+  }
+  const priorDispersion = (norm.key ? MARKETS[norm.key].dispersion : 1.8) * league.dispersionScale
+  const build = (m: number) => distributionFor(norm.key, m, leagueDispersion)
 
   const quotes = collectQuotes(row)
   const market = quotes.length > 0 ? priceFromMarket(quotes, norm.key, settings, build, now) : null
@@ -504,9 +523,10 @@ export function projectProp(
     )
   }
   if (norm.key) {
-    const caps: Partial<Record<MarketKey, number>> = { PTS: 60, REB: 30, AST: 25, "3PM": 14, STL: 8, BLK: 10 }
-    const cap = caps[norm.key]
-    if (cap && mean > cap) warnings.push(`Projected ${mean.toFixed(1)} for ${norm.label} is outside a plausible NBA range.`)
+    const cap = league.caps[norm.key]
+    if (cap && mean > cap) {
+      warnings.push(`Projected ${mean.toFixed(1)} for ${norm.label} is outside a plausible ${league.label} range.`)
+    }
   }
 
   return {

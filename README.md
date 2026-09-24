@@ -1,8 +1,12 @@
 # WagerWise
 
-An NBA-only tool for deciding which props and parlays are worth betting, built around the
+A basketball tool for deciding which props and parlays are worth betting, built around the
 apps in your rotation: PrizePicks, Underdog, Sleeper, Dabble, Chalkboard, Winible, Real,
 ProphetX and Polymarket.
+
+Three leagues: **NBA**, **WNBA** and **men's college basketball**. Pick one with the tabs on
+the Today screen. Each keeps its own cached pull, so switching leagues never throws away a
+slate you already paid feed credits for.
 
 **It does not create an edge. It stops you acting on edges that are not there.**
 
@@ -66,8 +70,8 @@ npm run build
 
 ## What you get, every day
 
-Press one button and the app pulls today's NBA games, prices every player prop it can,
-and produces three things:
+Pick a league, press one button, and the app pulls today's games, prices every player prop
+it can, and produces three things:
 
 **Best single bets.** Offers where one book is priced better than the sharp consensus of
 the others. The book being judged is always excluded from the consensus that judges it,
@@ -164,3 +168,35 @@ Sports betting and daily fantasy are regulated differently in every jurisdiction
 not legal everywhere. Payout tables shipped here are **unverified defaults** and change
 without notice. Nothing here is financial advice, and no model makes a negative-expectation
 market profitable by itself.
+
+## Leagues
+
+| | NBA | WNBA | College (M) |
+|---|---|---|---|
+| Feed sport key | `basketball_nba` | `basketball_wnba` | `basketball_ncaab` |
+| Game length | 48 min | 40 min | 40 min |
+| Default markets | pts, reb, ast, 3pm | pts, reb, ast, 3pm | pts, reb, ast |
+| Default game cap | 14 | 8 | 6 |
+| Volatility prior | baseline | +5% | +20% |
+
+Two things differ between leagues and nothing else does. The **prior mean** is scaled for a
+shorter, slower game, and it is used only when no book has priced the prop — a real market
+price always wins. The **volatility prior** widens the distribution, which pulls probabilities
+toward a coin flip. College basketball gets the largest bump because five fouls in forty
+minutes removes starters far more often than six in forty-eight, rotations are deeper, and the
+gap between opponents is enormous next to a professional league.
+
+The probability at a line a book has actually priced is identical in every league. That is
+deliberate and there is a test pinning it: when the market has spoken, a league prior that
+moved the number would be inventing an edge.
+
+### The college cost problem
+
+Player props are billed **per market per game**. A February college slate can be 100+ games.
+At three markets that is 300+ credits in a single press, against a free tier of 500 a month.
+The game cap defaults to 6 for college for this reason, the screen shows the estimated cost
+before you press, and anything over a quarter of a monthly quota is flagged in red. Raise the
+cap deliberately, not by accident.
+
+Expect most of a college slate to come back empty regardless. Books price props for televised
+games, and often only points.

@@ -81,7 +81,7 @@ export default function BoardPage() {
     return (
       <EmptyState
         title="No slate loaded"
-        body="Import today's NBA lines to price them. The board devigs any sportsbook prices you supply, turns them into a projection, then re-evaluates that projection against whatever number your DFS app is actually offering."
+        body="Import today's lines to price them. The board devigs any sportsbook prices you supply, turns them into a projection, then re-evaluates that projection against whatever number your DFS app is actually offering."
         actionLabel="Capture a slate"
         actionHref="/import"
       />

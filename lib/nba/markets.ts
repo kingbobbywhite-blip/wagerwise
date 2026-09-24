@@ -154,7 +154,7 @@ export function normalizeMarket(raw: string): NormalizedMarket {
   // numbers such as the posted line. The word boundaries matter: an unanchored
   // digit strip would eat the 3 in "3PM".
   const stripped = protectThreePoint(original)
-    .replace(/\b(over|under|o\/u|ou|line|prop|player|nba)\b/gi, " ")
+    .replace(/\b(over|under|o\/u|ou|line|prop|player|nba|wnba|ncaab|ncaa|cbb|cfb)\b/gi, " ")
     .replace(/\b\d+(?:\.\d+)?\b/g, " ")
   const token = canonicalToken(stripped) || canonicalToken(protectThreePoint(original))
 

@@ -4,6 +4,7 @@ import { DEFAULT_APPS, type BookApp, type CapturedPayout } from "@/lib/quant/pay
 import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow } from "@/lib/quant/projection"
 import type { MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
+import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId } from "@/lib/leagues"
 
 export const STATE_VERSION = 1
 
@@ -42,6 +43,8 @@ export const DEFAULT_ODDS_FEED: OddsFeedSettings = {
 }
 
 export interface DailySettings {
+  /** Which league the Today screen is showing. */
+  league: LeagueId
   /** Ignore value bets below this edge. */
   minEdge: number
   /** Require a market-making book in every reference price. */
@@ -50,16 +53,23 @@ export interface DailySettings {
   parlayLegs: number
   /** Cap on games pulled in one refresh, to protect the feed quota. */
   maxGames: number
-  /** Feed market keys to request. Fewer markets means fewer credits. */
-  markets: string[]
+  /**
+   * Feed market keys to request. Fewer markets means fewer credits.
+   *
+   * Null means "use whatever this league posts", which is almost always the
+   * right answer: college basketball rarely posts threes, and paying for a
+   * market that comes back empty is the easiest way to waste a quota.
+   */
+  markets: string[] | null
 }
 
 export const DEFAULT_DAILY: DailySettings = {
+  league: DEFAULT_LEAGUE,
   minEdge: 0.02,
   requireSharpReference: true,
   parlayLegs: 3,
-  maxGames: 14,
-  markets: ["player_points", "player_rebounds", "player_assists", "player_threes"],
+  maxGames: LEAGUES[DEFAULT_LEAGUE].maxGames,
+  markets: null,
 }
 
 export interface AppSettings {
@@ -145,6 +155,8 @@ export interface TrackedSlip {
  * costs money. Nothing refetches without an explicit press.
  */
 export interface DailyCache {
+  /** The league this cache belongs to. A cache is never shown for another one. */
+  league: LeagueId
   fetchedAt: string
   quotes: FeedQuote[]
   events: { id: string; commence_time: string; home_team: string; away_team: string }[]
@@ -157,7 +169,8 @@ export interface AppState {
   settings: AppSettings
   slate: Slate | null
   slips: TrackedSlip[]
-  daily: DailyCache | null
+  /** Last pull per league, so switching leagues does not discard a paid-for slate. */
+  daily: Partial<Record<LeagueId, DailyCache>>
 }
 
 export const EMPTY_STATE: AppState = {
@@ -165,7 +178,7 @@ export const EMPTY_STATE: AppState = {
   settings: DEFAULT_SETTINGS,
   slate: null,
   slips: [],
-  daily: null,
+  daily: {},
 }
 
 /**
@@ -181,7 +194,7 @@ export function migrate(raw: unknown): AppState {
     version: STATE_VERSION,
     settings: {
       bankroll: { ...DEFAULT_BANKROLL, ...(s.bankroll ?? {}) },
-      daily: { ...DEFAULT_DAILY, ...(s.daily ?? {}) },
+      daily: { ...DEFAULT_DAILY, ...(s.daily ?? {}), league: isLeagueId(s.daily?.league) ? s.daily.league : DEFAULT_LEAGUE },
       oddsFeed: { ...DEFAULT_ODDS_FEED, ...(s.oddsFeed ?? {}) },
       projection: {
         ...DEFAULT_PROJECTION_SETTINGS,
@@ -196,6 +209,33 @@ export function migrate(raw: unknown): AppState {
     },
     slate: o.slate ?? null,
     slips: Array.isArray(o.slips) ? o.slips : [],
-    daily: o.daily ?? null,
+    daily: migrateDaily(o.daily),
   }
+}
+
+/**
+ * Bring the daily cache forward.
+ *
+ * Before leagues existed this was a single object holding an NBA pull. Anyone
+ * upgrading has one of those in local storage, and it is a slate they paid feed
+ * credits for, so it is kept and filed under the NBA rather than dropped.
+ */
+function migrateDaily(raw: unknown): Partial<Record<LeagueId, DailyCache>> {
+  if (!raw || typeof raw !== "object") return {}
+  const o = raw as Record<string, unknown>
+
+  // Old shape: a bare DailyCache with quotes at the top level.
+  if (Array.isArray(o.quotes)) {
+    const legacy = raw as DailyCache
+    return { [DEFAULT_LEAGUE]: { ...legacy, league: DEFAULT_LEAGUE } }
+  }
+
+  const out: Partial<Record<LeagueId, DailyCache>> = {}
+  for (const [k, v] of Object.entries(o)) {
+    if (!isLeagueId(k) || !v || typeof v !== "object") continue
+    const cache = v as DailyCache
+    if (!Array.isArray(cache.quotes)) continue
+    out[k] = { ...cache, league: k }
+  }
+  return out
 }

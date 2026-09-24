@@ -11,7 +11,8 @@ interface StoreValue {
   saveError: string | null
   setSettings: (updater: (s: AppSettings) => AppSettings) => void
   setSlate: (slate: Slate | null) => void
-  setDaily: (daily: DailyCache | null) => void
+  /** Store a pull under its own league, leaving the other leagues' caches intact. */
+  setDaily: (daily: DailyCache) => void
   addSlip: (slip: TrackedSlip) => void
   updateSlip: (id: string, updater: (s: TrackedSlip) => TrackedSlip) => void
   removeSlip: (id: string) => void
@@ -45,7 +46,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       saveError,
       setSettings: (updater) => setState((s) => ({ ...s, settings: updater(s.settings) })),
       setSlate: (slate) => setState((s) => ({ ...s, slate })),
-      setDaily: (daily) => setState((s) => ({ ...s, daily })),
+      setDaily: (daily) => setState((s) => ({ ...s, daily: { ...s.daily, [daily.league]: daily } })),
       addSlip: (slip) => setState((s) => ({ ...s, slips: [slip, ...s.slips] })),
       updateSlip: (id, updater) =>
         setState((s) => ({ ...s, slips: s.slips.map((x) => (x.id === id ? updater(x) : x)) })),

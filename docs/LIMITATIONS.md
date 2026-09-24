@@ -127,3 +127,25 @@ captured with team columns do get the full model.
 
 Sports betting and daily fantasy are regulated differently in every jurisdiction and are not
 legal everywhere. Nothing here is financial advice.
+
+## League coverage
+
+Three leagues are supported: NBA, WNBA and men's college basketball. What is NOT modelled
+per league:
+
+**Women's college basketball is not included.** It is a separate feed sport key
+(`basketball_wncaab`) with thinner prop coverage again. Adding it is a data entry in
+`lib/leagues`, not a code change, but it has not been done or tested.
+
+**The dispersion scales are judgement, not fits.** The WNBA and college volatility
+multipliers (1.05 and 1.20) are reasoned from game length, foul rules and rotation depth.
+They have not been fitted against realised results, because that needs a season of settled
+bets per league. Treat them as starting points and retune them from the tracker.
+
+**Minutes projections do not know league rules.** The rest and absence adjustments in the
+game-log estimator were built for an 82-game NBA schedule. A college team playing twice a
+week, or a WNBA team on a 44-game schedule, has a different rest profile that is not modelled.
+
+**Correlation is league-blind.** Same-game and same-player correlation is applied identically
+in every league. Pace and blowout dynamics differ enough between college and the NBA that this
+is an approximation, and it is the least-tested assumption in the league work.

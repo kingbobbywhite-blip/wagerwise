@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server"
 import { estimateCredits, eventOddsUrl, eventsUrl, normalizeMany } from "@/lib/odds-feed/theoddsapi"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
+import { DEFAULT_LEAGUE, creditWarning, inSeason, isLeagueId, leagueFor } from "@/lib/leagues"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 /**
- * Today's NBA slate with player prop prices attached.
+ * Today's slate with player prop prices attached, for any supported league.
  *
  * This is the endpoint behind the one-screen experience: it works out which
  * games tip today in the caller's own timezone, pulls player props for those
@@ -19,14 +20,10 @@ export const dynamic = "force-dynamic"
  * left.
  */
 
-/** Markets worth pulling by default: the ones DFS apps actually post. */
-const DEFAULT_TODAY_MARKETS = ["player_points", "player_rebounds", "player_assists", "player_threes"]
-
-/** Books worth asking for: sharp references plus the retail books to beat. */
-const DEFAULT_TODAY_BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel", "betmgm", "caesars", "espnbet"]
-
 interface RequestBody {
   apiKey?: string
+  /** Which league to pull. Defaults to the NBA. */
+  league?: string
   /** ISO instant for the start of the caller's local day. */
   from?: string
   /** ISO instant for the end of the window. */
@@ -82,10 +79,23 @@ export async function POST(request: Request) {
     )
   }
 
-  const markets = body.markets?.length ? body.markets : DEFAULT_TODAY_MARKETS
-  const bookmakers = body.bookmakers?.length ? body.bookmakers : DEFAULT_TODAY_BOOKS
+  if (body.league != null && !isLeagueId(body.league)) {
+    return NextResponse.json(
+      { error: `Unsupported league "${body.league}". Supported: nba, wnba, ncaab.` },
+      { status: 400 },
+    )
+  }
+  const leagueId = isLeagueId(body.league) ? body.league : DEFAULT_LEAGUE
+  const league = leagueFor(leagueId)
+
+  // Each league's defaults come from its own config: the markets it actually
+  // posts, the books that price it, and a game cap sized to its slate. College
+  // basketball in February is a hundred games; the same cap as an eleven-game
+  // NBA night would empty a monthly quota in one press.
+  const markets = body.markets?.length ? body.markets : league.markets
+  const bookmakers = body.bookmakers?.length ? body.bookmakers : league.books
   const regions = body.regions || "us,us2,eu"
-  const maxGames = Math.max(1, Math.min(body.maxGames ?? 14, 20))
+  const maxGames = Math.max(1, Math.min(body.maxGames ?? league.maxGames, 20))
 
   // Default window: from now to 30 hours out, which covers a whole slate
   // regardless of the caller's timezone.
@@ -94,7 +104,7 @@ export async function POST(request: Request) {
 
   try {
     // The events listing is free, so the game list never costs a credit.
-    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey))
+    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey, leagueId))
     const todays = events.data
       .filter((e) => {
         const t = Date.parse(e.commence_time)
@@ -104,25 +114,41 @@ export async function POST(request: Request) {
 
     const selected = todays.slice(0, maxGames)
     const estimatedCredits = estimateCredits(selected.length, markets.length)
+    const cost = creditWarning(leagueId, selected.length, markets.length)
+    // What a pull would have cost without the cap, so the cap is visible rather
+    // than silently swallowing two thirds of the slate.
+    const cappedOut = Math.max(0, todays.length - selected.length)
 
     if (body.eventsOnly) {
       return NextResponse.json({
+        league: leagueId,
         events: todays,
         selected: selected.length,
+        cappedOut,
         estimatedCredits,
+        costWarning: cost.message,
+        costSevere: cost.severe,
         requestsRemaining: events.remaining,
         requestsUsed: events.used,
       })
     }
 
     if (selected.length === 0) {
+      // Distinguish "wrong time of year" from "something is broken". An empty
+      // WNBA slate in January is the off-season; an empty one in July is a
+      // problem worth chasing.
+      const note = inSeason(leagueId)
+        ? `No ${league.label} games tip in this window.`
+        : `No ${league.label} games tip in this window, and ${league.label} is out of season right now, so an empty slate is expected rather than a fault.`
       return NextResponse.json({
+        league: leagueId,
         events: [],
         quotes: [],
         estimatedCredits: 0,
         requestsRemaining: events.remaining,
         requestsUsed: events.used,
-        note: "No NBA games tip in this window.",
+        inSeason: inSeason(leagueId),
+        note,
       })
     }
 
@@ -133,7 +159,7 @@ export async function POST(request: Request) {
 
     for (const e of selected) {
       try {
-        const r = await fetchJson<FeedEventOdds>(eventOddsUrl(apiKey, e.id, { markets, regions, bookmakers }))
+        const r = await fetchJson<FeedEventOdds>(eventOddsUrl(apiKey, e.id, { markets, regions, bookmakers, league: leagueId }))
         payloads.push(r.data)
         if (r.remaining != null) remaining = r.remaining
         if (r.used != null) used = r.used
@@ -149,12 +175,17 @@ export async function POST(request: Request) {
     const normalized = normalizeMany(payloads)
 
     return NextResponse.json({
+      league: leagueId,
       events: selected,
       quotes: normalized.quotes,
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures,
       estimatedCredits,
+      costWarning: cost.message,
+      costSevere: cost.severe,
+      cappedOut,
+      inSeason: inSeason(leagueId),
       requestsRemaining: remaining,
       requestsUsed: used,
       fetchedAt: new Date().toISOString(),

@@ -15,12 +15,15 @@ import { DEVIG_METHODS, type DevigMethod } from "@/lib/quant/odds"
 import { payoutMultiple, supportedPickCounts } from "@/lib/quant/payouts"
 import { exportState, importState } from "@/lib/store/local"
 import { useStore } from "@/lib/store/provider"
+import { leagueFor } from "@/lib/leagues"
 import { DEFAULT_SETTINGS } from "@/lib/store/schema"
 import { money, pct } from "@/lib/format"
 
 export default function SettingsPage() {
   const { state, setSettings, replaceAll, saveError, ready } = useStore()
   const s = state.settings
+  const dailyLeague = leagueFor(s.daily.league)
+  const dailyMarkets = s.daily.markets ?? dailyLeague.markets
 
   if (!ready) {
     return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading…</p>
@@ -303,27 +306,30 @@ export default function SettingsPage() {
                 step={1}
                 format={(v) => `${v} games`}
                 onChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, maxGames: v } }))}
-                hint={`Caps the credits one refresh can spend. At ${s.daily.markets.length} markets that is up to ${s.daily.maxGames * s.daily.markets.length} credits.`}
+                hint={`Caps the credits one refresh can spend. At ${dailyMarkets.length} markets that is up to ${s.daily.maxGames * dailyMarkets.length} credits.`}
               />
               <div>
                 <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                   Markets to pull
                 </Label>
                 <Input
-                  value={s.daily.markets.join(", ")}
-                  onChange={(e) =>
+                  value={s.daily.markets?.join(", ") ?? ""}
+                  placeholder={dailyLeague.markets.join(", ")}
+                  onChange={(e) => {
+                    const parsed = e.target.value.split(",").map((x) => x.trim()).filter(Boolean)
                     setSettings((p) => ({
                       ...p,
-                      daily: {
-                        ...p.daily,
-                        markets: e.target.value.split(",").map((x) => x.trim()).filter(Boolean),
-                      },
+                      // Empty means "follow the league", which is the right
+                      // default: college basketball rarely posts threes, and a
+                      // market that comes back empty still costs a credit.
+                      daily: { ...p.daily, markets: parsed.length > 0 ? parsed : null },
                     }))
-                  }
+                  }}
                   className="mt-1.5 font-mono text-xs"
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  Billed per market per game. Four is a sensible slate; every extra market multiplies the cost.
+                  Billed per market per game. Every extra market multiplies the cost. Leave this blank to follow the
+                  selected league, which is currently {dailyLeague.label}: {dailyLeague.markets.join(", ")}.
                 </p>
               </div>
             </div>

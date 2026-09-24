@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Activity } from "lucide-react"
 import { NavLinks } from "./nav-links"
+import { LEAGUES, LEAGUE_IDS } from "@/lib/leagues"
 
 export function SiteHeader() {
   return (
@@ -13,7 +14,7 @@ export function SiteHeader() {
           <div className="flex items-baseline gap-2">
             <span className="font-mono text-sm font-semibold tracking-tight">WagerWise</span>
             <span className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground sm:inline">
-              NBA
+              {LEAGUE_IDS.map((id) => LEAGUES[id].short).join(" · ")}
             </span>
           </div>
         </Link>
