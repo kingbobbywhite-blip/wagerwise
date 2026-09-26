@@ -37,7 +37,6 @@ Everything runs in your browser. No account, no database, no telemetry.
 ```bash
 git clone https://github.com/kingbobbywhite-blip/wagerwise.git
 cd wagerwise
-git checkout claude/nba-parlay-selector-zvbuzd
 npm install
 npm run dev
 ```
@@ -51,7 +50,7 @@ run below it.
 ### Updating an existing clone
 
 ```bash
-git pull origin claude/nba-parlay-selector-zvbuzd
+git pull origin main
 npm install
 npm run dev
 ```
@@ -60,7 +59,7 @@ If a pull ever aborts complaining about local changes to a generated file, disca
 retry — nothing generated is worth keeping:
 
 ```bash
-git checkout -- next-env.d.ts && git pull origin claude/nba-parlay-selector-zvbuzd
+git checkout -- next-env.d.ts && git pull origin main
 ```
 
 If `npm install` reports packages that are not in `package.json` (Supabase, for example),
@@ -70,10 +69,18 @@ the `node_modules` directory is stale from something else. Wipe and reinstall:
 rm -rf node_modules && npm install
 ```
 
-> The `git checkout` line is needed only until pull request #1 is merged. Everything
-> lives on that branch; `main` still holds nothing but the original archive, so a plain
-> clone has no `package.json` and `npm install` fails with `ENOENT`. Once the pull
-> request is merged, drop that line.
+### Deploying
+
+`main` is the production branch. With Vercel's Git integration connected, every push to
+`main` deploys itself; otherwise deploy by hand from a clone:
+
+```bash
+npx vercel --prod
+```
+
+Leave `ODDS_API_KEY` unset in Vercel unless the deployment is password-protected. A public
+URL with a server-side key lets anyone who finds it spend your feed quota. Entering the key
+in Settings instead keeps it in your own browser.
 
 ### The API key
 
