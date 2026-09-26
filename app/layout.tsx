@@ -12,10 +12,16 @@ export const metadata: Metadata = {
   title: "WagerWise — Basketball Prop Terminal",
   description:
     "Correlation-aware NBA, WNBA and college basketball prop and parlay analysis: devigged fair lines, calibrated probabilities and expected value against real DFS payout tables.",
+  // Added to the home screen on iOS, this opens without browser chrome.
+  appleWebApp: { capable: true, title: "WagerWise", statusBarStyle: "black-translucent" },
 }
 
 export const viewport: Viewport = {
   themeColor: "#0c0f12",
+  // The board is a dense table; let it use the full phone screen.
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
