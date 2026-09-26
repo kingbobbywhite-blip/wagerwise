@@ -103,6 +103,12 @@ export interface Slate {
   rows: RawPropRow[]
   /** Free-text note about where the data came from. */
   source: string
+  /**
+   * League the props belong to. Sets the dispersion prior and plausibility
+   * ceilings the board prices with. Absent on slates captured before leagues
+   * existed, which were all NBA.
+   */
+  league?: LeagueId
 }
 
 export type LegResult = "PENDING" | "WIN" | "LOSS" | "PUSH"

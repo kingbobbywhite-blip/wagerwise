@@ -7,6 +7,7 @@ import {
   normalizeMany,
 } from "@/lib/odds-feed/theoddsapi"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
+import { DEFAULT_LEAGUE, isLeagueId, leagueFor } from "@/lib/leagues"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -26,10 +27,18 @@ interface RequestBody {
   markets?: string[]
   regions?: string
   bookmakers?: string[]
-  /** Limit to these event ids. Omit to fetch the whole slate. */
+  /** Limit to these event ids. */
   eventIds?: string[]
   /** Return the event list only, without pulling any odds. */
   eventsOnly?: boolean
+  /** Which league's feed to query. Defaults to the NBA. */
+  league?: string
+  /** ISO instant: only games starting at or after this. Defaults to now. */
+  from?: string
+  /** ISO instant: only games starting at or before this. Defaults to 30 hours after `from`. */
+  to?: string
+  /** Hard cap on games priced in one call, to protect the feed quota. */
+  maxGames?: number
 }
 
 function resolveKey(body: RequestBody): string | null {
@@ -70,17 +79,41 @@ export async function POST(request: Request) {
     )
   }
 
+  if (body.league != null && !isLeagueId(body.league)) {
+    return NextResponse.json(
+      { error: `Unsupported league "${body.league}". Supported: nba, wnba, ncaab.` },
+      { status: 400 },
+    )
+  }
+  const leagueId = isLeagueId(body.league) ? body.league : DEFAULT_LEAGUE
+  const league = leagueFor(leagueId)
+
   const markets = body.markets?.length ? body.markets : DEFAULT_FEED_MARKETS
   const regions = body.regions || "us,us2,eu"
+  const maxGames = Math.max(1, Math.min(body.maxGames ?? league.maxGames, 20))
+
+  // Only today's games. Without a window this used to price every event the
+  // feed listed, which during the season is weeks of games, and props are
+  // billed per market per game: one press could spend a month's free quota.
+  const fromMs = body.from ? Date.parse(body.from) : Date.now()
+  const toMs = body.to ? Date.parse(body.to) : fromMs + 30 * 3600 * 1000
 
   try {
-    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey))
-    const wanted = body.eventIds?.length
-      ? events.data.filter((e) => body.eventIds!.includes(e.id))
-      : events.data
+    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey, leagueId))
+    const inWindow = events.data
+      .filter((e) => {
+        const t = Date.parse(e.commence_time)
+        return Number.isFinite(t) && t >= fromMs && t <= toMs
+      })
+      .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
+    const chosen = body.eventIds?.length ? inWindow.filter((e) => body.eventIds!.includes(e.id)) : inWindow
+    const wanted = chosen.slice(0, maxGames)
+    const cappedOut = chosen.length - wanted.length
 
     if (body.eventsOnly) {
       return NextResponse.json({
+        league: leagueId,
+        cappedOut,
         events: wanted,
         estimatedCredits: estimateCredits(wanted.length, markets.length),
         requestsRemaining: events.remaining,
@@ -99,7 +132,7 @@ export async function POST(request: Request) {
     for (const e of wanted) {
       try {
         const r = await fetchJson<FeedEventOdds>(
-          eventOddsUrl(apiKey, e.id, { markets, regions, bookmakers: body.bookmakers }),
+          eventOddsUrl(apiKey, e.id, { markets, regions, bookmakers: body.bookmakers, league: leagueId }),
         )
         payloads.push(r.data)
         if (r.remaining != null) remaining = r.remaining
@@ -112,6 +145,8 @@ export async function POST(request: Request) {
     const normalized = normalizeMany(payloads)
 
     return NextResponse.json({
+      league: leagueId,
+      cappedOut,
       events: wanted,
       quotes: normalized.quotes,
       unknownMarkets: normalized.unknownMarkets,

@@ -1,0 +1,92 @@
+[
+ {
+  "text": "Caitlin Clark",
+  "confidence": 96,
+  "bbox": {
+   "x0": 49,
+   "y0": 48,
+   "x1": 311,
+   "y1": 82
+  }
+ },
+ {
+  "text": "IND vs CON 7:00PM",
+  "confidence": 97,
+  "bbox": {
+   "x0": 51,
+   "y0": 97,
+   "x1": 350,
+   "y1": 120
+  }
+ },
+ {
+  "text": "Aja Wilson",
+  "confidence": 96,
+  "bbox": {
+   "x0": 49,
+   "y0": 222,
+   "x1": 275,
+   "y1": 264
+  }
+ },
+ {
+  "text": "LVA vs SEA 10:00PM",
+  "confidence": 96,
+  "bbox": {
+   "x0": 50,
+   "y0": 271,
+   "x1": 358,
+   "y1": 294
+  }
+ },
+ {
+  "text": "Breanna Stewart",
+  "confidence": 96,
+  "bbox": {
+   "x0": 51,
+   "y0": 397,
+   "x1": 403,
+   "y1": 430
+  }
+ },
+ {
+  "text": "NYL vs PHX 8:00PM",
+  "confidence": 94,
+  "bbox": {
+   "x0": 50,
+   "y0": 445,
+   "x1": 350,
+   "y1": 468
+  }
+ },
+ {
+  "text": "8.5 Assists",
+  "confidence": 96,
+  "bbox": {
+   "x0": 889,
+   "y0": 66,
+   "x1": 1121,
+   "y1": 100
+  }
+ },
+ {
+  "text": "24.5 Points",
+  "confidence": 96,
+  "bbox": {
+   "x0": 886,
+   "y0": 240,
+   "x1": 1121,
+   "y1": 274
+  }
+ },
+ {
+  "text": "32.5 Pts + Rebs + Asts",
+  "confidence": 95,
+  "bbox": {
+   "x0": 644,
+   "y0": 414,
+   "x1": 1121,
+   "y1": 448
+  }
+ }
+]
