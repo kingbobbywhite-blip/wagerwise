@@ -140,6 +140,11 @@ export async function POST(request: Request) {
       const note = inSeason(leagueId)
         ? `No ${league.label} games tip in this window.`
         : `No ${league.label} games tip in this window, and ${league.label} is out of season right now, so an empty slate is expected rather than a fault.`
+      // The listing is already paid for (it is free), so say when the next game
+      // is. "Nothing today, next one Tuesday" is an answer; a blank page is not.
+      const next = events.data
+        .filter((e) => Date.parse(e.commence_time) > toMs)
+        .sort((a, b) => a.commence_time.localeCompare(b.commence_time))[0]
       return NextResponse.json({
         league: leagueId,
         events: [],
@@ -148,6 +153,9 @@ export async function POST(request: Request) {
         requestsRemaining: events.remaining,
         requestsUsed: events.used,
         inSeason: inSeason(leagueId),
+        nextEvent: next
+          ? { commence_time: next.commence_time, home_team: next.home_team, away_team: next.away_team }
+          : null,
         note,
       })
     }

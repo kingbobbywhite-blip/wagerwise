@@ -178,6 +178,11 @@ export interface DailyCache {
   events: { id: string; commence_time: string; home_team: string; away_team: string }[]
   requestsRemaining: number | null
   creditsSpent: number
+  /**
+   * When today's window had no games: the next game the feed lists, or null if
+   * it lists none at all. Tells "no game today" apart from "season over".
+   */
+  nextEvent?: { commence_time: string; home_team: string; away_team: string } | null
 }
 
 export interface AppState {

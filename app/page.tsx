@@ -21,6 +21,18 @@ import { useStore } from "@/lib/store/provider"
 import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
 import { money, pct, shortDate, signedPct } from "@/lib/format"
 
+/** "Minnesota Lynx at New York Liberty, Tue, Sep 29, 8:00 PM" in the viewer's own timezone. */
+function nextGameText(e: { commence_time: string; home_team: string; away_team: string }): string {
+  const when = new Date(e.commence_time).toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+  return `${e.away_team} at ${e.home_team}, ${when}`
+}
+
 export default function TodayPage() {
   const { state, setDaily, setSettings, ready } = useStore()
   const [busy, setBusy] = React.useState(false)
@@ -123,9 +135,16 @@ export default function TodayPage() {
         events: data.events ?? [],
         requestsRemaining: data.requestsRemaining ?? null,
         creditsSpent: data.estimatedCredits ?? 0,
+        nextEvent: data.nextEvent,
       })
       const n = (data.quotes ?? []).length
-      toast.success(n > 0 ? `Pulled ${n} ${league.label} prices` : data.note ?? `No ${league.label} prices for today`)
+      toast.success(
+        n > 0
+          ? `Pulled ${n} ${league.label} prices`
+          : data.nextEvent
+            ? `No ${league.label} games today. Next: ${nextGameText(data.nextEvent)}`
+            : data.note ?? `No ${league.label} prices for today`,
+      )
       if (data.costSevere && data.costWarning) toast.warning(data.costWarning)
       if (data.cappedOut > 0) {
         toast.info(`${data.cappedOut} more games on the slate were not pulled, to protect your feed quota.`)
@@ -477,7 +496,11 @@ export default function TodayPage() {
             <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-muted-foreground">
               {!daily
                 ? "Press the button above to pull today's slate. Player props are billed per market per game, so nothing is fetched until you ask."
-                : !inSeason(leagueId)
+                : daily.nextEvent
+                  ? `There is no ${league.label} game today, so there is nothing to price. The next game is ${nextGameText(daily.nextEvent)}. Press Refresh that day; props usually go up a few hours before tip.`
+                  : daily.nextEvent === null
+                    ? `The feed lists no upcoming ${league.label} games at all, so the season looks to be over or the next schedule is not posted yet. Nothing is broken; switch leagues above.`
+                    : !inSeason(leagueId)
                   ? `${league.label} is out of season right now, so an empty slate is expected rather than a fault. Switch leagues above, or come back when the season starts.`
                   : `The feed returned no ${league.label} player props in today's window. That usually means no games today, or the books have not posted props yet, which is normal until a few hours before tip.`}
             </p>
