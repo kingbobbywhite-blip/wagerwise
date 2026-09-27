@@ -367,7 +367,7 @@ export default function ImportPage() {
             <Textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder={"One prop per line:\n\nAnthony Edwards 24.5 Points\nCaitlin Clark over 8.5 assists\nNikola Jokic 12.5 Rebounds\n\nCSV or JSON with a header row also works."}
+              placeholder={"One prop per line:\n\nAnthony Edwards 24.5 Points\nCaitlin Clark over 8.5 assists\nJosh Allen 245.5 Pass Yards\n\nCSV or JSON with a header row also works."}
               className="min-h-40 font-mono text-[11px] leading-relaxed"
               spellCheck={false}
             />

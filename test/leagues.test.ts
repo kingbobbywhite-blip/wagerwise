@@ -17,32 +17,40 @@ import { migrate } from "@/lib/store/schema"
 import { resolveLine } from "@/lib/quant/distributions"
 
 describe("league config", () => {
-  it("covers the three basketball leagues with distinct sport keys", () => {
-    expect(LEAGUE_IDS).toEqual(["nba", "wnba", "ncaab"])
+  it("covers the NBA, the WNBA and the NFL with distinct sport keys", () => {
+    expect(LEAGUE_IDS).toEqual(["nba", "wnba", "nfl"])
     const keys = LEAGUE_IDS.map((id) => LEAGUES[id].sportKey)
     expect(new Set(keys).size).toBe(3)
     expect(sportKeyFor("nba")).toBe("basketball_nba")
     expect(sportKeyFor("wnba")).toBe("basketball_wnba")
-    expect(sportKeyFor("ncaab")).toBe("basketball_ncaab")
+    expect(sportKeyFor("nfl")).toBe("americanfootball_nfl")
+    expect(LEAGUES.nfl.sport).toBe("football")
+    expect(LEAGUES.nba.sport).toBe("basketball")
   })
 
-  it("rejects unknown league ids rather than guessing a sport key", () => {
-    expect(isLeagueId("nfl")).toBe(false)
-    expect(sportKeyFor("nfl")).toBeNull()
+  it("no longer supports college basketball, and falls back rather than guessing", () => {
+    expect(isLeagueId("ncaab")).toBe(false)
+    expect(sportKeyFor("ncaab")).toBeNull()
     // leagueFor is the forgiving one, used where a fallback beats a crash.
-    expect(leagueFor("nfl").id).toBe(DEFAULT_LEAGUE)
+    expect(leagueFor("ncaab").id).toBe(DEFAULT_LEAGUE)
   })
 
-  it("scales priors down for the shorter, slower leagues", () => {
+  it("scales basketball priors down for the shorter WNBA game and leaves the NFL alone", () => {
     // 40-minute games at lower pace must project fewer points than 48-minute
-    // games, or every unpriced college prop reads as a screaming over.
+    // games, or every unpriced WNBA prop reads as a screaming over.
     expect(scaleMean("wnba", 20)).toBeLessThan(scaleMean("nba", 20))
-    expect(scaleMean("ncaab", 20)).toBeLessThan(scaleMean("wnba", 20))
+    // NFL markets carry their own typical means; nothing is scaled across.
+    expect(scaleMean("nfl", 235)).toBe(235)
+    expect(LEAGUES.nfl.dispersionScale).toBe(1)
   })
 
-  it("treats college basketball as the most volatile league", () => {
-    expect(LEAGUES.ncaab.dispersionScale).toBeGreaterThan(LEAGUES.wnba.dispersionScale)
+  it("treats the WNBA as at least as volatile as the NBA", () => {
     expect(LEAGUES.wnba.dispersionScale).toBeGreaterThanOrEqual(LEAGUES.nba.dispersionScale)
+  })
+
+  it("pulls NFL markets by default for the NFL, never basketball ones", () => {
+    expect(LEAGUES.nfl.markets.length).toBeGreaterThan(0)
+    for (const m of LEAGUES.nfl.markets) expect(m).toMatch(/^player_(pass|rush|reception)/)
   })
 
   it("caps plausible output by league", () => {
@@ -58,19 +66,27 @@ describe("season awareness", () => {
     expect(inSeason("wnba", new Date("2026-07-15T00:00:00Z"))).toBe(true)
   })
 
-  it("knows college basketball does not play in July", () => {
-    expect(inSeason("ncaab", new Date("2026-07-15T00:00:00Z"))).toBe(false)
-    expect(inSeason("ncaab", new Date("2026-02-15T00:00:00Z"))).toBe(true)
+  it("knows the NFL does not play in July but does in October and January", () => {
+    expect(inSeason("nfl", new Date("2026-07-15T00:00:00Z"))).toBe(false)
+    expect(inSeason("nfl", new Date("2026-10-15T00:00:00Z"))).toBe(true)
+    expect(inSeason("nfl", new Date("2027-01-15T00:00:00Z"))).toBe(true)
   })
 })
 
 describe("credit warning", () => {
-  it("shouts before a college slate empties a monthly quota", () => {
-    // 90 games x 3 markets = 270 credits, over half a 500-request month.
-    const w = creditWarning("ncaab", 90, 3)
-    expect(w.credits).toBe(270)
+  it("shouts before an NFL pull with every market empties a monthly quota", () => {
+    // 14 games x 10 markets = 140 credits, over a quarter of a 500-request month.
+    const w = creditWarning("nfl", 14, 10)
+    expect(w.credits).toBe(140)
     expect(w.severe).toBe(true)
-    expect(w.message).toContain("credits")
+    expect(w.message).toContain("NFL")
+  })
+
+  it("mentions but does not shout about a default full NFL Sunday", () => {
+    const w = creditWarning("nfl", LEAGUES.nfl.maxGames, LEAGUES.nfl.markets.length)
+    expect(w.credits).toBe(56)
+    expect(w.severe).toBe(false)
+    expect(w.message).toContain("56")
   })
 
   it("stays quiet about an ordinary NBA pull", () => {
@@ -88,7 +104,7 @@ describe("credit warning", () => {
 describe("feed urls", () => {
   it("targets the right sport per league", () => {
     expect(eventsUrl("KEY", "wnba")).toContain("/sports/basketball_wnba/events")
-    expect(eventsUrl("KEY", "ncaab")).toContain("/sports/basketball_ncaab/events")
+    expect(eventsUrl("KEY", "nfl")).toContain("/sports/americanfootball_nfl/events")
     // Default stays the NBA so existing callers are unaffected.
     expect(eventsUrl("KEY")).toContain("/sports/basketball_nba/events")
   })
@@ -109,14 +125,14 @@ describe("league-aware pricing", () => {
     underOdds: -110,
   }
 
-  it("widens the distribution for college basketball", () => {
+  it("widens the distribution for the WNBA", () => {
     const nba = projectProp(row, { ...DEFAULT_PROJECTION_SETTINGS, league: "nba" })
-    const cbb = projectProp(row, { ...DEFAULT_PROJECTION_SETTINGS, league: "ncaab" })
+    const wnba = projectProp(row, { ...DEFAULT_PROJECTION_SETTINGS, league: "wnba" })
     expect(nba).not.toBeNull()
-    expect(cbb).not.toBeNull()
-    // Same line, same price, same implied mean — but a college projection is
-    // less knowable, so the spread must be wider.
-    expect(cbb!.sd).toBeGreaterThan(nba!.sd)
+    expect(wnba).not.toBeNull()
+    // Same line, same price, same implied mean, but a WNBA projection is a
+    // little less knowable, so the spread must be wider.
+    expect(wnba!.sd).toBeGreaterThan(nba!.sd)
   })
 
   it("leaves the probability at the priced line to the market, not the league", () => {
@@ -125,8 +141,8 @@ describe("league-aware pricing", () => {
     // A league that nudged a priced number would be inventing an edge.
     const priced = { ...row, overOdds: -200, underOdds: 160 }
     const nba = projectProp(priced, { ...DEFAULT_PROJECTION_SETTINGS, league: "nba" })!
-    const cbb = projectProp(priced, { ...DEFAULT_PROJECTION_SETTINGS, league: "ncaab" })!
-    expect(Math.abs(cbb.pWin - nba.pWin)).toBeLessThan(0.005)
+    const wnba = projectProp(priced, { ...DEFAULT_PROJECTION_SETTINGS, league: "wnba" })!
+    expect(Math.abs(wnba.pWin - nba.pWin)).toBeLessThan(0.005)
   })
 
   it("pulls probabilities toward a coin flip away from the priced line", () => {
@@ -135,11 +151,11 @@ describe("league-aware pricing", () => {
     // volatility prior earns its keep.
     const priced = { ...row, overOdds: -200, underOdds: 160 }
     const nba = projectProp(priced, { ...DEFAULT_PROJECTION_SETTINGS, league: "nba" })!
-    const cbb = projectProp(priced, { ...DEFAULT_PROJECTION_SETTINGS, league: "ncaab" })!
+    const wnba = projectProp(priced, { ...DEFAULT_PROJECTION_SETTINGS, league: "wnba" })!
     const target = 22.5
     const nbaOver = resolveLine(nba.distribution, target).over
-    const cbbOver = resolveLine(cbb.distribution, target).over
-    expect(Math.abs(cbbOver - 0.5)).toBeLessThan(Math.abs(nbaOver - 0.5))
+    const wnbaOver = resolveLine(wnba.distribution, target).over
+    expect(Math.abs(wnbaOver - 0.5)).toBeLessThan(Math.abs(nbaOver - 0.5))
   })
 
   it("names the league in an implausible-projection warning", () => {
@@ -175,27 +191,39 @@ describe("store migration", () => {
       daily: {
         nba: { fetchedAt: "x", quotes: [], events: [], requestsRemaining: null, creditsSpent: 0 },
         wnba: { fetchedAt: "y", quotes: [], events: [], requestsRemaining: null, creditsSpent: 0 },
-        nfl: { fetchedAt: "z", quotes: [], events: [] },
+        nfl: { fetchedAt: "z", quotes: [], events: [], requestsRemaining: null, creditsSpent: 0 },
+        ncaab: { fetchedAt: "w", quotes: [], events: [] },
+        mlb: { fetchedAt: "v", quotes: [], events: [] },
       },
     }
     const migrated = migrate(stored)
-    expect(Object.keys(migrated.daily).sort()).toEqual(["nba", "wnba"])
+    expect(Object.keys(migrated.daily).sort()).toEqual(["nba", "nfl", "wnba"])
     expect(migrated.settings.daily.league).toBe("wnba")
   })
 
-  it("falls back to the NBA when a stored league is not one we support", () => {
-    const migrated = migrate({ version: 1, settings: { daily: { league: "nfl" } }, daily: {} })
+  it("moves someone who had college basketball selected back to the NBA", () => {
+    // College basketball was removed. A phone that still has it stored must
+    // open on a working league, not a blank or broken one.
+    const migrated = migrate({
+      version: 1,
+      settings: { daily: { league: "ncaab" }, projection: { league: "ncaab" } },
+      slate: { id: "s", createdAt: "x", league: "ncaab", props: [] },
+      daily: { ncaab: { fetchedAt: "w", quotes: [], events: [] } },
+    })
     expect(migrated.settings.daily.league).toBe("nba")
+    expect(migrated.settings.projection.league).toBe("nba")
+    expect(migrated.slate?.league).toBeUndefined()
+    expect(migrated.daily).toEqual({})
   })
 })
 
 // ---------------------------------------------------------------------------
-// End-to-end: a WNBA and a college slate through the whole daily pipeline.
+// End-to-end: a WNBA and an NFL slate through the whole daily pipeline.
 //
 // The feed cannot be reached from CI, so these use fixtures shaped like a real
 // response. They prove the pipeline is genuinely league-agnostic: the same
-// engine that prices an NBA slate prices a WNBA one at WNBA numbers, and a
-// college one at college numbers, with the league only changing the spread.
+// engine that prices an NBA slate prices a WNBA one at WNBA numbers, and an
+// NFL one at NFL numbers with its own markets and spreads.
 // ---------------------------------------------------------------------------
 
 import { buildDailyPicks } from "@/lib/today/build"
@@ -220,7 +248,7 @@ function quote(
   }
 }
 
-function optsFor(league: "nba" | "wnba" | "ncaab") {
+function optsFor(league: "nba" | "wnba" | "nfl") {
   return {
     value: { ...DEFAULT_VALUE_SETTINGS, projection: { ...DEFAULT_PROJECTION_SETTINGS, league } },
     correlation: DEFAULT_CORRELATION,
@@ -243,17 +271,23 @@ const WNBA_QUOTES: FeedQuote[] = [
   quote("Breanna Stewart", "REB", "fanduel", 8.5, -112, -108, "NYL@SEA"),
 ]
 
-/** A college slate at college-sized lines. */
-const CBB_QUOTES: FeedQuote[] = [
-  quote("Guard One", "PTS", "pinnacle", 17.5, -110, -110, "DUKE@UNC"),
-  quote("Guard One", "PTS", "draftkings", 17.5, 118, -138, "DUKE@UNC"),
-  quote("Guard One", "PTS", "fanduel", 17.5, -106, -114, "DUKE@UNC"),
-  quote("Forward Two", "REB", "pinnacle", 7.5, -112, -108, "DUKE@UNC"),
-  quote("Forward Two", "REB", "draftkings", 7.5, -104, -116, "DUKE@UNC"),
-  quote("Forward Two", "REB", "fanduel", 7.5, -110, -110, "DUKE@UNC"),
-  quote("Wing Three", "AST", "pinnacle", 4.5, -105, -115, "KU@BAY"),
-  quote("Wing Three", "AST", "draftkings", 4.5, 110, -130, "KU@BAY"),
-  quote("Wing Three", "AST", "fanduel", 4.5, -108, -112, "KU@BAY"),
+/** An NFL slate at NFL-sized lines, Pinnacle plus two retail books. */
+const NFL_QUOTES: FeedQuote[] = [
+  quote("Josh Allen", "PASS_YDS", "pinnacle", 245.5, -112, -108, "BUF@KC"),
+  quote("Josh Allen", "PASS_YDS", "draftkings", 244.5, -110, -110, "BUF@KC"),
+  quote("Josh Allen", "PASS_YDS", "fanduel", 245.5, 105, -125, "BUF@KC"),
+  quote("Isiah Pacheco", "RUSH_YDS", "pinnacle", 62.5, -110, -110, "BUF@KC"),
+  quote("Isiah Pacheco", "RUSH_YDS", "draftkings", 62.5, -115, -105, "BUF@KC"),
+  quote("Isiah Pacheco", "RUSH_YDS", "fanduel", 61.5, -110, -110, "BUF@KC"),
+  quote("Travis Kelce", "REC_YDS", "pinnacle", 58.5, -108, -112, "BUF@KC"),
+  quote("Travis Kelce", "REC_YDS", "draftkings", 58.5, 110, -130, "BUF@KC"),
+  quote("Travis Kelce", "REC_YDS", "fanduel", 58.5, -110, -110, "BUF@KC"),
+  quote("Travis Kelce", "REC", "pinnacle", 5.5, -125, 105, "BUF@KC"),
+  quote("Travis Kelce", "REC", "draftkings", 5.5, -120, 100, "BUF@KC"),
+  quote("Travis Kelce", "REC", "fanduel", 5.5, -118, -102, "BUF@KC"),
+  quote("Justin Jefferson", "REC_YDS", "pinnacle", 82.5, -110, -110, "MIN@DET"),
+  quote("Justin Jefferson", "REC_YDS", "draftkings", 82.5, -105, -115, "MIN@DET"),
+  quote("Justin Jefferson", "REC_YDS", "fanduel", 81.5, -110, -110, "MIN@DET"),
 ]
 
 describe("end-to-end daily pipeline per league", () => {
@@ -268,29 +302,121 @@ describe("end-to-end daily pipeline per league", () => {
     if (arike) expect(arike.mean).toBeGreaterThan(15), expect(arike.mean).toBeLessThan(28)
   })
 
-  it("prices a college slate", () => {
-    const picks = buildDailyPicks(CBB_QUOTES, optsFor("ncaab"))
-    expect(picks.games.map((g) => g.gameId).sort()).toEqual(["DUKE@UNC", "KU@BAY"])
-    expect(picks.stats.pricedProps).toBe(3)
+  it("prices an NFL slate at NFL numbers", () => {
+    const picks = buildDailyPicks(NFL_QUOTES, optsFor("nfl"))
+    expect(picks.games.map((g) => g.gameId).sort()).toEqual(["BUF@KC", "MIN@DET"])
+    expect(picks.stats.props).toBe(5)
+    expect(picks.stats.pricedProps).toBe(5)
+    // Projections land on the posted lines, with football-sized spreads: a
+    // quarterback's yards swing by tens of yards, not a handful.
+    const allen = picks.dfsTargets.find((t) => t.player === "Josh Allen")
+    expect(allen).toBeDefined()
+    expect(allen!.mean).toBeGreaterThan(225)
+    expect(allen!.mean).toBeLessThan(270)
+    expect(allen!.sd).toBeGreaterThan(40)
+    expect(allen!.sd).toBeLessThan(100)
   })
 
-  it("gives college targets a wider window than the same slate priced as the NBA", () => {
-    // Identical quotes, different league. The wider college prior must not
-    // produce a more confident set of targets.
-    const asNba = buildDailyPicks(CBB_QUOTES, optsFor("nba"))
-    const asCbb = buildDailyPicks(CBB_QUOTES, optsFor("ncaab"))
-    const nbaT = asNba.dfsTargets.find((t) => t.player === "Guard One")
-    const cbbT = asCbb.dfsTargets.find((t) => t.player === "Guard One")
-    if (nbaT && cbbT) expect(cbbT.sd).toBeGreaterThan(nbaT.sd)
+  it("finds pick'em targets on yardage props, well away from the posted line", () => {
+    // The target walk used to stop 15 either side of the projection. With a
+    // passing-yards spread near 70 the break-even line sits further out than
+    // that, and every yardage prop came back as a pass.
+    const picks = buildDailyPicks(NFL_QUOTES, optsFor("nfl"))
+    const allen = picks.dfsTargets.find((t) => t.player === "Josh Allen")!
+    expect(allen.overAt).not.toBeNull()
+    expect(allen.underAt).not.toBeNull()
+    expect(allen.overAt!).toBeLessThan(allen.fairLine)
+    expect(allen.underAt!).toBeGreaterThan(allen.fairLine)
+    // A 57.7% hit rate on a 70-yard spread is roughly 14 yards off fair, not 1.
+    expect(allen.fairLine - allen.overAt!).toBeGreaterThan(5)
   })
 
   it("refuses to price a slate with no sportsbook odds, in every league", () => {
     for (const lg of LEAGUE_IDS) {
-      const naked = CBB_QUOTES.map((q) => ({ ...q, overOdds: null, underOdds: null }))
+      const naked = [...WNBA_QUOTES, ...NFL_QUOTES].map((q) => ({ ...q, overOdds: null, underOdds: null }))
       const picks = buildDailyPicks(naked, optsFor(lg))
       expect(picks.stats.pricedProps).toBe(0)
       expect(picks.valueBets).toHaveLength(0)
       expect(picks.parlays).toHaveLength(0)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// NFL market plumbing
+// ---------------------------------------------------------------------------
+
+import { normalizeMarket, distributionFor } from "@/lib/nba/markets"
+import { FEED_MARKET_MAP, marketsForLeague } from "@/lib/odds-feed/theoddsapi"
+
+describe("NFL markets", () => {
+  it("reads the ways boards and books write football stats", () => {
+    const cases: [string, string][] = [
+      ["Pass Yards", "PASS_YDS"],
+      ["Passing Yards", "PASS_YDS"],
+      ["Pass TDs", "PASS_TDS"],
+      ["Pass Completions", "PASS_COMP"],
+      ["Pass Attempts", "PASS_ATT"],
+      ["Interceptions", "PASS_INT"],
+      ["Rush Yards", "RUSH_YDS"],
+      ["Rushing Yards", "RUSH_YDS"],
+      ["Rush Attempts", "RUSH_ATT"],
+      ["Receptions", "REC"],
+      ["Receiving Yards", "REC_YDS"],
+      ["Rec Yds", "REC_YDS"],
+      ["Rush + Rec Yds", "RUSH_REC_YDS"],
+      ["NFL Passing Yards O/U", "PASS_YDS"],
+    ]
+    for (const [raw, key] of cases) expect(normalizeMarket(raw).key, raw).toBe(key)
+  })
+
+  it("leaves every basketball market where it was", () => {
+    const cases: [string, string][] = [
+      ["Points", "PTS"],
+      ["Rebounds", "REB"],
+      ["Assists", "AST"],
+      ["3-Pointers Made", "3PM"],
+      ["Pts+Rebs+Asts", "PRA"],
+      ["FG Attempted", "FGA"],
+      ["3PT Attempted", "3PA"],
+      ["Blocked Shots", "BLK"],
+      ["Turnovers", "TOV"],
+      ["Free Throws Made", "FTM"],
+    ]
+    for (const [raw, key] of cases) expect(normalizeMarket(raw).key, raw).toBe(key)
+  })
+
+  it("maps every default NFL feed market", () => {
+    for (const k of LEAGUES.nfl.markets) expect(FEED_MARKET_MAP[k], k).toBeDefined()
+  })
+
+  it("never bills a basketball market list against an NFL slate", () => {
+    expect(marketsForLeague("nfl", ["player_points", "player_rebounds"])).toEqual(LEAGUES.nfl.markets)
+    expect(marketsForLeague("nfl", ["player_points", "player_pass_tds"])).toEqual(["player_pass_tds"])
+    expect(marketsForLeague("nba", ["player_pass_yds"])).toEqual(LEAGUES.nba.markets)
+    expect(marketsForLeague("nba", null)).toEqual(LEAGUES.nba.markets)
+    expect(marketsForLeague("wnba", ["player_points"])).toEqual(["player_points"])
+  })
+
+  it("holds the whole of a passing-yards distribution, not a truncated one", () => {
+    // The support used to stop at 400. A 265-yard projection with a 70-yard
+    // spread has real mass out there, and cutting it off shifted every
+    // probability toward the under.
+    const d = distributionFor("PASS_YDS", 265)
+    expect(d.support).toBeGreaterThan(265 + 6 * d.sd)
+    let total = 0
+    let mean = 0
+    for (let k = 0; k <= d.support; k++) {
+      total += d.pmf(k)
+      mean += k * d.pmf(k)
+    }
+    expect(total).toBeCloseTo(1, 6)
+    expect(mean).toBeCloseTo(265, 0)
+  })
+
+  it("models passing touchdowns as under-dispersed", () => {
+    const d = distributionFor("PASS_TDS", 1.6)
+    expect(d.family).toBe("binomial")
+    expect(d.variance).toBeLessThan(1.6)
   })
 })

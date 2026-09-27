@@ -69,6 +69,11 @@ const STAT_WORDS = [
   "fg made", "ft made", "free throws", "fantasy pts", "stls+blks", "reb+asts", "pts+asts",
   // PrizePicks lineup and entry screens abbreviate threes as "3PTM".
   "3ptm", "3pt m",
+  // NFL
+  "pass yards", "passing yards", "pass yds", "pass tds", "passing tds", "pass completions", "completions",
+  "pass attempts", "passing attempts", "interceptions", "interceptions thrown", "rush yards", "rushing yards",
+  "rush yds", "rush attempts", "rushing attempts", "carries", "receptions", "receiving yards", "rec yards",
+  "rec yds", "rush+rec yds", "rush + rec yds", "rush+rec yards", "rush + rec yards", "rushing+receiving yards",
 ]
 
 /** Words that look like names to a regex but never are. */
@@ -85,11 +90,18 @@ const TEAM_CODES = new Set([
   "mem","mia","mil","min","nop","nyk","okc","orl","phi","phx","por","sac","sas","tor","uta","was",
   // WNBA codes that are not already NBA codes
   "lva","lv","nyl","ny","sea","con","conn","las","la","gsv",
+  // NFL codes that are not already NBA or WNBA codes
+  "ari","bal","buf","car","cin","gb","jax","jac","kc","lar","lv","lvr","ne","no","nyg","nyj","pit",
+  "sf","tb","ten","wsh","wash",
 ])
 
 // Single positions plus the combined tags boards print, such as "G/F" or "F-C",
 // which reach here with the separator stripped.
-const POSITIONS = new Set(["pg", "sg", "sf", "pf", "c", "g", "f", "gf", "fg", "fc", "cf", "gc"])
+const POSITIONS = new Set([
+  "pg", "sg", "sf", "pf", "c", "g", "f", "gf", "fg", "fc", "cf", "gc",
+  // NFL
+  "qb", "rb", "wr", "te", "fb",
+])
 
 /** Direction words a person might type beside a line. Stripped, never a name. */
 const SIDE_WORDS = new Set(["over", "under", "o", "u", "ov", "un", "more", "less", "higher", "lower"])
@@ -110,12 +122,20 @@ function repairNumeric(raw: string): string {
     .replace(/\s+/g, "")
 }
 
+/**
+ * A line value: up to two digits (every basketball line, and most NFL ones), or
+ * three digits WITH a decimal for NFL yardage such as 245.5. A bare three-digit
+ * number is left alone, because on a board that is far more often an entry fee,
+ * a payout or a count than a line.
+ */
+const LINE_VALUE = /^(\d{1,2}(?:\.\d)?|\d{3}\.\d)$/
+
 /** Extract a plausible prop line from a fragment. */
 export function parseLineValue(raw: string): { value: number; repaired: boolean } | null {
   const t = raw.trim()
   if (!t) return null
 
-  const direct = t.match(/^(\d{1,2}(?:\.\d)?)$/)
+  const direct = t.match(LINE_VALUE)
   if (direct) {
     const v = Number.parseFloat(direct[1])
     return Number.isFinite(v) ? { value: v, repaired: false } : null
@@ -124,7 +144,7 @@ export function parseLineValue(raw: string): { value: number; repaired: boolean 
   const looksNumeric = /^[\d.,OolIS|s]{1,5}$/.test(t)
   if (looksNumeric) {
     const fixed = repairNumeric(t)
-    const m = fixed.match(/^(\d{1,2}(?:\.\d)?)$/)
+    const m = fixed.match(LINE_VALUE)
     if (m) {
       const v = Number.parseFloat(m[1])
       if (Number.isFinite(v)) return { value: v, repaired: fixed !== t }
@@ -208,7 +228,7 @@ function tidyName(text: string): string {
 
 /** A standalone line value, allowing a typed "o24.5" or "u8.5" prefix. */
 function valueToken(tok: string): number | null {
-  const m = tok.match(/^[ou]?(\d{1,2}(?:\.\d)?)$/i)
+  const m = tok.match(/^[ou]?(\d{1,2}(?:\.\d)?|\d{3}\.\d)$/i)
   if (!m) return null
   const v = Number.parseFloat(m[1])
   return Number.isFinite(v) ? v : null
@@ -250,13 +270,14 @@ function nameFromPrefix(prefix: string): string | null {
  */
 function loosePrefixedValue(tok: string): { value: number; repaired: boolean } | null {
   const t = tok.replace(/^[@\u00ae\u00a9]+/, "")
-  const strict = t.match(/^(\d{1,2}(?:\.\d)?)$/)
-  const arrow = t.match(/^[Tt7\u2191\u2193]+(\d{1,3}(?:\.\d)?)$/)
+  const strict = t.match(LINE_VALUE)
+  const arrow = t.match(/^[Tt7\u2191\u2193]+(\d{1,4}(?:\.\d)?)$/)
   if (arrow) {
     let rest = arrow[1]
     if (!rest.includes(".") && rest.length >= 2 && /[05]$/.test(rest)) rest = `${rest.slice(0, -1)}.${rest.slice(-1)}`
     const v = Number.parseFloat(rest)
-    if (Number.isFinite(v) && v < 100) return { value: v, repaired: true }
+    // Up to 999.5 so an NFL passing line ("T2455" -> 245.5) survives.
+    if (Number.isFinite(v) && v < 1000) return { value: v, repaired: true }
   }
   if (strict) return { value: Number.parseFloat(strict[1]), repaired: t !== tok }
   return null

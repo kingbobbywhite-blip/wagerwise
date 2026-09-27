@@ -401,9 +401,9 @@ export function projectProp(
   if (!norm.key) warnings.push(`Unrecognised market "${row.market}". Priced with a generic spread model.`)
 
   // Fold the league's volatility scale into the user's own dispersion dial.
-  // A college scorer's minutes are less predictable than an NBA scorer's, so
-  // the same projected mean deserves a wider distribution and therefore a
-  // probability closer to 50%.
+  // A WNBA scorer's minutes are a little less predictable than an NBA
+  // scorer's, so the same projected mean deserves a slightly wider
+  // distribution and therefore a probability closer to 50%.
   const league = leagueFor(settings.league)
   const leagueDispersion: DispersionOverrides = {
     ...settings.dispersion,

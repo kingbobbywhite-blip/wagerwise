@@ -27,6 +27,9 @@ export type MarketKey =
   | "PTS" | "REB" | "AST" | "3PM" | "STL" | "BLK" | "TOV"
   | "FGM" | "FTM" | "FGA" | "3PA" | "MIN"
   | "PRA" | "PR" | "PA" | "RA" | "STL_BLK" | "FANTASY"
+  // NFL
+  | "PASS_YDS" | "PASS_TDS" | "PASS_COMP" | "PASS_ATT" | "PASS_INT"
+  | "RUSH_YDS" | "RUSH_ATT" | "REC" | "REC_YDS" | "RUSH_REC_YDS"
 
 export interface MarketConfig {
   key: MarketKey
@@ -61,9 +64,40 @@ export const MARKETS: Record<MarketKey, MarketConfig> = {
   RA:      { key: "RA",      label: "Reb + Ast",                 short: "RA",   dispersion: 1.50, components: ["REB", "AST"], typicalMean: 9 },
   STL_BLK: { key: "STL_BLK", label: "Steals + Blocks",           short: "S+B",  dispersion: 1.10, components: ["STL", "BLK"], typicalMean: 1.5 },
   FANTASY: { key: "FANTASY", label: "Fantasy Score",             short: "FP",   dispersion: 2.40, continuous: true, components: ["PTS", "REB", "AST", "STL", "BLK", "TOV"], typicalMean: 30 },
+
+  // NFL. Yardage is modelled as an overdispersed count: it is an integer, it is
+  // right-skewed (a 70-yard catch is possible, a minus-70 one is not), and the
+  // negative binomial captures that skew where a normal would not. Ratios are
+  // variance / mean from typical starter game logs: a QB at 250 passing yards
+  // sits near sd 70 (ratio ~19), a lead back at 65 rushing yards near sd 29
+  // (~13), a WR1 at 60 receiving yards near sd 31 (~16). Passing touchdowns
+  // and interceptions are UNDER-dispersed relative to Poisson, which the
+  // binomial branch of the count model handles.
+  PASS_YDS:     { key: "PASS_YDS",     label: "Passing Yards",         short: "PaYd", dispersion: 19,   components: ["PASS_YDS"], typicalMean: 235 },
+  PASS_TDS:     { key: "PASS_TDS",     label: "Passing TDs",           short: "PaTD", dispersion: 0.80, components: ["PASS_TDS"], typicalMean: 1.5 },
+  PASS_COMP:    { key: "PASS_COMP",    label: "Pass Completions",      short: "Cmp",  dispersion: 1.15, components: ["PASS_COMP"], typicalMean: 21 },
+  PASS_ATT:     { key: "PASS_ATT",     label: "Pass Attempts",         short: "Att",  dispersion: 1.10, components: ["PASS_ATT"], typicalMean: 33 },
+  PASS_INT:     { key: "PASS_INT",     label: "Interceptions",         short: "INT",  dispersion: 0.95, components: ["PASS_INT"], typicalMean: 0.8 },
+  RUSH_YDS:     { key: "RUSH_YDS",     label: "Rushing Yards",         short: "RuYd", dispersion: 13,   components: ["RUSH_YDS"], typicalMean: 55 },
+  RUSH_ATT:     { key: "RUSH_ATT",     label: "Rush Attempts",         short: "Car",  dispersion: 1.60, components: ["RUSH_ATT"], typicalMean: 14 },
+  REC:          { key: "REC",          label: "Receptions",            short: "Rec",  dispersion: 1.10, components: ["REC"], typicalMean: 4 },
+  REC_YDS:      { key: "REC_YDS",      label: "Receiving Yards",       short: "ReYd", dispersion: 16,   components: ["REC_YDS"], typicalMean: 48 },
+  RUSH_REC_YDS: { key: "RUSH_REC_YDS", label: "Rush + Rec Yards",      short: "R+R",  dispersion: 14,   components: ["RUSH_YDS", "REC_YDS"], typicalMean: 75 },
 }
 
 export const MARKET_KEYS = Object.keys(MARKETS) as MarketKey[]
+
+export type Sport = "basketball" | "football"
+
+const FOOTBALL_MARKETS = new Set<MarketKey>([
+  "PASS_YDS", "PASS_TDS", "PASS_COMP", "PASS_ATT", "PASS_INT",
+  "RUSH_YDS", "RUSH_ATT", "REC", "REC_YDS", "RUSH_REC_YDS",
+])
+
+/** Which sport a market belongs to. A basketball market on an NFL game is a wasted credit. */
+export function marketSport(key: MarketKey): Sport {
+  return FOOTBALL_MARKETS.has(key) ? "football" : "basketball"
+}
 
 // ---------------------------------------------------------------------------
 // Name normalisation
@@ -115,6 +149,17 @@ alias("PA", "pts+ast", "p+a", "pa", "points+assists", "points assists", "pts ast
 alias("RA", "reb+ast", "r+a", "ra", "rebounds+assists", "rebounds assists", "reb ast", "rebs+asts")
 alias("STL_BLK", "stl+blk", "s+b", "steals+blocks", "steals blocks", "stocks", "blocks+steals", "blk+stl")
 alias("FANTASY", "fantasy score", "fantasy points", "fantasy", "fp", "dk fantasy", "fantasy pts")
+alias("PASS_YDS", "passing yards", "pass yards", "pass yds", "passing yds", "pass yd", "passing yard")
+alias("PASS_TDS", "passing tds", "pass tds", "passing touchdowns", "pass touchdowns", "pass td", "passing td")
+alias("PASS_COMP", "pass completions", "completions", "passing completions", "pass comp", "cmp")
+alias("PASS_ATT", "pass attempts", "passing attempts", "pass att")
+alias("PASS_INT", "interceptions", "interceptions thrown", "pass ints", "pass interceptions", "int thrown")
+alias("RUSH_YDS", "rushing yards", "rush yards", "rush yds", "rushing yds", "rush yd")
+alias("RUSH_ATT", "rush attempts", "rushing attempts", "carries", "rush att", "rushes")
+alias("REC", "receptions", "catches", "rec", "total receptions")
+alias("REC_YDS", "receiving yards", "rec yards", "rec yds", "receiving yds", "rec yd")
+alias("RUSH_REC_YDS", "rush+rec yds", "rush+rec yards", "rushing+receiving yards", "rush+rec", "scrimmage yards",
+  "rushing receiving yards", "rush rec yds", "rush+rec yd")
 
 /**
  * Longest-first fallback list for messy inputs such as
@@ -154,7 +199,7 @@ export function normalizeMarket(raw: string): NormalizedMarket {
   // numbers such as the posted line. The word boundaries matter: an unanchored
   // digit strip would eat the 3 in "3PM".
   const stripped = protectThreePoint(original)
-    .replace(/\b(over|under|o\/u|ou|line|prop|player|nba|wnba|ncaab|ncaa|cbb|cfb)\b/gi, " ")
+    .replace(/\b(over|under|o\/u|ou|line|prop|player|nba|wnba|nfl|ncaab|ncaa|cbb|cfb)\b/gi, " ")
     .replace(/\b\d+(?:\.\d+)?\b/g, " ")
   const token = canonicalToken(stripped) || canonicalToken(protectThreePoint(original))
 

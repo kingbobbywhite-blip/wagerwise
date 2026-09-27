@@ -1,4 +1,4 @@
-import type { MarketKey } from "@/lib/nba/markets"
+import { marketSport, type MarketKey } from "@/lib/nba/markets"
 import { DEFAULT_LEAGUE, leagueFor, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 import type { BookQuote } from "@/lib/quant/projection"
@@ -22,7 +22,7 @@ export const NBA_SPORT_KEY = "basketball_nba"
 /**
  * Feed market keys the API exposes per league.
  *
- * The map below is the full basketball taxonomy. Which of these a given league
+ * The map below covers every basketball and NFL market we model. Which of these a given league
  * actually posts is a league question, answered in lib/leagues, because asking
  * for a market a league never posts costs a credit and returns nothing.
  */
@@ -43,9 +43,38 @@ export const FEED_MARKET_MAP: Record<string, MarketKey> = {
   player_blocks_steals: "STL_BLK",
   player_field_goals: "FGM",
   player_frees_made: "FTM",
+  // NFL. Only over/under markets: anytime and first touchdown are yes/no
+  // prices with no line, which this pipeline does not model.
+  player_pass_yds: "PASS_YDS",
+  player_pass_tds: "PASS_TDS",
+  player_pass_completions: "PASS_COMP",
+  player_pass_attempts: "PASS_ATT",
+  player_pass_interceptions: "PASS_INT",
+  player_rush_yds: "RUSH_YDS",
+  player_rush_attempts: "RUSH_ATT",
+  player_receptions: "REC",
+  player_reception_yds: "REC_YDS",
+  player_rush_reception_yds: "RUSH_REC_YDS",
 }
 
 export const DEFAULT_FEED_MARKETS = Object.keys(FEED_MARKET_MAP)
+
+/**
+ * The feed markets to request for a league.
+ *
+ * A requested list is kept only where it belongs to the league's sport, so a
+ * basketball market list left in settings never gets billed against an NFL
+ * slate (it would come back empty and still cost a credit per game). Nothing
+ * left, or nothing asked for, means the league's own defaults.
+ */
+export function marketsForLeague(league: LeagueId, requested?: string[] | null): string[] {
+  const sport = leagueFor(league).sport
+  const kept = (requested ?? []).filter((k) => {
+    const m = FEED_MARKET_MAP[k]
+    return !!m && marketSport(m) === sport
+  })
+  return kept.length > 0 ? kept : leagueFor(league).markets
+}
 
 /** Reverse lookup, used when requesting only the markets on your board. */
 export function feedKeyFor(market: MarketKey): string | null {

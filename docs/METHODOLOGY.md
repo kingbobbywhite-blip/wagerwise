@@ -126,9 +126,10 @@ Dispersion is a per-market ratio of variance to mean:
 | 3-Pointers Made | 1.15 | ≈ 5.4 |
 | Steals | 1.05 | ≈ 5.1 |
 
-These are priors fitted to typical NBA game-log behaviour, not measured constants. Other
-leagues scale them: the WNBA by 1.05 and men's college basketball by 1.20, because a shorter
-game with five fouls and deeper rotations makes a player's minutes less knowable. Note that
+These are priors fitted to typical NBA game-log behaviour, not measured constants. The WNBA
+scales them by 1.05, because a shorter game with shorter rotations makes a player's minutes a
+little less knowable. NFL markets have their own ratios (passing yards 19, rushing yards 13,
+receiving yards 16, receptions 1.1, passing touchdowns 0.8) and are not scaled. Note that
 holding the ratio fixed while the mean falls already widens the relative spread, since
 variance/mean = r implies sd/mean = sqrt(r/mean); the multipliers sit on top of that. They are
 the single largest modelling assumption in the app, and the outcome-spread slider in

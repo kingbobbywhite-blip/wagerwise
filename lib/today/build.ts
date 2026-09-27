@@ -137,13 +137,20 @@ export function summariseGames(quotes: FeedQuote[]): GameSummary[] {
  */
 export function dfsTargetsFor(
   mean: number,
-  distribution: { pAtLeast(k: number): number; pmf(k: number): number },
+  distribution: { pAtLeast(k: number): number; pmf(k: number): number; variance?: number },
   breakEven: number,
 ): { fairLine: number; overAt: number | null; overProb: number | null; underAt: number | null; underProb: number | null } {
   // Walk actual half-point lines. Pick'em apps post x.5 almost universally, and
   // a whole number would introduce a push the targets do not account for.
-  const start = Math.max(0.5, Math.floor(mean - 15) + 0.5)
-  const end = Math.ceil(mean + 15) + 0.5
+  // The window is 15 either side, widened to 1.5 standard deviations where
+  // that is larger. 15 covers every basketball stat (which is why basketball
+  // targets are unchanged), but a 250-yard passing line has a standard
+  // deviation near 70, and a fixed 15 would cut the search off before the
+  // target. 1.5 sd reaches any bar up to about 93%, far beyond any payout table.
+  const sd = Math.sqrt(Math.max(distribution.variance ?? 0, 0))
+  const reach = Math.max(15, Math.ceil(1.5 * sd))
+  const start = Math.max(0.5, Math.floor(mean - reach) + 0.5)
+  const end = Math.ceil(mean + reach) + 0.5
 
   let fairLine = Math.round(mean - 0.5) + 0.5
   let bestGap = Infinity

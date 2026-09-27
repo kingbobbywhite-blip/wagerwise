@@ -177,6 +177,27 @@ describe("typed and pasted text", () => {
     ])
   })
 
+  it("reads NFL props, including three-digit yardage lines", () => {
+    expect(
+      typed(
+        "Josh Allen Pass Yards 245.5\nTravis Kelce over 5.5 Receptions\nJames Cook 68.5 Rush Yds\n" +
+          "Amon-Ra St. Brown Receiving Yards 79.5\nSaquon Barkley Rush + Rec Yds 120.5\nC.J. Stroud 1.5 Pass TDs",
+      ),
+    ).toEqual([
+      "Amon-Ra St. Brown | 79.5 | REC_YDS",
+      "C.J. Stroud | 1.5 | PASS_TDS",
+      "James Cook | 68.5 | RUSH_YDS",
+      "Josh Allen | 245.5 | PASS_YDS",
+      "Saquon Barkley | 120.5 | RUSH_REC_YDS",
+      "Travis Kelce | 5.5 | REC",
+    ])
+  })
+
+  it("does not read a bare three-digit number as a line", () => {
+    // A $100 entry or a 250 payout on a board must not become a prop.
+    expect(typed("LeBron James 250 Points")).toEqual([])
+  })
+
   it("returns nothing for text with no prop in it", () => {
     expect(typed("hello this is not a prop")).toEqual([])
   })
@@ -239,7 +260,9 @@ describe("/api/odds", () => {
 
   it("rejects an unknown league rather than falling back to the NBA", async () => {
     stubFeed([])
-    const res = await post({ league: "nfl" })
+    // College basketball was removed; a stale client asking for it must get a
+    // clear refusal, not an NBA slate under the wrong heading.
+    const res = await post({ league: "ncaab" })
     expect(res.status).toBe(400)
   })
 })

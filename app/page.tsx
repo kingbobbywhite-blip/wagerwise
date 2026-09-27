@@ -17,6 +17,7 @@ import { formatAmerican } from "@/lib/quant/odds"
 import { breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import { buildDailyPicks } from "@/lib/today/build"
+import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { useStore } from "@/lib/store/provider"
 import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
 import { money, pct, shortDate, signedPct } from "@/lib/format"
@@ -47,15 +48,14 @@ export default function TodayPage() {
   // Only ever show the cache belonging to the league on screen. Rendering an
   // NBA pull under a WNBA heading would be worse than showing nothing.
   const daily = state.daily[leagueId] ?? null
-  const markets = s.daily.markets ?? league.markets
+  const markets = marketsForLeague(leagueId, s.daily.markets)
   const cost = creditWarning(leagueId, Math.min(s.daily.maxGames, league.maxGames), markets.length)
 
   function selectLeague(next: LeagueId) {
     setSettings((prev) => ({
       ...prev,
-      // The game cap travels with the league: a college cap on an NBA slate
-      // misses most of the slate, and an NBA cap on a college slate is a
-      // quota-emptying pull.
+      // The game cap travels with the league: a WNBA cap on an NBA slate
+      // misses half of it, and each league's cap is sized to its own slate.
       daily: { ...prev.daily, league: next, maxGames: LEAGUES[next].maxGames },
     }))
     setError(null)
