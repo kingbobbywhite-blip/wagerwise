@@ -1,0 +1,252 @@
+[
+ {
+  "text": "NBA",
+  "confidence": 97,
+  "bbox": {
+   "x0": 51,
+   "y0": 53,
+   "x1": 164,
+   "y1": 90
+  }
+ },
+ {
+  "text": "LAL - F",
+  "confidence": 92,
+  "bbox": {
+   "x0": 249,
+   "y0": 187,
+   "x1": 352,
+   "y1": 210
+  }
+ },
+ {
+  "text": "LeBron James",
+  "confidence": 96,
+  "bbox": {
+   "x0": 148,
+   "y0": 239,
+   "x1": 454,
+   "y1": 271
+  }
+ },
+ {
+  "text": "vs GSW Tue 7:30pm",
+  "confidence": 96,
+  "bbox": {
+   "x0": 148,
+   "y0": 298,
+   "x1": 450,
+   "y1": 328
+  }
+ },
+ {
+  "text": "24.5",
+  "confidence": 96,
+  "bbox": {
+   "x0": 232,
+   "y0": 373,
+   "x1": 368,
+   "y1": 424
+  }
+ },
+ {
+  "text": "Points",
+  "confidence": 97,
+  "bbox": {
+   "x0": 249,
+   "y0": 452,
+   "x1": 353,
+   "y1": 481
+  }
+ },
+ {
+  "text": "Less More",
+  "confidence": 97,
+  "bbox": {
+   "x0": 140,
+   "y0": 545,
+   "x1": 464,
+   "y1": 570
+  }
+ },
+ {
+  "text": "DEN - C",
+  "confidence": 56,
+  "bbox": {
+   "x0": 241,
+   "y0": 703,
+   "x1": 360,
+   "y1": 726
+  }
+ },
+ {
+  "text": "Nikola Jokic",
+  "confidence": 93,
+  "bbox": {
+   "x0": 171,
+   "y0": 753,
+   "x1": 430,
+   "y1": 787
+  }
+ },
+ {
+  "text": "vs MIN Tue 9:00pm",
+  "confidence": 96,
+  "bbox": {
+   "x0": 157,
+   "y0": 814,
+   "x1": 441,
+   "y1": 844
+  }
+ },
+ {
+  "text": "12.5",
+  "confidence": 97,
+  "bbox": {
+   "x0": 234,
+   "y0": 889,
+   "x1": 368,
+   "y1": 940
+  }
+ },
+ {
+  "text": "Rebounds",
+  "confidence": 97,
+  "bbox": {
+   "x0": 214,
+   "y0": 968,
+   "x1": 388,
+   "y1": 997
+  }
+ },
+ {
+  "text": "Less More",
+  "confidence": 97,
+  "bbox": {
+   "x0": 140,
+   "y0": 1061,
+   "x1": 464,
+   "y1": 1086
+  }
+ },
+ {
+  "text": "GSW -G",
+  "confidence": 68,
+  "bbox": {
+   "x0": 804,
+   "y0": 187,
+   "x1": 935,
+   "y1": 210
+  }
+ },
+ {
+  "text": "Stephen Curry",
+  "confidence": 97,
+  "bbox": {
+   "x0": 716,
+   "y0": 237,
+   "x1": 1025,
+   "y1": 279
+  }
+ },
+ {
+  "text": "@ LAL Tue 7:30pm",
+  "confidence": 95,
+  "bbox": {
+   "x0": 731,
+   "y0": 297,
+   "x1": 1010,
+   "y1": 328
+  }
+ },
+ {
+  "text": "27.5",
+  "confidence": 96,
+  "bbox": {
+   "x0": 802,
+   "y0": 373,
+   "x1": 938,
+   "y1": 424
+  }
+ },
+ {
+  "text": "Points",
+  "confidence": 97,
+  "bbox": {
+   "x0": 819,
+   "y0": 452,
+   "x1": 923,
+   "y1": 481
+  }
+ },
+ {
+  "text": "Less More",
+  "confidence": 97,
+  "bbox": {
+   "x0": 710,
+   "y0": 545,
+   "x1": 1034,
+   "y1": 570
+  }
+ },
+ {
+  "text": "MIN -G",
+  "confidence": 36,
+  "bbox": {
+   "x0": 815,
+   "y0": 703,
+   "x1": 925,
+   "y1": 726
+  }
+ },
+ {
+  "text": "Anthony Edwards",
+  "confidence": 97,
+  "bbox": {
+   "x0": 680,
+   "y0": 753,
+   "x1": 1060,
+   "y1": 795
+  }
+ },
+ {
+  "text": "@ DEN Tue 9:00pm",
+  "confidence": 96,
+  "bbox": {
+   "x0": 724,
+   "y0": 813,
+   "x1": 1016,
+   "y1": 844
+  }
+ },
+ {
+  "text": "3.5",
+  "confidence": 96,
+  "bbox": {
+   "x0": 822,
+   "y0": 889,
+   "x1": 918,
+   "y1": 940
+  }
+ },
+ {
+  "text": "3-PT Made",
+  "confidence": 95,
+  "bbox": {
+   "x0": 775,
+   "y0": 968,
+   "x1": 965,
+   "y1": 997
+  }
+ },
+ {
+  "text": "Less More",
+  "confidence": 97,
+  "bbox": {
+   "x0": 710,
+   "y0": 1061,
+   "x1": 1034,
+   "y1": 1086
+  }
+ }
+]

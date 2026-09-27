@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { extractProps, linesFromText } from "@/lib/ocr/extract"
+import { extractProps, linesFromText, mergeReads } from "@/lib/ocr/extract"
 import { parseSlate, SAMPLE_CSV } from "@/lib/import/parse"
 import {
   draftFromCandidate,
@@ -25,6 +25,7 @@ import {
 import { feedKeyFor } from "@/lib/odds-feed/theoddsapi"
 import { attachQuotes, indexQuotes, type NormalizedQuote } from "@/lib/odds-feed/theoddsapi"
 import { useStore } from "@/lib/store/provider"
+import { LEAGUES, LEAGUE_IDS, leagueFor, type LeagueId } from "@/lib/leagues"
 
 export default function ImportPage() {
   const router = useRouter()
@@ -33,9 +34,20 @@ export default function ImportPage() {
   const [label, setLabel] = React.useState("")
   const [app, setApp] = React.useState("prizepicks")
 
+  const [league, setLeague] = React.useState<LeagueId>(state.settings.daily.league)
+
   const [ocrBusy, setOcrBusy] = React.useState(false)
   const [ocrStatus, setOcrStatus] = React.useState("")
   const [pasteText, setPasteText] = React.useState("")
+
+  // What the last read actually saw. Shown whenever a read finds nothing, or
+  // leaves lines unplaced, so a failure is never just a silent empty table.
+  const [lastRead, setLastRead] = React.useState<{
+    source: "screenshot" | "paste"
+    found: number
+    lines: string[]
+    leftover: string[]
+  } | null>(null)
 
   const [oddsBusy, setOddsBusy] = React.useState(false)
   const [oddsReport, setOddsReport] = React.useState<{
@@ -44,6 +56,40 @@ export default function ImportPage() {
     remaining: number | null
     error?: string
   } | null>(null)
+
+  /**
+   * Add rows, skipping any already in the table.
+   *
+   * Two screenshots of a scrolling board overlap at the seam, so the same card
+   * arrives twice. A duplicate is a blocking problem at load time, which used
+   * to leave the Load button greyed out for a reason that had nothing to do
+   * with the data. Returns how many were skipped so the toast can say so.
+   */
+  // Latest rows, read synchronously. A state updater runs on the next render,
+  // too late to report how many rows it skipped.
+  const draftsRef = React.useRef(drafts)
+  React.useEffect(() => {
+    draftsRef.current = drafts
+  }, [drafts])
+
+  function addDrafts(incoming: DraftProp[]): number {
+    const key = (d: DraftProp) => `${d.player.trim().toLowerCase()}|${d.marketKey}|${d.line}|${d.app ?? ""}`
+    const seen = new Set(draftsRef.current.map(key))
+    const fresh: DraftProp[] = []
+    let skipped = 0
+    for (const d of incoming) {
+      const k = key(d)
+      if (seen.has(k)) {
+        skipped++
+        continue
+      }
+      seen.add(k)
+      fresh.push(d)
+    }
+    draftsRef.current = [...draftsRef.current, ...fresh]
+    setDrafts(draftsRef.current)
+    return skipped
+  }
 
   const summary = React.useMemo(() => summariseDrafts(drafts), [drafts])
   const blocking = React.useMemo(
@@ -59,14 +105,33 @@ export default function ImportPage() {
     try {
       const { readImage } = await import("@/lib/ocr/engine")
       const found: DraftProp[] = []
+      const seen: string[] = []
+      const leftover: string[] = []
       for (let i = 0; i < files.length; i++) {
         setOcrStatus(`Reading image ${i + 1} of ${files.length}…`)
         const out = await readImage(files[i], (p) => setOcrStatus(`${p.status} ${Math.round(p.progress * 100)}%`))
-        const { candidates } = extractProps(out.lines)
-        for (const c of candidates) found.push(draftFromCandidate(c, app))
+        const r = extractProps(out.lines)
+        const r2 = extractProps(out.cleanedLines)
+        for (const c of mergeReads(r.candidates, r2.candidates)) found.push(draftFromCandidate(c, app))
+        // Show whichever read got further, so "what was read" is the useful one.
+        const best = r2.candidates.length > r.candidates.length ? { res: r2, lines: out.cleanedLines } : { res: r, lines: out.lines }
+        seen.push(...best.lines.map((l) => l.text))
+        leftover.push(...best.res.leftover.map((l) => l.text))
       }
-      setDrafts((d) => [...d, ...found])
-      toast.success(`Read ${found.length} props`, { description: "Check every row before loading them." })
+      const dupes = addDrafts(found)
+      setLastRead({ source: "screenshot", found: found.length, lines: seen, leftover })
+      if (found.length > 0) {
+        toast.success(`Read ${found.length} props`, {
+          description:
+            (dupes > 0 ? `${dupes} already in the table, skipped. ` : "") + "Check every row before loading them.",
+        })
+      } else if (seen.length === 0) {
+        toast.error("No text found in that image", {
+          description: "Try a sharper screenshot, cropped to the cards, without the keyboard or notifications over it.",
+        })
+      } else {
+        toast.error("Text found, but no props recognised", { description: "See what was read below." })
+      }
     } catch (err) {
       toast.error("Could not read that image", { description: err instanceof Error ? err.message : String(err) })
     } finally {
@@ -79,19 +144,39 @@ export default function ImportPage() {
   function onPaste(text: string) {
     setPasteText(text)
     if (!text.trim()) return
-    const looksStructured = /[,\t]/.test(text.split(/\r?\n/)[0] ?? "") || text.trim().startsWith("[") || text.trim().startsWith("{")
+
+    // A comma or tab on the first line used to send everything to the CSV
+    // parser, which needs a header row. Plain text that happened to contain a
+    // comma ("Tue, Sep 26") then came back with zero rows. Now the CSV reading
+    // is tried first and the free-text reader takes over if it finds nothing.
+    const looksStructured =
+      /[,\t]/.test(text.split(/\r?\n/)[0] ?? "") || text.trim().startsWith("[") || text.trim().startsWith("{")
     if (looksStructured) {
       const r = parseSlate(text)
-      setDrafts((d) => [...d, ...r.rows.map(draftFromRow)])
-      toast.success(`Read ${r.rows.length} rows`, {
-        description: r.skipped.length > 0 ? `${r.skipped.length} lines could not be read.` : undefined,
-      })
-    } else {
-      const { candidates } = extractProps(linesFromText(text))
-      setDrafts((d) => [...d, ...candidates.map((c) => draftFromCandidate(c, app))])
-      toast.success(`Found ${candidates.length} props in that text`)
+      if (r.rows.length > 0) {
+        addDrafts(r.rows.map(draftFromRow))
+        setLastRead(null)
+        toast.success(`Read ${r.rows.length} rows`, {
+          description: r.skipped.length > 0 ? `${r.skipped.length} lines could not be read.` : undefined,
+        })
+        setPasteText("")
+        return
+      }
     }
-    setPasteText("")
+
+    const lines = linesFromText(text)
+    const { candidates, leftover } = extractProps(lines)
+    const dupes = addDrafts(candidates.map((c) => ({ ...draftFromCandidate(c, app), origin: "paste" as const })))
+    setLastRead({ source: "paste", found: candidates.length, lines: lines.map((l) => l.text), leftover: leftover.map((l) => l.text) })
+    if (candidates.length > 0) {
+      toast.success(`Found ${candidates.length} props`, {
+        description: (dupes > 0 ? `${dupes} already in the table, skipped. ` : "") + "Check every row before loading them.",
+      })
+      setPasteText("")
+    } else {
+      // Keep the text in the box so it can be fixed rather than retyped.
+      toast.error("No props recognised in that text", { description: "See the accepted formats below." })
+    }
   }
 
   async function fetchOdds() {
@@ -112,6 +197,10 @@ export default function ImportPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           apiKey: state.settings.oddsFeed.apiKey || undefined,
+          league,
+          from: startOfToday().toISOString(),
+          to: endOfSlate().toISOString(),
+          maxGames: leagueFor(league).maxGames,
           markets: wanted,
           regions: state.settings.oddsFeed.regions,
           bookmakers: state.settings.oddsFeed.books,
@@ -132,7 +221,15 @@ export default function ImportPage() {
         unmatched: attached.unmatched,
         remaining: data.requestsRemaining ?? null,
       })
-      toast.success(`Priced ${attached.matched} of ${drafts.length} props`)
+      if (attached.matched > 0) {
+        toast.success(`Priced ${attached.matched} of ${drafts.length} props`)
+      } else if ((data.events ?? []).length === 0) {
+        toast.error(`No ${leagueFor(league).label} games today`, {
+          description: "Check the league picker matches the players you captured.",
+        })
+      } else {
+        toast.warning("No prices matched", { description: "Names are matched exactly. Check spelling in the table." })
+      }
     } catch (err) {
       setOddsReport({ matched: 0, unmatched: [], remaining: null, error: err instanceof Error ? err.message : String(err) })
     } finally {
@@ -148,9 +245,13 @@ export default function ImportPage() {
       importedAt: new Date().toISOString(),
       rows: drafts.map(draftToRow),
       source: drafts.some((d) => d.origin === "screenshot") ? "screenshot" : "paste",
+      league,
     })
-    toast.success(`Loaded ${drafts.length} props`)
-    router.push("/")
+    toast.success(`Loaded ${drafts.length} props`, { description: "Opening the Board." })
+    // The Board is where a captured slate is shown and priced. This used to go
+    // to Today, which reads the odds feed and never looks at the slate, so a
+    // successful capture appeared to vanish.
+    router.push("/board")
   }
 
   return (
@@ -162,6 +263,30 @@ export default function ImportPage() {
           The board tells you what is on offer. The sportsbook side is what tells you whether it is worth taking, and a
           prop without it stays unpriced.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">League</span>
+          <div role="tablist" aria-label="League" className="flex items-center gap-1 rounded-lg border border-border/60 bg-card/40 p-1">
+            {LEAGUE_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={id === league}
+                onClick={() => setLeague(id)}
+                className={
+                  id === league
+                    ? "rounded-md bg-primary/15 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.12em] text-primary ring-1 ring-primary/30"
+                    : "rounded-md px-3 py-1 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground hover:bg-secondary hover:text-foreground"
+                }
+              >
+                {LEAGUES[id].short}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            Odds are pulled from this league&apos;s feed, so it must match the players you capture.
+          </span>
+        </div>
       </header>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -242,7 +367,7 @@ export default function ImportPage() {
             <Textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder={"Paste CSV, JSON, or plain text copied off a board:\n\nAnthony Edwards\n24.5\nPoints"}
+              placeholder={"One prop per line:\n\nAnthony Edwards 24.5 Points\nCaitlin Clark over 8.5 assists\nNikola Jokic 12.5 Rebounds\n\nCSV or JSON with a header row also works."}
               className="min-h-40 font-mono text-[11px] leading-relaxed"
               spellCheck={false}
             />
@@ -252,6 +377,66 @@ export default function ImportPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {lastRead && (lastRead.found === 0 || lastRead.leftover.length > 0) ? (
+        <section
+          className={
+            lastRead.found === 0
+              ? "space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4"
+              : "space-y-2 rounded-lg border border-border/60 bg-card/40 p-4"
+          }
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+              {lastRead.found === 0
+                ? lastRead.lines.length === 0
+                  ? "No text found"
+                  : "Read, but no props recognised"
+                : `${lastRead.leftover.length} line${lastRead.leftover.length === 1 ? "" : "s"} not used`}
+            </h2>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => setLastRead(null)}>
+              Dismiss
+            </Button>
+          </div>
+
+          {lastRead.found === 0 ? (
+            <div className="space-y-1.5 text-[11px] leading-relaxed text-muted-foreground">
+              <p>A prop needs three things close together: a player name, a line like 24.5, and a stat.</p>
+              {lastRead.source === "paste" ? (
+                <p>
+                  Easiest is one prop per line: <code className="font-mono text-foreground">LeBron James 24.5 Points</code>.
+                  &quot;over&quot;/&quot;under&quot; and shorthand like <code className="font-mono text-foreground">o24.5 pts</code> are fine.
+                </p>
+              ) : (
+                <p>
+                  Crop to the prop cards. Leave out the keyboard, notifications and your entry slip. If a card is only half on
+                  screen, scroll and take another shot rather than including it.
+                </p>
+              )}
+              <p>
+                Or press <span className="text-foreground">Add row</span> below the table and type it in.
+              </p>
+            </div>
+          ) : null}
+
+          {(lastRead.found === 0 ? lastRead.lines : lastRead.leftover).length > 0 ? (
+            <details className="text-[11px]" open={lastRead.found === 0}>
+              <summary className="cursor-pointer font-mono text-muted-foreground">
+                {lastRead.found === 0 ? "What was read" : "Show them"}
+              </summary>
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border/60 bg-background/60 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {(lastRead.found === 0 ? lastRead.lines : lastRead.leftover).join("\n")}
+              </pre>
+            </details>
+          ) : null}
+        </section>
+      ) : null}
+
+      {drafts.length === 0 && lastRead?.found === 0 ? (
+        <Button variant="secondary" size="sm" onClick={() => setDrafts([emptyDraft(app)])}>
+          <Plus className="mr-1 size-3" /> Add a row by hand
+        </Button>
+      ) : null}
 
       {drafts.length > 0 ? (
         <>
@@ -334,10 +519,31 @@ export default function ImportPage() {
                   ? `${summary.total - summary.confirmed} rows still need reviewing.`
                   : "Fix the problems above first."}
               </span>
+            ) : summary.priced === 0 ? (
+              // Loading is allowed, but an unpriced slate shows as dashes on the
+              // Board, which looks like capture failed. Say so before, not after.
+              <span className="max-w-sm text-[11px] leading-relaxed text-amber-500">
+                None of these have a sportsbook price yet, so the Board will show them as unpriced. Press Attach
+                sportsbook odds first.
+              </span>
             ) : null}
           </div>
         </>
       ) : null}
     </div>
   )
+}
+
+function startOfToday(): Date {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+/** Tomorrow 11am local: catches late tips that roll past midnight UTC. */
+function endOfSlate(): Date {
+  const d = startOfToday()
+  d.setDate(d.getDate() + 1)
+  d.setHours(11, 0, 0, 0)
+  return d
 }
