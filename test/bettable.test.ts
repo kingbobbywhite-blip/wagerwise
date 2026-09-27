@@ -54,6 +54,8 @@ describe("bettable books", () => {
   it("counts the hidden edges so the screen can say so", () => {
     const picks = buildDailyPicks(QUOTES, { ...OPTS, bettableBooks: ["fanduel"] })
     expect(picks.stats.hiddenOffers).toBeGreaterThan(0)
+    expect(picks.stats.hiddenBooks).toContain("betonlineag")
+    expect(picks.stats.hiddenBooks).not.toContain("fanduel")
   })
 
   it("still uses the offshore books to judge the price", () => {

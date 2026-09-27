@@ -73,6 +73,8 @@ export interface DailyPicks {
     pricedProps: number
     /** Edges found only at books outside the bettable list, and so not shown. */
     hiddenOffers: number
+    /** The books those hidden edges were at. */
+    hiddenBooks: string[]
   }
 }
 
@@ -305,6 +307,7 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
       booksSeen,
       pricedProps,
       hiddenOffers: everyValue.length - allValue.length,
+      hiddenBooks: Array.from(new Set(everyValue.filter((b) => !allValue.includes(b)).map((b) => b.book))).sort(),
     },
   }
 }
