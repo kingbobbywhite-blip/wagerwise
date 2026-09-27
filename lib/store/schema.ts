@@ -67,8 +67,9 @@ export interface DailySettings {
    * Feed market keys to request. Fewer markets means fewer credits.
    *
    * Null means "use whatever this league posts", which is almost always the
-   * right answer: college basketball rarely posts threes, and paying for a
-   * market that comes back empty is the easiest way to waste a quota.
+   * right answer: basketball and the NFL post entirely different markets, and
+   * paying for a market that comes back empty is the easiest way to waste a
+   * quota. Entries from the wrong sport for a league are ignored.
    */
   markets: string[] | null
 }
@@ -221,6 +222,8 @@ export function migrate(raw: unknown): AppState {
         ...DEFAULT_PROJECTION_SETTINGS,
         ...(s.projection ?? {}),
         dispersion: { ...DEFAULT_PROJECTION_SETTINGS.dispersion, ...(s.projection?.dispersion ?? {}) },
+        // A league that no longer exists (college basketball) falls back to the NBA.
+        league: isLeagueId(s.projection?.league) ? s.projection.league : DEFAULT_PROJECTION_SETTINGS.league,
       },
       correlation: { ...DEFAULT_CORRELATION, ...(s.correlation ?? {}) },
       constraints: { ...DEFAULT_CONSTRAINTS, ...(s.constraints ?? {}) },
@@ -228,7 +231,7 @@ export function migrate(raw: unknown): AppState {
       defaultAppId: s.defaultAppId ?? DEFAULT_SETTINGS.defaultAppId,
       defaultModeId: s.defaultModeId ?? DEFAULT_SETTINGS.defaultModeId,
     },
-    slate: o.slate ?? null,
+    slate: o.slate ? { ...o.slate, league: isLeagueId(o.slate.league) ? o.slate.league : undefined } : null,
     slips: Array.isArray(o.slips) ? o.slips : [],
     daily: migrateDaily(o.daily),
   }

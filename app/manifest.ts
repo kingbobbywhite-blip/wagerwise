@@ -13,7 +13,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "WagerWise — Basketball Prop Terminal",
     short_name: "WagerWise",
     description:
-      "NBA, WNBA and college basketball prop and parlay analysis: devigged fair lines, calibrated probabilities and expected value.",
+      "NBA, WNBA and NFL prop and parlay analysis: devigged fair lines, calibrated probabilities and expected value.",
     start_url: "/",
     display: "standalone",
     orientation: "portrait",

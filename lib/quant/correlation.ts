@@ -74,6 +74,30 @@ const STAT_CORR: Partial<Record<string, number>> = {
   "FGM|FGA": 0.85,
   "FGM|MIN": 0.55,
   "FTM|MIN": 0.38,
+  // NFL, same player. Volume drives everything: completions and attempts move
+  // with passing yards, carries with rushing yards, catches with receiving
+  // yards. Touchdowns ride on yardage but are lumpy. A back's rushing and
+  // receiving yards barely move together.
+  "PASS_YDS|PASS_COMP": 0.80,
+  "PASS_YDS|PASS_ATT": 0.62,
+  "PASS_YDS|PASS_TDS": 0.45,
+  "PASS_YDS|PASS_INT": 0.05,
+  "PASS_COMP|PASS_ATT": 0.86,
+  "PASS_COMP|PASS_TDS": 0.35,
+  "PASS_ATT|PASS_INT": 0.22,
+  "PASS_ATT|PASS_TDS": 0.25,
+  "RUSH_YDS|RUSH_ATT": 0.72,
+  "REC|REC_YDS": 0.76,
+  "RUSH_YDS|REC_YDS": 0.05,
+  "RUSH_YDS|REC": 0.04,
+  // NFL, across players in the same game. The feed never says which team a
+  // player is on, so a quarterback's yards against a receiver's are only known
+  // to share a game. Own-team stacks run near 0.5 and opponents in a shootout
+  // near 0.2; this sits between, and only feeds the same-game term.
+  "PASS_YDS|REC_YDS": 0.35,
+  "PASS_YDS|REC": 0.30,
+  "PASS_COMP|REC": 0.30,
+  "PASS_YDS|RUSH_YDS": -0.10,
 }
 
 function statCorr(a: MarketKey, b: MarketKey): number {

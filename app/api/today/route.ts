@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { estimateCredits, eventOddsUrl, eventsUrl, normalizeMany } from "@/lib/odds-feed/theoddsapi"
+import { estimateCredits, eventOddsUrl, eventsUrl, marketsForLeague, normalizeMany } from "@/lib/odds-feed/theoddsapi"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
 import { DEFAULT_LEAGUE, creditWarning, inSeason, isLeagueId, leagueFor } from "@/lib/leagues"
 
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
 
   if (body.league != null && !isLeagueId(body.league)) {
     return NextResponse.json(
-      { error: `Unsupported league "${body.league}". Supported: nba, wnba, ncaab.` },
+      { error: `Unsupported league "${body.league}". Supported: nba, wnba, nfl.` },
       { status: 400 },
     )
   }
@@ -89,10 +89,9 @@ export async function POST(request: Request) {
   const league = leagueFor(leagueId)
 
   // Each league's defaults come from its own config: the markets it actually
-  // posts, the books that price it, and a game cap sized to its slate. College
-  // basketball in February is a hundred games; the same cap as an eleven-game
-  // NBA night would empty a monthly quota in one press.
-  const markets = body.markets?.length ? body.markets : league.markets
+  // posts, the books that price it, and a game cap sized to its slate. A market
+  // list from settings is kept only where it fits the league's sport.
+  const markets = marketsForLeague(leagueId, body.markets)
   const bookmakers = body.bookmakers?.length ? body.bookmakers : league.books
   const regions = body.regions || "us,us2,eu"
   const maxGames = Math.max(1, Math.min(body.maxGames ?? league.maxGames, 20))

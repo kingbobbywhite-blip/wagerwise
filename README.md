@@ -1,10 +1,10 @@
 # WagerWise
 
-A basketball tool for deciding which props and parlays are worth betting, built around the
+A basketball and football tool for deciding which props and parlays are worth betting, built around the
 apps in your rotation: PrizePicks, Underdog, Sleeper, Dabble, Chalkboard, Winible, Real,
 ProphetX and Polymarket.
 
-Three leagues: **NBA**, **WNBA** and **men's college basketball**. Pick one with the tabs on
+Three leagues: **NBA**, **WNBA** and **NFL**. Pick one with the tabs on
 the Today screen. Each keeps its own cached pull, so switching leagues never throws away a
 slate you already paid feed credits for.
 
@@ -204,32 +204,39 @@ market profitable by itself.
 
 ## Leagues
 
-| | NBA | WNBA | College (M) |
+| | NBA | WNBA | NFL |
 |---|---|---|---|
-| Feed sport key | `basketball_nba` | `basketball_wnba` | `basketball_ncaab` |
-| Game length | 48 min | 40 min | 40 min |
-| Default markets | pts, reb, ast, 3pm | pts, reb, ast, 3pm | pts, reb, ast |
-| Default game cap | 14 | 8 | 6 |
-| Volatility prior | baseline | +5% | +20% |
+| Feed sport key | `basketball_nba` | `basketball_wnba` | `americanfootball_nfl` |
+| Default markets | pts, reb, ast, 3pm | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions |
+| Default game cap | 14 | 8 | 14 |
+| Volatility prior | baseline | +5% | its own markets |
 
-Two things differ between leagues and nothing else does. The **prior mean** is scaled for a
-shorter, slower game, and it is used only when no book has priced the prop — a real market
-price always wins. The **volatility prior** widens the distribution, which pulls probabilities
-toward a coin flip. College basketball gets the largest bump because five fouls in forty
-minutes removes starters far more often than six in forty-eight, rotations are deeper, and the
-gap between opponents is enormous next to a professional league.
+For the two basketball leagues, the **prior mean** is scaled for the WNBA's shorter, slower
+game, and it is used only when no book has priced the prop: a real market price always wins.
+The WNBA **volatility prior** widens the distribution slightly, which pulls probabilities toward
+a coin flip.
+
+The NFL uses its own markets rather than scaled basketball ones. Yardage is modelled as a
+right-skewed count (a 70-yard catch happens, a minus-70 one does not), with a spread near 70
+yards on a 250-yard passing line, near 29 on a 65-yard rushing line and near 31 on a 60-yard
+receiving line. Passing touchdowns and interceptions are less variable than a Poisson count.
+Touchdowns, completions, attempts, carries, interceptions and rush + rec yards are all mapped;
+add their feed keys under Settings → Markets to pull them. Anytime and first-touchdown props are
+yes/no prices with no line and are not modelled.
 
 The probability at a line a book has actually priced is identical in every league. That is
 deliberate and there is a test pinning it: when the market has spoken, a league prior that
 moved the number would be inventing an edge.
 
-### The college cost problem
+### NFL notes
 
-Player props are billed **per market per game**. A February college slate can be 100+ games.
-At three markets that is 300+ credits in a single press, against a free tier of 500 a month.
-The game cap defaults to 6 for college for this reason, the screen shows the estimated cost
-before you press, and anything over a quarter of a monthly quota is flagged in red. Raise the
-cap deliberately, not by accident.
+Most days have no NFL games. The slate is Sunday, plus Thursday and Monday nights, and the
+Today screen names the next game when today has none. Props are posted days ahead and move
+hard on injury and weather news, so pull on game day. A full Sunday at the default four
+markets is about 56 credits, the same as a full NBA night.
 
-Expect most of a college slate to come back empty regardless. Books price props for televised
-games, and often only points.
+The feed does not say which team a player is on. A quarterback and his own receiver are
+therefore linked only as players in the same game, not as a stack, so the correlation between
+them is understated for same-team legs and overstated for opponents.
+
+College basketball was removed. A phone that still has it selected opens on the NBA.

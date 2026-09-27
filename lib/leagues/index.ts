@@ -1,37 +1,35 @@
-import type { MarketKey } from "@/lib/nba/markets"
+import type { MarketKey, Sport } from "@/lib/nba/markets"
 
 /**
  * League configuration.
  *
- * Everything that differs between basketball leagues lives here, so adding a
- * fourth league is a data change rather than a code change. The engine itself
- * is league-agnostic: it prices a distribution against a line, and a line is a
- * line whoever posted it.
+ * Everything that differs between leagues lives here, so adding one is mostly
+ * a data change rather than a code change. The engine itself is league-agnostic:
+ * it prices a distribution against a line, and a line is a line whoever posted it.
  *
  * What genuinely differs is the SHAPE of the distribution, and it differs for
  * reasons worth stating rather than fudging:
  *
- *   Game length. The NBA plays 48 minutes; the WNBA and college basketball play
- *   40. Fewer minutes and slower pace mean fewer possessions, so every counting
+ *   Game length (basketball). The NBA plays 48 minutes; the WNBA plays 40.
+ *   Fewer minutes and slower pace mean fewer possessions, so every counting
  *   stat is smaller. That is the meanScale below, and it is used only for the
- *   sanity-check priors — a real market price always overrides it.
+ *   sanity-check priors: a real market price always overrides it.
  *
- *   Volatility. This is the part that actually changes probabilities. Holding
- *   the dispersion ratio fixed while the mean falls already widens the relative
- *   spread, because variance/mean = r implies sd/mean = sqrt(r/mean). That
- *   handles most of the WNBA difference. College basketball needs an explicit
- *   bump on top: five fouls in a 40-minute game removes starters far more often
- *   than six fouls in 48, rotations are deeper and less predictable, and the
- *   talent gap between opponents is enormous compared with a professional
- *   league. A college scorer's minutes are simply less knowable than a pro's.
+ *   Volatility. Holding the dispersion ratio fixed while the mean falls already
+ *   widens the relative spread, because variance/mean = r implies
+ *   sd/mean = sqrt(r/mean). That handles most of the WNBA difference.
+ *
+ *   A different sport (NFL). Football markets are their own stats with their
+ *   own spreads (see lib/nba/markets), so the NFL needs no scaling of the
+ *   basketball numbers: its scales are 1 and its markets are its own.
  *
  *   Market depth. The NBA has props on every book at every game. The WNBA has
- *   props on most books for most games. College basketball has props on a
- *   handful of books, usually only for televised games, and often only points.
+ *   props on most books for most games. The NFL is the deepest prop market
+ *   there is, but posts a week ahead and moves hard on injury news.
  *   Asking for markets a league does not post burns feed credits for nothing.
  */
 
-export type LeagueId = "nba" | "wnba" | "ncaab"
+export type LeagueId = "nba" | "wnba" | "nfl"
 
 export interface LeagueConfig {
   id: LeagueId
@@ -40,6 +38,8 @@ export interface LeagueConfig {
   short: string
   /** The Odds API sport key. */
   sportKey: string
+  /** Which family of markets the league uses. */
+  sport: Sport
   /** Regulation length in minutes. */
   gameMinutes: number
   /**
@@ -47,8 +47,8 @@ export interface LeagueConfig {
    *
    * Used only where no market price exists, as a prior and for plausibility
    * warnings. Derived from per-possession scoring times possessions per game:
-   * the NBA runs about 100 possessions at 48 minutes, the WNBA about 82 at 40,
-   * and men's college about 67 at 40. Per-player rather than per-team, because
+   * the NBA runs about 100 possessions at 48 minutes and the WNBA about 82 at
+   * 40. Per-player rather than per-team, because
    * a WNBA starter plays a larger share of a shorter game than an NBA starter
    * plays of a longer one, which claws back part of the gap.
    */
@@ -79,6 +79,7 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     label: "NBA",
     short: "NBA",
     sportKey: "basketball_nba",
+    sport: "basketball",
     gameMinutes: 48,
     meanScale: 1,
     dispersionScale: 1,
@@ -88,13 +89,14 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     typicalSlate: 11,
     season: [10, 11, 12, 1, 2, 3, 4, 5, 6],
     caps: { PTS: 60, REB: 30, AST: 25, "3PM": 14, STL: 8, BLK: 10 },
-    note: "Deepest prop market of the three. Every game is priced by every book, so the consensus is meaningful and stale lines are rare.",
+    note: "Deepest basketball prop market. Every game is priced by every book, so the consensus is meaningful and stale lines are rare.",
   },
   wnba: {
     id: "wnba",
     label: "WNBA",
     short: "WNBA",
     sportKey: "basketball_wnba",
+    sport: "basketball",
     gameMinutes: 40,
     // 82 possessions over 40 minutes against 100 over 48, offset by starters
     // taking a larger share of the shorter game.
@@ -110,29 +112,32 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     caps: { PTS: 45, REB: 22, AST: 18, "3PM": 11, STL: 7, BLK: 8 },
     note: "Thinner market than the NBA, which cuts both ways: fewer books means a weaker consensus, but also more genuinely stale numbers. Small rosters make minutes projections unusually sensitive to one absence.",
   },
-  ncaab: {
-    id: "ncaab",
-    label: "College (M)",
-    short: "CBB",
-    sportKey: "basketball_ncaab",
-    gameMinutes: 40,
-    // ~67 possessions over 40 minutes, partly offset by star usage.
-    meanScale: 0.70,
-    // The real difference. Five fouls in 40 minutes, deep and unpredictable
-    // rotations, and a talent gap between opponents no professional league has.
-    dispersionScale: 1.20,
-    // Points are posted widely; rebounds and assists are patchy and threes are
-    // hit and miss. Asking for four markets on a game that only posts one is
-    // three wasted credits, and college slates are enormous.
-    markets: ["player_points", "player_rebounds", "player_assists"],
-    books: ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel"],
-    // Deliberately small. See creditWarning below: an uncapped college pull can
-    // spend a month's free quota in a single press.
-    maxGames: 6,
-    typicalSlate: 90,
-    season: [11, 12, 1, 2, 3, 4],
-    caps: { PTS: 50, REB: 25, AST: 20, "3PM": 13, STL: 8, BLK: 10 },
-    note: "Props exist only for the games books bother to price, usually televised ones. Expect most of the slate to come back empty, and expect points to be the only market on many games.",
+  nfl: {
+    id: "nfl",
+    label: "NFL",
+    short: "NFL",
+    sportKey: "americanfootball_nfl",
+    sport: "football",
+    gameMinutes: 60,
+    // NFL markets carry their own typical means and spreads, so nothing from
+    // basketball is scaled across.
+    meanScale: 1,
+    dispersionScale: 1,
+    // The four markets with the deepest pricing and the most pick'em interest.
+    // Touchdowns, completions, attempts, carries and interceptions are mapped
+    // too; add their feed keys under Settings to pull them.
+    markets: ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"],
+    books: NBA_BOOKS,
+    // A full Sunday is 13 or 14 games. Four markets across all of them is about
+    // 56 credits, the same as a full NBA night.
+    maxGames: 14,
+    typicalSlate: 13,
+    season: [9, 10, 11, 12, 1, 2],
+    caps: {
+      PASS_YDS: 550, PASS_TDS: 7, PASS_COMP: 45, PASS_ATT: 65, PASS_INT: 5,
+      RUSH_YDS: 300, RUSH_ATT: 40, REC: 18, REC_YDS: 300, RUSH_REC_YDS: 350,
+    },
+    note: "Games are mostly Sunday, plus Thursday and Monday nights, so most days have nothing to pull. Props post days ahead and move hard on injury news: refresh on game day. The feed does not say which team a player is on, so a quarterback and his own receiver are only linked as same-game, not as a stack.",
   },
 }
 
@@ -169,8 +174,8 @@ export function inSeason(id: LeagueId, when: Date = new Date()): boolean {
  * What a full pull of this league would cost, and whether that is reckless.
  *
  * Player props are billed per market per event. The free tier is 500 requests a
- * month. A college slate in February can be 100+ games; at three markets that is
- * 300 credits in one press, and two presses empty the month. This is the single
+ * month. A full NFL Sunday is 14 games; at four markets that is 56 credits in one
+ * press, and a handful of careless refreshes empties the month. This is the single
  * most expensive mistake available in the app, so it is computed up front and
  * shown before the button is pressed rather than discovered afterwards.
  */

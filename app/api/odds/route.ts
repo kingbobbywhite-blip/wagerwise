@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import {
-  DEFAULT_FEED_MARKETS,
+  marketsForLeague,
   estimateCredits,
   eventOddsUrl,
   eventsUrl,
@@ -81,14 +81,14 @@ export async function POST(request: Request) {
 
   if (body.league != null && !isLeagueId(body.league)) {
     return NextResponse.json(
-      { error: `Unsupported league "${body.league}". Supported: nba, wnba, ncaab.` },
+      { error: `Unsupported league "${body.league}". Supported: nba, wnba, nfl.` },
       { status: 400 },
     )
   }
   const leagueId = isLeagueId(body.league) ? body.league : DEFAULT_LEAGUE
   const league = leagueFor(leagueId)
 
-  const markets = body.markets?.length ? body.markets : DEFAULT_FEED_MARKETS
+  const markets = marketsForLeague(leagueId, body.markets)
   const regions = body.regions || "us,us2,eu"
   const maxGames = Math.max(1, Math.min(body.maxGames ?? league.maxGames, 20))
 

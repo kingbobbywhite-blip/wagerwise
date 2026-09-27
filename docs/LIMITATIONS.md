@@ -130,22 +130,30 @@ legal everywhere. Nothing here is financial advice.
 
 ## League coverage
 
-Three leagues are supported: NBA, WNBA and men's college basketball. What is NOT modelled
-per league:
+Three leagues are supported: NBA, WNBA and NFL. What is NOT modelled per league:
 
-**Women's college basketball is not included.** It is a separate feed sport key
-(`basketball_wncaab`) with thinner prop coverage again. Adding it is a data entry in
-`lib/leagues`, not a code change, but it has not been done or tested.
+**College basketball was removed.** It was replaced by the NFL. Re-adding it is a data entry in
+`lib/leagues`, but its tests and notes went with it.
 
-**The dispersion scales are judgement, not fits.** The WNBA and college volatility
-multipliers (1.05 and 1.20) are reasoned from game length, foul rules and rotation depth.
-They have not been fitted against realised results, because that needs a season of settled
-bets per league. Treat them as starting points and retune them from the tracker.
+**The dispersion values are judgement, not fits.** The WNBA volatility multiplier (1.05) and
+every NFL market's spread (for example 19 for passing yards, 13 for rushing yards, 16 for
+receiving yards, as variance / mean) are reasoned from typical game logs. They have not been
+fitted against realised results, because that needs a season of settled bets per league. Treat
+them as starting points and retune them from the tracker.
 
 **Minutes projections do not know league rules.** The rest and absence adjustments in the
-game-log estimator were built for an 82-game NBA schedule. A college team playing twice a
-week, or a WNBA team on a 44-game schedule, has a different rest profile that is not modelled.
+game-log estimator were built for an 82-game NBA schedule. A WNBA team on a 44-game schedule,
+or an NFL team playing weekly, has a different rest profile that is not modelled. Game-log
+import is basketball-only.
 
-**Correlation is league-blind.** Same-game and same-player correlation is applied identically
-in every league. Pace and blowout dynamics differ enough between college and the NBA that this
-is an approximation, and it is the least-tested assumption in the league work.
+**NFL same-team correlation is invisible.** The feed does not say which team a player is on,
+so a quarterback and his own receiver are linked only as players in the same game. That
+understates a same-team stack and overstates opponents. NFL game script (a team that falls
+behind throws more and runs less) is modelled only as a mild negative link between passing and
+rushing yards in the same game.
+
+**NFL touchdown scorer props are not priced.** Anytime and first-touchdown markets are yes/no
+prices with no line, which this pipeline does not model.
+
+**Correlation is otherwise league-blind.** Same-game and same-player correlation is applied
+identically in both basketball leagues, and it is the least-tested assumption in the league work.

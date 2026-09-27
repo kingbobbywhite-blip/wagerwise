@@ -31,7 +31,7 @@ export interface OutcomeDistribution {
   family: "poisson" | "negbin" | "binomial" | "normal"
 }
 
-const MAX_SUPPORT = 400
+const MAX_SUPPORT = 1000
 
 function tabulate(
   logPmf: (k: number) => number,

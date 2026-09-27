@@ -16,6 +16,7 @@ import { payoutMultiple, supportedPickCounts } from "@/lib/quant/payouts"
 import { exportState, importState } from "@/lib/store/local"
 import { useStore } from "@/lib/store/provider"
 import { leagueFor } from "@/lib/leagues"
+import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { DEFAULT_SETTINGS } from "@/lib/store/schema"
 import { money, pct } from "@/lib/format"
 
@@ -23,7 +24,7 @@ export default function SettingsPage() {
   const { state, setSettings, replaceAll, saveError, ready } = useStore()
   const s = state.settings
   const dailyLeague = leagueFor(s.daily.league)
-  const dailyMarkets = s.daily.markets ?? dailyLeague.markets
+  const dailyMarkets = marketsForLeague(dailyLeague.id, s.daily.markets)
 
   if (!ready) {
     return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading…</p>
@@ -334,7 +335,7 @@ export default function SettingsPage() {
                   </Label>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
                     When on, Today prices nothing unless Pinnacle, BetOnline, LowVig or another sharp book posted the
-                    prop. WNBA and college props are often retail-only, so Today stays empty. Turn off to price against
+                    prop. WNBA props are often retail-only, so Today stays empty. Turn off to price against
                     the retail consensus instead: weaker, and every result says so.
                   </p>
                 </div>
@@ -377,7 +378,7 @@ export default function SettingsPage() {
                     setSettings((p) => ({
                       ...p,
                       // Empty means "follow the league", which is the right
-                      // default: college basketball rarely posts threes, and a
+                      // default: each league posts different markets, and a
                       // market that comes back empty still costs a credit.
                       daily: { ...p.daily, markets: parsed.length > 0 ? parsed : null },
                     }))
@@ -386,7 +387,8 @@ export default function SettingsPage() {
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                   Billed per market per game. Every extra market multiplies the cost. Leave this blank to follow the
-                  selected league, which is currently {dailyLeague.label}: {dailyLeague.markets.join(", ")}.
+                  selected league, which is currently {dailyLeague.label}: {dailyLeague.markets.join(", ")}. Markets
+                  from another sport are ignored for that league, so a basketball list is never billed on NFL games.
                 </p>
               </div>
             </div>
