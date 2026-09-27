@@ -16,7 +16,10 @@ export interface OcrProgress {
 }
 
 export interface OcrOutput {
+  /** The screenshot read as-is. Best for large, clean text. */
   lines: OcrLine[]
+  /** The same screenshot read after cleanup. Best for small values beside icons. */
+  cleanedLines: OcrLine[]
   text: string
   meanConfidence: number
 }
@@ -77,26 +80,95 @@ interface RecognizeLine {
 }
 
 /**
+ * Clean a screenshot up before OCR.
+ *
+ * Measured on a real PrizePicks lineup screenshot: read as-is, every line value
+ * came back as junk ("O15", "805", "@tT05") and "3PTM" as "Pub". Upscaled,
+ * greyscaled, inverted and thresholded, the stats read cleanly and the values
+ * come back in a consistent, repairable form ("T15", "T05").
+ *
+ *   Upscale: the decimal point in "1.5" is a few pixels on a phone screenshot
+ *     and OCR drops it. Capped at 12M pixels, under iOS Safari's canvas limit.
+ *   Invert: every one of these apps is dark mode; Tesseract is trained on dark
+ *     text on light paper.
+ *   Threshold: removes the grey card backgrounds and gradient buttons that
+ *     otherwise read as stray characters.
+ */
+export const PREP = { targetWidth: 2700, maxScale: 3, maxPixels: 12_000_000, threshold: 150 }
+
+async function prepare(file: File | Blob): Promise<HTMLCanvasElement | File | Blob> {
+  if (typeof document === "undefined" || typeof createImageBitmap !== "function") return file
+  try {
+    const bmp = await createImageBitmap(file)
+    const w = bmp.width
+    const h = bmp.height
+    const scale = Math.max(1, Math.min(PREP.maxScale, PREP.targetWidth / w, Math.sqrt(PREP.maxPixels / (w * h))))
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.round(w * scale)
+    canvas.height = Math.round(h * scale)
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })
+    if (!ctx) return file
+    ctx.imageSmoothingQuality = "high"
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+    bmp.close?.()
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const px = img.data
+    let sum = 0
+    for (let i = 0; i < px.length; i += 4) {
+      const y = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]
+      px[i] = y
+      sum += y
+    }
+    const invert = sum / (px.length / 4) < 128
+    for (let i = 0; i < px.length; i += 4) {
+      const y = invert ? 255 - px[i] : px[i]
+      const v = y < PREP.threshold ? 0 : 255
+      px[i] = px[i + 1] = px[i + 2] = v
+      px[i + 3] = 255
+    }
+    ctx.putImageData(img, 0, 0)
+    return canvas
+  } catch {
+    // Anything the browser cannot decode or draw goes to OCR untouched.
+    return file
+  }
+}
+
+/**
  * Read one image. Screenshots of dense mobile boards are the hard case, so the
  * page segmentation mode is left on automatic and the results are always sent to
  * a human for review rather than used directly.
  */
 export async function readImage(file: File | Blob, onProgress?: (p: OcrProgress) => void): Promise<OcrOutput> {
-  const worker = (await getWorker(onProgress)) as unknown as {
-    recognize: (
-      image: File | Blob,
-      options: Record<string, unknown>,
-      output: Record<string, boolean>,
-    ) => Promise<{
-      data: {
-        text: string
-        lines?: RecognizeLine[]
-        blocks?: { paragraphs?: { lines?: RecognizeLine[] }[] }[] | null
-        confidence?: number
-      }
-    }>
-  }
-  const { data } = await worker.recognize(file, {}, { blocks: true, text: true })
+  const worker = (await getWorker(onProgress)) as unknown as Recognizer
+  const raw = await recognizeLines(worker, file)
+  const prepared = await prepare(file)
+  const cleaned = prepared === file ? { lines: [], text: "" } : await recognizeLines(worker, prepared)
+  const meanConfidence =
+    raw.lines.length > 0 ? raw.lines.reduce((a, l) => a + (l.confidence ?? 0), 0) / raw.lines.length : 0
+  return { lines: raw.lines, cleanedLines: cleaned.lines, text: raw.text, meanConfidence }
+}
+
+type Recognizer = {
+  recognize: (
+    image: File | Blob | HTMLCanvasElement,
+    options: Record<string, unknown>,
+    output: Record<string, boolean>,
+  ) => Promise<{
+    data: {
+      text: string
+      lines?: RecognizeLine[]
+      blocks?: { paragraphs?: { lines?: RecognizeLine[] }[] }[] | null
+      confidence?: number
+    }
+  }>
+}
+
+async function recognizeLines(
+  worker: Recognizer,
+  image: File | Blob | HTMLCanvasElement,
+): Promise<{ lines: OcrLine[]; text: string }> {
+  const { data } = await worker.recognize(image, {}, { blocks: true, text: true })
 
   // Walk blocks -> paragraphs -> lines explicitly. Under AUTO segmentation each
   // card is its own block, and block order is what keeps a card's name, line
@@ -128,12 +200,7 @@ export async function readImage(file: File | Blob, onProgress?: (p: OcrProgress)
           .map((t) => ({ text: t.trim(), confidence: data.confidence }))
           .filter((l) => l.text.length > 0)
 
-  const meanConfidence =
-    finalLines.length > 0
-      ? finalLines.reduce((a, l) => a + (l.confidence ?? 0), 0) / finalLines.length
-      : 0
-
-  return { lines: finalLines, text: data.text ?? "", meanConfidence }
+  return { lines: finalLines, text: data.text ?? "" }
 }
 
 /** Release the worker. Called when the capture screen unmounts. */

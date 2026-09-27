@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { extractProps, linesFromText } from "@/lib/ocr/extract"
+import { extractProps, linesFromText, mergeReads } from "@/lib/ocr/extract"
 import { parseSlate, SAMPLE_CSV } from "@/lib/import/parse"
 import {
   draftFromCandidate,
@@ -111,9 +111,12 @@ export default function ImportPage() {
         setOcrStatus(`Reading image ${i + 1} of ${files.length}…`)
         const out = await readImage(files[i], (p) => setOcrStatus(`${p.status} ${Math.round(p.progress * 100)}%`))
         const r = extractProps(out.lines)
-        for (const c of r.candidates) found.push(draftFromCandidate(c, app))
-        seen.push(...out.lines.map((l) => l.text))
-        leftover.push(...r.leftover.map((l) => l.text))
+        const r2 = extractProps(out.cleanedLines)
+        for (const c of mergeReads(r.candidates, r2.candidates)) found.push(draftFromCandidate(c, app))
+        // Show whichever read got further, so "what was read" is the useful one.
+        const best = r2.candidates.length > r.candidates.length ? { res: r2, lines: out.cleanedLines } : { res: r, lines: out.lines }
+        seen.push(...best.lines.map((l) => l.text))
+        leftover.push(...best.res.leftover.map((l) => l.text))
       }
       const dupes = addDrafts(found)
       setLastRead({ source: "screenshot", found: found.length, lines: seen, leftover })

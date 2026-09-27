@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { extractProps, linesFromText, type OcrLine } from "@/lib/ocr/extract"
+import { extractProps, linesFromText, mergeReads, type OcrLine, type PropCandidate } from "@/lib/ocr/extract"
 import { PAGE_SEG_MODE } from "@/lib/ocr/engine"
 import grid from "./fixtures/ocr/board-grid.json"
 import list from "./fixtures/ocr/board-list.json"
 import hard from "./fixtures/ocr/board-hard.json"
+import lineup from "./fixtures/ocr/real-prizepicks-lineup.json"
 
 /**
  * Capture-a-slate regression tests.
@@ -67,6 +68,20 @@ describe("real OCR output", () => {
     ])
   })
 
+  it("reads a real PrizePicks entry screen: name and arrowed value on one row, stat below", () => {
+    // A user's own screenshot, cleaned up the way the engine does it. The
+    // arrow reads as "T" or "7" and the decimal point is often lost, so every
+    // value here is a repair and every one must be flagged for checking.
+    const c = extractProps(lineup as OcrLine[]).candidates
+    expect(c.map((x) => `${x.player} | ${x.line} | ${x.marketKey}`).sort()).toEqual([
+      "Jonquel Jones | 1.5 | AST",
+      "Leonie Fiebich | 0.5 | 3PM",
+      "Napheesa Collier | 1.5 | AST",
+      "Olivia Miles | 0.5 | 3PM",
+    ])
+    expect(c.every((x) => x.issues.some((i) => /Check it against the app/.test(i)))).toBe(true)
+  })
+
   it("never pairs a value with a player below it", () => {
     // Positions without the name above them: nothing is the right answer.
     const lines: OcrLine[] = [
@@ -74,6 +89,28 @@ describe("real OCR output", () => {
       { text: "LeBron James", bbox: { x0: 50, y0: 200, x1: 300, y1: 240 } },
     ]
     expect(extractProps(lines).candidates).toEqual([])
+  })
+})
+
+describe("merging the raw and cleaned reads", () => {
+  const cand = (player: string, line: number): PropCandidate => ({
+    player, marketKey: "PTS", marketLabel: "Points", rawMarket: "Points", line,
+    confidence: 0.9, sourceLines: [0], issues: [],
+  })
+
+  it("keeps one copy when the reads agree", () => {
+    expect(mergeReads([cand("LeBron James", 24.5)], [cand("LeBron James", 24.5)])).toHaveLength(1)
+  })
+
+  it("keeps the raw value and flags it when the reads disagree", () => {
+    // Measured: cleanup turned a large 3.5 into 3.9. Never pick silently.
+    const [m] = mergeReads([cand("Anthony Edwards", 3.5)], [cand("Anthony Edwards", 3.9)])
+    expect(m.line).toBe(3.5)
+    expect(m.issues.join(" ")).toMatch(/disagree: 3.5 and 3.9/)
+  })
+
+  it("adds props only the cleaned read found", () => {
+    expect(mergeReads([], [cand("Olivia Miles", 0.5)]).map((c) => c.player)).toEqual(["Olivia Miles"])
   })
 })
 
@@ -130,6 +167,13 @@ describe("typed and pasted text", () => {
   it("still reads the stacked layout", () => {
     expect(typed("LAL - F\nLeBron James\nvs GSW Tue 7:30pm\n24.5\nPoints\nLess\nMore")).toEqual([
       "LeBron James | 24.5 | PTS",
+    ])
+  })
+
+  it("reads name and value on one line with the stat on the next", () => {
+    expect(typed("Jonquel Jones 1.5\nAssists\nOlivia Miles 0.5\n3PTM")).toEqual([
+      "Jonquel Jones | 1.5 | AST",
+      "Olivia Miles | 0.5 | 3PM",
     ])
   })
 

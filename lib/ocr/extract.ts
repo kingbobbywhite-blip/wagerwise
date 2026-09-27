@@ -67,6 +67,8 @@ const STAT_WORDS = [
   // player's line.
   "blocked shots", "blocked shot", "3-pointers", "3 pointers", "three pointers", "3pt", "3pm",
   "fg made", "ft made", "free throws", "fantasy pts", "stls+blks", "reb+asts", "pts+asts",
+  // PrizePicks lineup and entry screens abbreviate threes as "3PTM".
+  "3ptm", "3pt m",
 ]
 
 /** Words that look like names to a regex but never are. */
@@ -132,7 +134,7 @@ export function parseLineValue(raw: string): { value: number; repaired: boolean 
 }
 
 function isStatLine(text: string): { label: string; key: MarketKey | null } | null {
-  const lower = text.toLowerCase().trim().replace(/\s+/g, " ")
+  const lower = text.replace(/[\u2122\u00ae\u00a9]/g, "").toLowerCase().trim().replace(/\s+/g, " ")
   if (!lower) return null
   // Strip a leading number so "24.5 Points" is recognised as a stat line.
   const withoutNumber = lower.replace(/^[\d.,ols|]+\s+/, "").trim()
@@ -235,6 +237,69 @@ function nameFromPrefix(prefix: string): string | null {
   return null
 }
 
+/**
+ * A line value at the end of a name row, as PrizePicks entry and lineup
+ * screens print it: "Jonquel Jones  (goblin) \u2191 1.5".
+ *
+ * OCR reads the arrow as a "T" or a "7" and often drops the decimal point, so
+ * "\u2191 1.5" arrives as "T15", "715" or "71.5", and "\u2191 0.5" as "T05".
+ * Strip one arrow-like character, and if the remainder lost its decimal point,
+ * put it back before the final digit. Lines on these apps end in .5 almost
+ * without exception, so "15" after an arrow is 1.5, not fifteen. Every repair
+ * is flagged for the review table.
+ */
+function loosePrefixedValue(tok: string): { value: number; repaired: boolean } | null {
+  const t = tok.replace(/^[@\u00ae\u00a9]+/, "")
+  const strict = t.match(/^(\d{1,2}(?:\.\d)?)$/)
+  const arrow = t.match(/^[Tt7\u2191\u2193]+(\d{1,3}(?:\.\d)?)$/)
+  if (arrow) {
+    let rest = arrow[1]
+    if (!rest.includes(".") && rest.length >= 2 && /[05]$/.test(rest)) rest = `${rest.slice(0, -1)}.${rest.slice(-1)}`
+    const v = Number.parseFloat(rest)
+    if (Number.isFinite(v) && v < 100) return { value: v, repaired: true }
+  }
+  if (strict) return { value: Number.parseFloat(strict[1]), repaired: t !== tok }
+  return null
+}
+
+/** Drop trailing tokens that cannot be part of a name: stray glyphs, lone characters, numbers. */
+function trimTrailingJunk(tokens: string[]): string[] {
+  const out = [...tokens]
+  while (out.length > 0) {
+    const last = out[out.length - 1]
+    if (/[A-Za-z]{2,}/.test(last) && !/\d/.test(last)) break
+    out.pop()
+  }
+  return out
+}
+
+/**
+ * A row holding a player and a line but no stat: "Jonquel Jones @ T15".
+ * The stat sits on the row below, beside the team and jersey number.
+ */
+function findNameValue(text: string): { name: string; value: number; repaired: boolean; raw: string } | null {
+  const tokens = trimNoise(text).split(/\s+/).filter(Boolean)
+  if (tokens.length < 2) return null
+  const raw = tokens[tokens.length - 1]
+  const v = loosePrefixedValue(raw)
+  if (!v) return null
+  const prefix = trimTrailingJunk(tokens.slice(0, -1)).join(" ")
+  const name = nameFromPrefix(trimNoise(prefix))
+  if (!name) return null
+  return { name: tidyName(name), value: v.value, repaired: v.repaired, raw }
+}
+
+/** A stat at the end of a row after other text: "NYL-C- #35 Assists". */
+function statSuffix(text: string): { stat: { label: string; key: MarketKey | null }; statText: string } | null {
+  const tokens = trimNoise(text).split(/\s+/).filter(Boolean)
+  for (let k = Math.min(4, tokens.length - 1); k >= 1; k--) {
+    const statText = tokens.slice(tokens.length - k).join(" ")
+    const stat = isStatLine(statText)
+    if (stat && stat.key) return { stat, statText }
+  }
+  return null
+}
+
 interface InlineMatch {
   value: number
   stat: { label: string; key: MarketKey | null }
@@ -293,12 +358,14 @@ interface Classified {
   text: string
   confidence: number
   /** "prop" is a whole prop on one line: name, value and stat together. */
-  kind: "prop" | "name" | "stat" | "number" | "noise"
+  kind: "prop" | "name" | "stat" | "number" | "namevalue" | "noise"
   stat?: { label: string; key: MarketKey | null }
   statText?: string
   number?: { value: number; repaired: boolean }
   name?: string
   bbox?: OcrBox
+  /** Raw token a repaired line value was read from, for the review note. */
+  rawValue?: string
 }
 
 function classify(lines: OcrLine[]): Classified[] {
@@ -331,7 +398,16 @@ function classify(lines: OcrLine[]): Classified[] {
     }
     const num = parseLineValue(text)
     if (num) return { index, text, confidence, bbox, kind: "number" as const, number: num }
+    const nv = findNameValue(text)
+    if (nv) {
+      return {
+        index, text, confidence, bbox, kind: "namevalue" as const,
+        name: nv.name, number: { value: nv.value, repaired: nv.repaired }, rawValue: nv.raw,
+      }
+    }
     if (isNameLine(text)) return { index, text, confidence, bbox, kind: "name" as const, name: trimNoise(text) }
+    const suffix = statSuffix(text)
+    if (suffix) return { index, text, confidence, bbox, kind: "stat" as const, stat: suffix.stat, statText: suffix.statText }
     return { index, text, confidence, bbox, kind: "noise" as const }
   })
 }
@@ -358,7 +434,7 @@ const overlapsX = (a: OcrBox, b: OcrBox) => a.x0 < b.x1 && b.x0 < a.x1
 function pickByPosition(
   items: Classified[],
   stat: Classified,
-  kind: "name" | "number",
+  kind: "name" | "number" | "namevalue",
   used: Set<number>,
   lineHeight: number,
   maxLines: number,
@@ -445,6 +521,32 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
     // Number: on the stat line itself, else the closest unused number within
     // two lines either side, preferring the one before.
     let number = item.number ?? null
+    let name: string | null = null
+
+    // Name and value on the row above, as on a PrizePicks entry screen.
+    if (!number) {
+      let nvIndex: number | null = null
+      if (geometric) nvIndex = pickByPosition(items, item, "namevalue", used, lineHeight, 3)
+      else {
+        for (const i of [item.index - 1, item.index - 2]) {
+          if (items[i]?.kind === "namevalue" && !used.has(i)) {
+            nvIndex = i
+            break
+          }
+        }
+      }
+      if (nvIndex != null) {
+        const nv = items[nvIndex]
+        number = nv.number!
+        name = nv.name!
+        used.add(nvIndex)
+        sourceLines.push(nvIndex)
+        if (nv.number!.repaired) {
+          issues.push(`Line read as "${nv.rawValue}" and taken as ${nv.number!.value}. Check it against the app.`)
+        }
+      }
+    }
+
     if (!number && geometric) {
       const i = pickByPosition(items, item, "number", used, lineHeight, 3)
       if (i != null) {
@@ -469,11 +571,10 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
       issues.push("No line value found near this stat.")
       continue
     }
-    if (number.repaired) issues.push("Line value needed character repair; check it.")
+    if (number.repaired && !name) issues.push("Line value needed character repair; check it.")
 
     // Name: by position when available, else nearest unused name above, then below.
-    let name: string | null = null
-    if (geometric) {
+    if (!name && geometric) {
       const i = pickByPosition(items, item, "name", used, lineHeight, 8)
       if (i != null) {
         name = items[i].name ?? items[i].text
@@ -548,4 +649,35 @@ export function linesFromText(text: string): OcrLine[] {
     .split(/\r?\n/)
     .map((t) => ({ text: t.trim() }))
     .filter((l) => l.text.length > 0)
+}
+
+/**
+ * Combine two reads of the same screenshot: as-is, and cleaned up.
+ *
+ * Neither read is right everywhere. On boards with a large line value the raw
+ * read is exact and cleanup can turn 3.5 into 3.9; on entry screens with small
+ * values beside icons the raw read gets nothing and cleanup recovers them. So:
+ * a prop both reads agree on is kept once; a prop they disagree on keeps the
+ * raw value and says so, rather than silently choosing; a prop only the
+ * cleaned read found is added.
+ */
+export function mergeReads(primary: PropCandidate[], secondary: PropCandidate[]): PropCandidate[] {
+  const key = (c: PropCandidate) => `${c.player.toLowerCase().replace(/[^a-z]/g, "")}|${c.marketKey ?? c.marketLabel}`
+  const out = primary.map((c) => ({ ...c, issues: [...c.issues] }))
+  const byKey = new Map(out.map((c) => [key(c), c]))
+  for (const c of secondary) {
+    const existing = byKey.get(key(c))
+    if (!existing) {
+      out.push(c)
+      byKey.set(key(c), c)
+      continue
+    }
+    if (existing.line !== c.line) {
+      existing.issues.push(
+        `Two reads of the screenshot disagree: ${existing.line} and ${c.line}. Check it against the app.`,
+      )
+      existing.confidence = Math.max(0.05, existing.confidence - 0.3)
+    }
+  }
+  return out
 }
