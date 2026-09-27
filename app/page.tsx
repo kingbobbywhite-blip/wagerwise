@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
+import { bookProfile } from "@/lib/quant/books"
 import { formatAmerican } from "@/lib/quant/odds"
 import { breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
@@ -75,6 +76,12 @@ export default function TodayPage() {
       bettableBooks: s.oddsFeed.bettable,
     })
   }, [daily, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven])
+
+  // Books you bet at that the cached pull has no prices from, usually because
+  // the pull predates adding them. Refreshing brings them in.
+  const missingBettable = picks
+    ? s.oddsFeed.bettable.filter((id) => !picks.stats.booksSeen.includes(id)).map((id) => bookProfile(id).name)
+    : []
 
   async function refresh() {
     setBusy(true)
@@ -354,7 +361,22 @@ export default function TodayPage() {
                   </table>
                 </div>
               </section>
-            ) : null}
+            ) : (
+              <section className="rounded-lg border border-dashed border-border/60 p-5 text-xs leading-relaxed text-muted-foreground">
+                <span className="font-mono uppercase tracking-[0.14em]">No value bets at your books</span>
+                <p className="mt-2 max-w-2xl">
+                  {picks.stats.hiddenOffers > 0
+                    ? `${picks.stats.hiddenOffers} edge${picks.stats.hiddenOffers === 1 ? " was" : "s were"} found, but only at books you don't bet at (${picks.stats.hiddenBooks.map((id) => bookProfile(id).name).join(", ")}), so ${picks.stats.hiddenOffers === 1 ? "it is" : "they are"} not shown. `
+                    : "None of the prices in this pull beat the fair value by your minimum edge. "}
+                  {missingBettable.length > 0
+                    ? `This pull has no prices from ${missingBettable.join(", ")}. Refresh to ask for them; a book that doesn't post ${league.label} props will still be missing. `
+                    : ""}
+                  Your books: {s.oddsFeed.bettable.map((id) => bookProfile(id).name).join(", ") || "none"}.{" "}
+                  <Link href="/settings" className="text-primary underline underline-offset-2">Change in Settings</Link>
+                  {picks.dfsTargets.length > 0 ? ". The pick'em targets below still apply to PrizePicks and the other apps." : "."}
+                </p>
+              </section>
+            )}
 
             {picks.dfsTargets.length > 0 ? (
               <section className="space-y-3">
