@@ -72,6 +72,7 @@ export default function TodayPage() {
       constraints: { ...s.constraints, picks: s.daily.parlayLegs },
       dfsBreakEven,
       parlayCount: 4,
+      bettableBooks: s.oddsFeed.bettable,
     })
   }, [daily, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven])
 
@@ -95,7 +96,9 @@ export default function TodayPage() {
           from: start.toISOString(),
           to: end.toISOString(),
           markets: s.daily.markets ?? undefined,
-          bookmakers: s.oddsFeed.books,
+          // References plus every book you can bet at. The feed bills per ten
+          // bookmakers as one region, so up to ten costs the same as five.
+          bookmakers: Array.from(new Set([...s.oddsFeed.books, ...s.oddsFeed.bettable])).slice(0, 10),
           regions: s.oddsFeed.regions,
           maxGames: s.daily.maxGames,
         }),
@@ -320,6 +323,13 @@ export default function TodayPage() {
                 <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Best single bets
                 </h2>
+                <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
+                  Each bet names the book to place it at. Prices are from {shortDate(daily!.fetchedAt)} and move; if a
+                  line is gone or different in the app, refresh before betting.
+                  {picks.stats.hiddenOffers > 0
+                    ? ` ${picks.stats.hiddenOffers} more edge${picks.stats.hiddenOffers === 1 ? " was" : "s were"} at books you don't bet at, so ${picks.stats.hiddenOffers === 1 ? "it is" : "they are"} hidden. Change that in Settings.`
+                    : ""}
+                </p>
                 <div className="overflow-x-auto rounded-lg border border-border/60">
                   <table className="w-full min-w-[820px] border-collapse text-sm">
                     <thead>

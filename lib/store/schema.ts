@@ -32,6 +32,15 @@ export interface OddsFeedSettings {
   apiKey: string
   /** Books to request, in preference order. */
   books: string[]
+  /**
+   * Books you hold an account at and can actually bet.
+   *
+   * Every other book is a reference only: it helps judge what a line is worth
+   * but is never shown as the place to bet. Pinnacle, BetOnline and LowVig are
+   * the sharpest references and none of them takes US customers, so a bet
+   * recommended there is a bet you cannot place.
+   */
+  bettable: string[]
   /** Regions parameter for the feed. */
   regions: string
 }
@@ -39,6 +48,7 @@ export interface OddsFeedSettings {
 export const DEFAULT_ODDS_FEED: OddsFeedSettings = {
   apiKey: "",
   books: ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel"],
+  bettable: ["fanduel", "draftkings", "betmgm", "williamhill_us", "espnbet"],
   regions: "us,us2,eu",
 }
 
