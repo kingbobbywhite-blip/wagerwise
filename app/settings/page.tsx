@@ -327,6 +327,24 @@ export default function SettingsPage() {
                 onChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, minEdge: v } }))}
                 hint="Ignore value bets below this. Real edges on a liquid market are low single digits; anything large is usually a line that already moved."
               />
+              <div className="flex items-start justify-between gap-3 rounded-lg border border-border/50 p-3">
+                <div>
+                  <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                    Today: require a sharp book
+                  </Label>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                    When on, Today prices nothing unless Pinnacle, BetOnline, LowVig or another sharp book posted the
+                    prop. WNBA and college props are often retail-only, so Today stays empty. Turn off to price against
+                    the retail consensus instead: weaker, and every result says so.
+                  </p>
+                </div>
+                <Switch
+                  checked={s.daily.requireSharpReference}
+                  onCheckedChange={(v) =>
+                    setSettings((p) => ({ ...p, daily: { ...p.daily, requireSharpReference: v } }))
+                  }
+                />
+              </div>
               <SliderRow
                 label="Parlay legs"
                 value={s.daily.parlayLegs}

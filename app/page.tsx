@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
-import { bookProfile } from "@/lib/quant/books"
+import { bookProfile, isSharp } from "@/lib/quant/books"
 import { formatAmerican } from "@/lib/quant/odds"
 import { breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
@@ -94,6 +94,11 @@ export default function TodayPage() {
   const missingBettable = picks
     ? s.oddsFeed.bettable.filter((id) => !picks.stats.booksSeen.includes(id)).map((id) => bookProfile(id).name)
     : []
+
+  // Today refuses to price without a sharp reference. When the whole pull is
+  // retail-only, that, not a lack of edges, is why the screen is empty.
+  const noSharpBook =
+    !!picks && s.daily.requireSharpReference && picks.stats.pricedProps === 0 && !picks.stats.booksSeen.some(isSharp)
 
   async function refresh() {
     setBusy(true)
@@ -288,7 +293,7 @@ export default function TodayPage() {
         {picks ? (
           <>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <StatTile label="Games" value={String(picks.games.length)} hint={`${picks.stats.props} player props priced.`} />
+              <StatTile label="Games" value={String(picks.games.length)} hint={`${picks.stats.pricedProps} of ${picks.stats.props} player props priced.`} />
               <StatTile
                 label="Value bets"
                 value={String(picks.valueBets.length)}
@@ -384,7 +389,9 @@ export default function TodayPage() {
               <section className="rounded-lg border border-dashed border-border/60 p-5 text-xs leading-relaxed text-muted-foreground">
                 <span className="font-mono uppercase tracking-[0.14em]">No value bets at your books</span>
                 <p className="mt-2 max-w-2xl">
-                  {picks.stats.hiddenOffers > 0
+                  {noSharpBook
+                    ? `Only retail books (${picks.stats.booksSeen.map((id) => bookProfile(id).name).join(", ")}) posted these props, and none of them is a sharp book like Pinnacle, BetOnline or LowVig. Retail books copy each other, so without a sharp price there is nothing trustworthy to measure them against, and the app prices nothing rather than guess. Sharp books often post ${league.label} props closer to tip, so refresh then; or turn off "Today: require a sharp book" in Settings to price against the retail consensus (weaker). `
+                    : picks.stats.hiddenOffers > 0
                     ? `${picks.stats.hiddenOffers} edge${picks.stats.hiddenOffers === 1 ? " was" : "s were"} found, but only at books you don't bet at (${picks.stats.hiddenBooks.map((id) => bookProfile(id).name).join(", ")}), so ${picks.stats.hiddenOffers === 1 ? "it is" : "they are"} not shown. `
                     : "None of the prices in this pull beat the fair value by your minimum edge. "}
                   {missingBettable.length > 0
