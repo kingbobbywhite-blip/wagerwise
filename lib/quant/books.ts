@@ -99,11 +99,14 @@ export const BOOK_PROFILES: BookProfile[] = [
   },
   {
     id: "williamhill_us",
-    name: "Caesars (William Hill)",
+    name: "Caesars",
     tier: "retail",
     weight: 0.15,
-    note: "Retail.",
+    note: "Retail. The feed's id for Caesars Sportsbook.",
   },
+  { id: "betrivers", name: "BetRivers", tier: "retail", weight: 0.1, note: "Retail." },
+  { id: "fanatics", name: "Fanatics", tier: "retail", weight: 0.1, note: "Retail." },
+  { id: "hardrockbet", name: "Hard Rock", tier: "retail", weight: 0.1, note: "Retail." },
 ]
 
 const BY_ID = new Map(BOOK_PROFILES.map((b) => [b.id, b]))

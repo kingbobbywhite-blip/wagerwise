@@ -259,6 +259,45 @@ export default function SettingsPage() {
 
             <div>
               <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                Where I can bet
+              </Label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {BETTABLE_CHOICES.map((b) => {
+                  const on = s.oddsFeed.bettable.includes(b.id)
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() =>
+                        setSettings((p) => ({
+                          ...p,
+                          oddsFeed: {
+                            ...p.oddsFeed,
+                            bettable: on ? p.oddsFeed.bettable.filter((x) => x !== b.id) : [...p.oddsFeed.bettable, b.id],
+                          },
+                        }))
+                      }
+                      className={
+                        on
+                          ? "rounded-md bg-primary/15 px-3 py-1.5 font-mono text-[11px] text-primary ring-1 ring-primary/30"
+                          : "rounded-md px-3 py-1.5 font-mono text-[11px] text-muted-foreground ring-1 ring-border/60 hover:text-foreground"
+                      }
+                    >
+                      {b.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Only books you have an account at. A bet is only ever recommended at one of these. Pinnacle, BetOnline and
+                LowVig are still pulled to judge prices, but none of them takes US customers, so they are never offered
+                as the place to bet.
+              </p>
+            </div>
+
+            <div>
+              <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                 Books to request
               </Label>
               <Input
@@ -478,3 +517,15 @@ function SliderRow({
     </div>
   )
 }
+
+/** US retail books a bet can be recommended at. Ids are the odds feed's. */
+const BETTABLE_CHOICES = [
+  { id: "fanduel", label: "FanDuel" },
+  { id: "draftkings", label: "DraftKings" },
+  { id: "betmgm", label: "BetMGM" },
+  { id: "williamhill_us", label: "Caesars" },
+  { id: "espnbet", label: "ESPN BET" },
+  { id: "betrivers", label: "BetRivers" },
+  { id: "fanatics", label: "Fanatics" },
+  { id: "hardrockbet", label: "Hard Rock" },
+]

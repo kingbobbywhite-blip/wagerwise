@@ -71,6 +71,8 @@ export interface DailyPicks {
     props: number
     booksSeen: string[]
     pricedProps: number
+    /** Edges found only at books outside the bettable list, and so not shown. */
+    hiddenOffers: number
   }
 }
 
@@ -95,6 +97,12 @@ export interface BuildOptions {
   parlayCommission?: number
   /** How many parlays to return. */
   parlayCount?: number
+  /**
+   * Books a bet may be recommended at. Quotes from every other book still count
+   * toward the reference price, but are never offered as the bet. Omit to allow
+   * any book.
+   */
+  bettableBooks?: string[]
   now?: number
 }
 
@@ -234,7 +242,10 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
   const games = summariseGames(quotes)
   const groups = groupQuotes(quotes)
 
-  const allValue = findValueBets(quotes, opts.value, now)
+  const everyValue = findValueBets(quotes, opts.value, now)
+  // References judge the price; only books you can use are offered as the bet.
+  const bettable = opts.bettableBooks ? new Set(opts.bettableBooks) : null
+  const allValue = bettable ? everyValue.filter((b) => bettable.has(b.book)) : everyValue
   const valueBets = bestPerSelection(allValue)
 
   // Parlays are built only from legs that are individually +EV. Stacking legs
@@ -288,7 +299,13 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
     valueBets,
     parlays: topParlays,
     dfsTargets,
-    stats: { quotes: quotes.length, props: groups.length, booksSeen, pricedProps },
+    stats: {
+      quotes: quotes.length,
+      props: groups.length,
+      booksSeen,
+      pricedProps,
+      hiddenOffers: everyValue.length - allValue.length,
+    },
   }
 }
 
