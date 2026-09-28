@@ -9,8 +9,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { brierScore, calibrationBias, calibrationBuckets, logLoss, summarise, type Observation } from "@/lib/quant/calibration"
-import { dfsPayout } from "@/lib/quant/evaluate"
-import { breakEvenLegProb, capturedToMode, findApp, findMode } from "@/lib/quant/payouts"
+import { LogEntry } from "@/components/log-entry"
+import { breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
+import { openExposure, recordByType, settlementMode, withResults } from "@/lib/tracker/entries"
 import { useStore } from "@/lib/store/provider"
 import type { LegResult, TrackedSlip } from "@/lib/store/schema"
 import { money, multiple, pct, shortDate, signedPct } from "@/lib/format"
@@ -29,8 +30,8 @@ export default function TrackerPage() {
     () =>
       slips
         .flatMap((s) => s.legs)
-        .filter((l) => l.result === "WIN" || l.result === "LOSS")
-        .map((l) => ({ p: l.pWinAtEntry, win: l.result === "WIN" })),
+        .filter((l) => (l.result === "WIN" || l.result === "LOSS") && l.pWinAtEntry != null)
+        .map((l) => ({ p: l.pWinAtEntry as number, win: l.result === "WIN" })),
     [slips],
   )
 
@@ -38,6 +39,24 @@ export default function TrackerPage() {
   const bias = calibrationBias(observations)
   const brier = brierScore(observations)
   const ll = logLoss(observations)
+  const exposure = React.useMemo(() => openExposure(slips), [slips])
+  const record = React.useMemo(() => recordByType(slips), [slips])
+  const [logging, setLogging] = React.useState(false)
+
+  // What each settled leg had to hit, on average, at the payouts actually played.
+  const bar = React.useMemo(() => {
+    let legs = 0
+    let acc = 0
+    for (const s of slips) {
+      if (s.status !== "SETTLED" || !s.capturedPayout) continue
+      const be = breakEvenLegProb(settlementMode(s, state.settings.apps), s.legs.length)
+      if (be == null) continue
+      const decided = s.legs.filter((l) => l.result === "WIN" || l.result === "LOSS").length
+      legs += decided
+      acc += be * decided
+    }
+    return legs > 0 ? acc / legs : null
+  }, [slips, state.settings.apps])
 
   if (!ready) {
     return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading…</p>
@@ -45,34 +64,26 @@ export default function TrackerPage() {
 
   if (slips.length === 0) {
     return (
-      <EmptyState
-        title="Nothing logged yet"
-        body="Log entries from the build screen, then settle each leg here once the games finish. Results are the only thing that can tell you whether the model is honest, and it takes a few hundred legs before the answer means much."
-        actionLabel="Build entries"
-        actionHref="/build"
-      />
+      <div className="space-y-6">
+        <EmptyState
+          title="Nothing logged yet"
+          body="Log entries you placed below, or from the build screen, then settle each leg here once the games finish. Results are the only thing that can tell you whether the model is honest, and it takes a few hundred legs before the answer means much."
+          actionLabel="Build entries"
+          actionHref="/build"
+        />
+        <LogEntry />
+      </div>
     )
   }
 
   function settleLeg(slip: TrackedSlip, index: number, result: LegResult) {
-    updateSlip(slip.id, (s) => {
-      const legs = s.legs.map((l, i) => (i === index ? { ...l, result } : l))
-      const settledAll = legs.every((l) => l.result !== "PENDING")
-      if (!settledAll) return { ...s, legs, status: "PENDING", actualMultiple: null, settledAt: null }
-
-      // Settle against the payout captured when the entry was built, not the
-      // stored table, which may have changed since.
-      const wins = legs.filter((l) => l.result === "WIN").length
-      const pushes = legs.filter((l) => l.result === "PUSH").length
-      // Settlement is deterministic here, so the per-leg outcome vector is
-      // built from the recorded results rather than simulated.
-      const outcomes = Int8Array.from(legs.map((l) => (l.result === "WIN" ? 1 : l.result === "PUSH" ? 0 : -1)))
-      const actualMultiple = s.capturedPayout
-        ? dfsPayout(capturedToMode(s.capturedPayout))(wins, pushes, legs.length, outcomes)
-        : 0
-      return { ...s, legs, status: "SETTLED", actualMultiple, settledAt: new Date().toISOString() }
-    })
+    // Settles against the payout captured from the screen, and the stored
+    // table for a smaller size when a player did not play.
+    updateSlip(slip.id, (s) => withResults(s, s.legs.map((l, i) => (i === index ? { ...l, result } : l)), state.settings.apps))
   }
+
+  const decided = record.priced.wins + record.priced.losses + record.unpriced.wins + record.unpriced.losses
+  const hits = record.priced.wins + record.unpriced.wins
 
   return (
     <div className="space-y-6">
@@ -83,6 +94,32 @@ export default function TrackerPage() {
           model predicted against what happened, which is the only honest test of whether it works.
         </p>
       </header>
+
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant={logging ? "secondary" : "default"} onClick={() => setLogging((v) => !v)}>
+          {logging ? "Close" : "Log an entry you placed"}
+        </Button>
+      </div>
+      {logging ? <LogEntry onDone={() => setLogging(false)} /> : null}
+
+      {exposure.length > 0 ? (
+        <section className="rounded-lg border border-accent/40 bg-accent/5 p-4 text-xs leading-relaxed">
+          <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-accent">Same player in several open entries</h2>
+          <ul className="mt-2 space-y-1">
+            {exposure.map((e) => (
+              <li key={e.player}>
+                <span className="font-medium">{e.player}</span>{" "}
+                <span className="text-muted-foreground">
+                  is in {e.entries} open entries ({e.bets.join("; ")}).{" "}
+                  {e.conflicting
+                    ? "Over in one and under in another: at least one of those legs loses."
+                    : "One game decides all of them together, which multiplies the swing without adding edge."}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatTile label="Settled" value={`${perf.settled}/${perf.entries}`} hint={`${perf.wins} returned a profit, ${perf.losses} did not.`} />
@@ -116,6 +153,41 @@ export default function TrackerPage() {
           }
         />
       </div>
+
+      {decided > 0 ? (
+        <section className="rounded-lg border border-border/60 bg-card/40 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Your legs</h2>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {hits} of {decided} hit ({pct(hits / decided, 0)})
+              {bar != null ? ` · needed about ${pct(bar, 0)} to break even` : ""}
+            </span>
+          </div>
+          <table className="mt-3 w-full text-xs">
+            <tbody>
+              {[...record.byType, record.priced, record.unpriced]
+                .filter((r) => r.wins + r.losses > 0)
+                .map((r, i) => (
+                  <tr key={r.label} className={cn("border-t border-border/40", i === record.byType.length && "border-t-2")}>
+                    <td className="py-1.5">{r.label}</td>
+                    <td className="py-1.5 text-right font-mono tabular-nums">
+                      {r.wins}-{r.losses}
+                    </td>
+                    <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                      {pct(r.wins / (r.wins + r.losses), 0)}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            {decided < 50
+              ? `${decided} legs is far too few to tell skill from luck: at a 55% true rate, anywhere from about ${pct(Math.max(0, 0.55 - 2 * Math.sqrt(0.2475 / decided)), 0)} to ${pct(Math.min(1, 0.55 + 2 * Math.sqrt(0.2475 / decided)), 0)} is normal. Use this to spot habits, not to judge them.`
+              : "A row needs roughly 50 legs before its rate means much. Legs the app never priced are the ones to compare against the ones it did."}{" "}
+            Did-not-play and pushes are left out.
+          </p>
+        </section>
+      ) : null}
 
       {observations.length > 0 ? (
         <section className="rounded-lg border border-border/60 bg-card/40 p-4">
@@ -174,7 +246,7 @@ export default function TrackerPage() {
           const app = findApp(state.settings.apps, s.appId)
           const mode = findMode(app, s.modeId)
           const wins = s.legs.filter((l) => l.result === "WIN").length
-          const be = s.capturedPayout ? breakEvenLegProb(capturedToMode(s.capturedPayout), s.legs.length) : null
+          const be = s.capturedPayout ? breakEvenLegProb(settlementMode(s, state.settings.apps), s.legs.length) : null
           return (
             <div key={s.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -183,9 +255,13 @@ export default function TrackerPage() {
                     {app?.name ?? s.appId} · {mode?.label ?? s.modeId} · {s.legs.length}-pick
                   </div>
                   <div className="font-mono text-[10px] text-muted-foreground">
-                    {shortDate(s.createdAt)} · {money(s.stake)} · model said {pct(s.pAllHitAtEntry)} to sweep,{" "}
-                    {signedPct(s.evAtEntry)} EV
-                    {be != null ? ` · break-even ${pct(be)}` : ""}
+                    {shortDate(s.createdAt)} · {money(s.stake)} ·{" "}
+                    {s.pAllHitAtEntry != null && s.evAtEntry != null
+                      ? `model said ${pct(s.pAllHitAtEntry)} to sweep, ${signedPct(s.evAtEntry)} EV`
+                      : s.source === "logged"
+                        ? "logged, not priced by the app"
+                        : "not priced"}
+                    {be != null ? ` · each leg needed ${pct(be)}` : ""}
                   </div>
                   {s.capturedPayout ? (
                     <div className="font-mono text-[10px] text-muted-foreground">
@@ -238,7 +314,7 @@ export default function TrackerPage() {
                     <div className="min-w-0 flex-1">
                       <span className="text-sm">{l.player}</span>
                       <span className="ml-2 font-mono text-[10px] text-muted-foreground">
-                        {l.marketLabel} {l.line} · model {pct(l.pWinAtEntry, 0)}
+                        {l.marketLabel} {l.line} · {l.pWinAtEntry != null ? `model ${pct(l.pWinAtEntry, 0)}` : "not priced"}
                       </span>
                     </div>
                     <SideBadge side={l.side} />
@@ -248,6 +324,7 @@ export default function TrackerPage() {
                         <SelectItem value="PENDING">Pending</SelectItem>
                         <SelectItem value="WIN">Win</SelectItem>
                         <SelectItem value="LOSS">Loss</SelectItem>
+                        <SelectItem value="VOID">Did not play</SelectItem>
                         <SelectItem value="PUSH">Push</SelectItem>
                       </SelectContent>
                     </Select>

@@ -122,7 +122,8 @@ export interface Slate {
   league?: LeagueId
 }
 
-export type LegResult = "PENDING" | "WIN" | "LOSS" | "PUSH"
+/** VOID: the player did not play ("Reboot" on PrizePicks). The leg drops out, like a push. */
+export type LegResult = "PENDING" | "WIN" | "LOSS" | "PUSH" | "VOID"
 export type SlipStatus = "PENDING" | "SETTLED" | "VOID"
 
 
@@ -133,8 +134,12 @@ export interface TrackedLeg {
   marketLabel: string
   line: number
   side: "OVER" | "UNDER"
-  /** Probability the model gave this leg at the moment the bet was placed. */
-  pWinAtEntry: number
+  /**
+   * Probability the model gave this leg at the moment the bet was placed. Null
+   * for a leg the app never priced, such as one logged from an entry placed
+   * straight in the pick'em app; those count toward profit but not calibration.
+   */
+  pWinAtEntry: number | null
   app: string | null
   result: LegResult
   actual: number | null
@@ -154,9 +159,11 @@ export interface TrackedSlip {
    * on screen at build time is ground truth.
    */
   capturedPayout: CapturedPayout
-  /** Snapshot of what the model believed when the bet went in. */
-  evAtEntry: number
-  pAllHitAtEntry: number
+  /** Snapshot of what the model believed when the bet went in. Null when any leg was never priced. */
+  evAtEntry: number | null
+  pAllHitAtEntry: number | null
+  /** "built" in the app, or "logged" from an entry placed elsewhere. Absent on older entries, which were all built. */
+  source?: "built" | "logged"
   topMultiple: number
   status: SlipStatus
   /** Gross multiple actually returned, once settled. */

@@ -102,12 +102,15 @@ export interface Performance {
 }
 
 export function summarise(
-  slips: { stake: number; actualMultiple: number | null; evAtEntry: number; status: string }[],
+  slips: { stake: number; actualMultiple: number | null; evAtEntry: number | null; status: string }[],
 ): Performance {
   const settled = slips.filter((s) => s.status === "SETTLED" && s.actualMultiple != null)
   const staked = settled.reduce((a, s) => a + s.stake, 0)
   const returned = settled.reduce((a, s) => a + s.stake * (s.actualMultiple ?? 0), 0)
-  const expectedReturn = settled.reduce((a, s) => a + s.stake * (1 + s.evAtEntry), 0)
+  // Only entries the model priced have an expectation to compare against.
+  const modelled = settled.filter((s) => s.evAtEntry != null)
+  const modelledStake = modelled.reduce((a, s) => a + s.stake, 0)
+  const expectedReturn = modelled.reduce((a, s) => a + s.stake * (1 + (s.evAtEntry ?? 0)), 0)
   return {
     entries: slips.length,
     settled: settled.length,
@@ -115,7 +118,7 @@ export function summarise(
     returned,
     profit: returned - staked,
     roi: staked > 0 ? (returned - staked) / staked : null,
-    expectedRoi: staked > 0 ? (expectedReturn - staked) / staked : null,
+    expectedRoi: modelledStake > 0 ? (expectedReturn - modelledStake) / modelledStake : null,
     wins: settled.filter((s) => (s.actualMultiple ?? 0) > 1).length,
     losses: settled.filter((s) => (s.actualMultiple ?? 0) <= 1).length,
   }
