@@ -56,7 +56,9 @@ export const DEFAULT_APPS: BookApp[] = [
         id: "power",
         label: "Power Play",
         blurb: "Every pick must hit.",
-        table: allOrNothing([[2, 3], [3, 5], [4, 10], [5, 20], [6, 37.5]]),
+        // 3-pick is 6x: a standard 3-pick with no goblins or demons paid $2 for
+        // $12 on a real entry screen (Sep 2026). The rest are still unverified.
+        table: allOrNothing([[2, 3], [3, 6], [4, 10], [5, 20], [6, 37.5]]),
       },
       {
         id: "flex",
