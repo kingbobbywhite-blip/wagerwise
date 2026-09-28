@@ -1,4 +1,4 @@
-import { normalizeMarket, type MarketKey } from "@/lib/nba/markets"
+import { MARKETS, normalizeMarket, type MarketKey } from "@/lib/nba/markets"
 
 /**
  * Turn OCR text from a DFS board screenshot into candidate props.
@@ -33,6 +33,8 @@ export interface OcrLine {
   bbox?: OcrBox
 }
 
+export type Side = "OVER" | "UNDER"
+
 export interface PropCandidate {
   player: string
   marketKey: MarketKey | null
@@ -44,10 +46,24 @@ export interface PropCandidate {
   /** Source line indices, so the review table can show the context. */
   sourceLines: number[]
   issues: string[]
+  /**
+   * The side taken, when the screenshot or text shows one: an entry screen's
+   * up/down arrow, or "over"/"under" typed beside the line. Boards offer both
+   * sides and leave this empty. Only logging an entry uses it.
+   */
+  side?: Side | null
+  /** Marked "Reboot" on an entry screen: the player did not play. */
+  dnp?: boolean
 }
 
 export interface ExtractResult {
   candidates: PropCandidate[]
+  /**
+   * Player names read with no line near them. On an entry screen the line
+   * sometimes sits under an icon the OCR cannot see through; listing the
+   * player lets the tracker ask for it instead of silently dropping the leg.
+   */
+  unpairedNames: string[]
   /** Lines the extractor could not place, for the review screen. */
   leftover: { index: number; text: string }[]
 }
@@ -73,7 +89,7 @@ const STAT_WORDS = [
   "pass yards", "passing yards", "pass yds", "pass tds", "passing tds", "pass completions", "completions",
   "pass attempts", "passing attempts", "interceptions", "interceptions thrown", "rush yards", "rushing yards",
   "rush yds", "rush attempts", "rushing attempts", "carries", "receptions", "receiving yards", "rec yards",
-  "rec yds", "rush+rec yds", "rush + rec yds", "rush+rec yards", "rush + rec yards", "rushing+receiving yards",
+  "rec yds", "recs", "rec", "rush+rec yds", "rush + rec yds", "rush+rec yards", "rush + rec yards", "rushing+receiving yards",
 ]
 
 /** Words that look like names to a regex but never are. */
@@ -105,6 +121,21 @@ const POSITIONS = new Set([
 
 /** Direction words a person might type beside a line. Stripped, never a name. */
 const SIDE_WORDS = new Set(["over", "under", "o", "u", "ov", "un", "more", "less", "higher", "lower"])
+const OVER_WORDS = new Set(["over", "o", "ov", "more", "higher"])
+
+/** The side named in a typed line, if exactly one is: "Jordan Addison under 5.5 Recs". */
+function typedSide(tokens: string[]): Side | null {
+  let side: Side | null = null
+  for (const t of tokens) {
+    const w = t.toLowerCase()
+    const m = w.match(/^([ou])\d/)
+    const s: Side | null = SIDE_WORDS.has(w) ? (OVER_WORDS.has(w) ? "OVER" : "UNDER") : m ? (m[1] === "o" ? "OVER" : "UNDER") : null
+    if (!s) continue
+    if (side && side !== s) return null
+    side = s
+  }
+  return side
+}
 
 /** Tokens that separate parts of a typed line and carry no meaning of their own. */
 const SEPARATOR = /^[-\u2013\u2014:|\u2022\u00b7,/]+$/
@@ -120,6 +151,111 @@ function repairNumeric(raw: string): string {
     .replace(/[Ss]/g, "5")
     .replace(/[,]/g, ".")
     .replace(/\s+/g, "")
+}
+
+/**
+ * The arrow PrizePicks prints before a line, as OCR renders it.
+ *
+ * Read from five real settled-entry screenshots: up came out as "tT", "oT",
+ * "St", "T", "t", "*" and a quote mark; down as "J", "wv", "oY", "U" and a
+ * backslash. Anything else, or a mix of both, reads as unknown: a side is only
+ * reported when the glyph says so, never guessed.
+ */
+const UP_GLYPH = /[tT*^"'\u2191\u201c\u201d]/
+const DOWN_GLYPH = /[JjvVwWyYU\\\u2193]/
+
+function glyphSide(glyphs: string): Side | null {
+  const up = UP_GLYPH.test(glyphs)
+  const down = DOWN_GLYPH.test(glyphs)
+  if (up === down) return null
+  return up ? "OVER" : "UNDER"
+}
+
+/** A short token that is an arrow, icon or stray mark rather than a word: "tT", "J", "@", "+.)". */
+function isGlyphToken(tok: string): boolean {
+  if (/\d/.test(tok)) return false
+  // Name suffixes are words, not arrows: "Kenneth Walker III 72.5".
+  if (/^(jr|sr|ii|iii|iv|v)\.?$/i.test(tok)) return false
+  const letters = tok.replace(/[^A-Za-z]/g, "").length
+  if (letters === 0) return tok.length <= 4
+  return letters <= 2 && tok.length <= 4
+}
+
+/**
+ * Restore a decimal point an arrow swallowed: "445" after an arrow is 44.5.
+ * Lines on these apps end in .5 almost without exception, so a run of two or
+ * more digits ending in 5 or 0 with no point gets one before its last digit.
+ * A single digit stays as it is: whole-number lines such as 9 do exist.
+ */
+function restoreDecimal(digits: string): { value: number; repaired: boolean } | null {
+  let t = digits.replace(",", ".")
+  let repaired = t !== digits
+  if (!t.includes(".") && t.length >= 2 && /[05]$/.test(t)) {
+    t = `${t.slice(0, -1)}.${t.slice(-1)}`
+    repaired = true
+  }
+  const v = Number.parseFloat(t)
+  if (!Number.isFinite(v) || v >= 1000) return null
+  return { value: v, repaired }
+}
+
+interface TrailingValue {
+  value: number
+  /**
+   * The value if a leading 7 was really the arrow: "71.5" for an up-arrow 1.5.
+   * Which one is right depends on the stat, so the choice waits for it.
+   */
+  alt?: number
+  repaired: boolean
+  side: Side | null
+  /** Tokens left before the value and its arrow: a name, or nothing. */
+  before: string[]
+  raw: string
+}
+
+/**
+ * A line value at the end of a run of tokens, with whatever arrow sits in
+ * front of it, as entry screens print it: "Cade Otton J 65.5", "tT 05",
+ * "Jordan Addison U55", 'Kiki Iriafen "9'.
+ *
+ * With no arrow at all, only a clean value counts ("65.5", "36"), exactly as
+ * before; the decimal repair is reserved for values an arrow was read beside.
+ */
+function trailingValue(tokens: string[]): TrailingValue | null {
+  if (tokens.length === 0) return null
+  const last = tokens[tokens.length - 1]
+  let glyphs = ""
+  let digits: string | null = null
+
+  const attached = last.match(/^([A-Za-z*\\"'^\u2191\u2193\u201c\u201d]{1,2})(\d{1,4}(?:[.,]\d)?)$/)
+  const plain = last.match(/^(\d{1,4}(?:[.,]\d)?)$/)
+  if (attached) {
+    glyphs = attached[1]
+    digits = attached[2]
+  } else if (plain) {
+    digits = plain[1]
+  } else {
+    return null
+  }
+
+  let i = tokens.length - 1
+  while (i > 0 && tokens.length - 1 - i < 3 && isGlyphToken(tokens[i - 1])) {
+    glyphs = tokens[i - 1] + glyphs
+    i--
+  }
+  const before = tokens.slice(0, i)
+  const hasArrow = glyphs.replace(/[@\u00ae\u00a9()]/g, "").length > 0
+
+  if (!hasArrow) {
+    const strict = digits.match(LINE_VALUE)
+    if (!strict) return null
+    const seven = digits.match(/^7(\d{1,2}(?:[.,]\d)?)$/)
+    const alt = seven ? restoreDecimal(seven[1])?.value : undefined
+    return { value: Number.parseFloat(strict[1]), alt, repaired: false, side: null, before, raw: last }
+  }
+  const v = restoreDecimal(digits)
+  if (!v) return null
+  return { value: v.value, repaired: v.repaired, side: glyphSide(glyphs), before, raw: glyphs ? `${glyphs} ${digits}` : last }
 }
 
 /**
@@ -221,7 +357,11 @@ function isNameLine(text: string): boolean {
  * not a full stop, which belongs to "Jr." and "P.J.".
  */
 function tidyName(text: string): string {
-  const t = trimNoise(text).replace(/[:;,|]+$/, "")
+  const t = trimNoise(text)
+    .replace(/[:;,|]+$/, "")
+    // OCR reads a capital I as a lowercase l: "Kiki lriafen". No name word
+    // starts with l then a consonant, so that pattern is always an I.
+    .replace(/(^|\s)l(?=[^aeiouyl'\s][a-z])/g, "$1I")
   if (t !== t.toLowerCase()) return t
   return t.replace(/\b([a-z])/g, (m) => m.toUpperCase())
 }
@@ -298,7 +438,18 @@ function trimTrailingJunk(tokens: string[]): string[] {
  * A row holding a player and a line but no stat: "Jonquel Jones @ T15".
  * The stat sits on the row below, beside the team and jersey number.
  */
-function findNameValue(text: string): { name: string; value: number; repaired: boolean; raw: string } | null {
+function findNameValue(
+  text: string,
+): { name: string; value: number; alt?: number; repaired: boolean; raw: string; side: Side | null } | null {
+  // The arrow read as its own token ("Cade Otton J 65.5") or as letters stuck
+  // to the value ("Jordan Addison U55"). Checked first: a plain "25" after an
+  // arrow is 2.5 with its decimal swallowed, not twenty-five.
+  const tv = trailingValue(text.trim().split(/\s+/).filter(Boolean))
+  if (tv && tv.before.length > 0) {
+    const name = nameFromPrefix(trimNoise(trimTrailingJunk(tv.before).join(" ")))
+    if (name) return { name: tidyName(name), value: tv.value, alt: tv.alt, repaired: tv.repaired, raw: tv.raw, side: tv.side }
+  }
+  // The arrow read as a 7 stuck to the value: "Jonquel Jones 715".
   const tokens = trimNoise(text).split(/\s+/).filter(Boolean)
   if (tokens.length < 2) return null
   const raw = tokens[tokens.length - 1]
@@ -307,7 +458,21 @@ function findNameValue(text: string): { name: string; value: number; repaired: b
   const prefix = trimTrailingJunk(tokens.slice(0, -1)).join(" ")
   const name = nameFromPrefix(trimNoise(prefix))
   if (!name) return null
-  return { name: tidyName(name), value: v.value, repaired: v.repaired, raw }
+  return { name: tidyName(name), value: v.value, repaired: v.repaired, raw, side: glyphSide(raw.replace(/[\d.,]/g, "")) }
+}
+
+/**
+ * A name with junk from a jersey or icon in front of it: "99 Brock Bowers",
+ * "8 \u2018\\ Jack Bech". Leading tokens with digits, no letters, or a single
+ * character are dropped, and what is left must still read as a name.
+ */
+function nameAfterJunk(text: string): string | null {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  let i = 0
+  while (i < words.length && (/\d/.test(words[i]) || !/[A-Za-z]{2,}/.test(words[i]))) i++
+  if (i === 0 || i >= words.length) return null
+  const rest = words.slice(i).join(" ")
+  return looksLikeName(rest) ? trimNoise(rest) : null
 }
 
 /** A stat at the end of a row after other text: "NYL-C- #35 Assists". */
@@ -327,6 +492,7 @@ interface InlineMatch {
   statText: string
   /** Whatever precedes the value and stat, cleaned: a name, a matchup, or nothing. */
   prefix: string
+  side: Side | null
 }
 
 /**
@@ -346,6 +512,7 @@ function findInline(text: string): InlineMatch | null {
     .split(/[\s,;]+/)
     .filter((t) => t.length > 0 && !SEPARATOR.test(t))
   if (tokens.length === 0) return null
+  const side = typedSide(tokens)
 
   for (let i = 0; i < tokens.length; i++) {
     const value = valueToken(tokens[i])
@@ -357,7 +524,7 @@ function findInline(text: string): InlineMatch | null {
       const statText = after.join(" ")
       const stat = isStatLine(statText)
       if (stat) {
-        return { value, stat, statText, prefix: stripSides(tokens.slice(0, i)).join(" ") }
+        return { value, stat, statText, prefix: stripSides(tokens.slice(0, i)).join(" "), side }
       }
     }
 
@@ -367,7 +534,7 @@ function findInline(text: string): InlineMatch | null {
       const statText = before.slice(before.length - k).join(" ")
       const stat = isStatLine(statText)
       if (stat) {
-        return { value, stat, statText, prefix: before.slice(0, before.length - k).join(" ") }
+        return { value, stat, statText, prefix: before.slice(0, before.length - k).join(" "), side }
       }
     }
   }
@@ -382,11 +549,12 @@ interface Classified {
   kind: "prop" | "name" | "stat" | "number" | "namevalue" | "noise"
   stat?: { label: string; key: MarketKey | null }
   statText?: string
-  number?: { value: number; repaired: boolean }
+  number?: { value: number; repaired: boolean; alt?: number }
   name?: string
   bbox?: OcrBox
   /** Raw token a repaired line value was read from, for the review note. */
   rawValue?: string
+  side?: Side | null
 }
 
 function classify(lines: OcrLine[]): Classified[] {
@@ -402,7 +570,7 @@ function classify(lines: OcrLine[]): Classified[] {
       if (player) {
         return {
           index, text, confidence, bbox, kind: "prop" as const,
-          stat: inline.stat, statText: inline.statText, number, name: tidyName(player),
+          stat: inline.stat, statText: inline.statText, number, name: tidyName(player), side: inline.side,
         }
       }
       // Value and stat but no name on this line: a stacked card, or a list row
@@ -417,16 +585,26 @@ function classify(lines: OcrLine[]): Classified[] {
       const number = numMatch ? parseLineValue(numMatch[1]) : null
       return { index, text, confidence, bbox, kind: "stat" as const, stat, number: number ?? undefined }
     }
+    // A value on its own, possibly behind an arrow: "tT 4.5", "wv 445", "\\ 65.5".
+    const lone = trailingValue(l.text.trim().split(/\s+/).filter(Boolean))
+    if (lone && lone.before.length === 0) {
+      return {
+        index, text, confidence, bbox, kind: "number" as const,
+        number: { value: lone.value, repaired: lone.repaired }, rawValue: lone.raw, side: lone.side,
+      }
+    }
     const num = parseLineValue(text)
     if (num) return { index, text, confidence, bbox, kind: "number" as const, number: num }
     const nv = findNameValue(text)
     if (nv) {
       return {
         index, text, confidence, bbox, kind: "namevalue" as const,
-        name: nv.name, number: { value: nv.value, repaired: nv.repaired }, rawValue: nv.raw,
+        name: nv.name, number: { value: nv.value, repaired: nv.repaired, alt: nv.alt }, rawValue: nv.raw, side: nv.side,
       }
     }
-    if (isNameLine(text)) return { index, text, confidence, bbox, kind: "name" as const, name: trimNoise(text) }
+    if (isNameLine(text)) return { index, text, confidence, bbox, kind: "name" as const, name: tidyName(text) }
+    const junkName = nameAfterJunk(text)
+    if (junkName) return { index, text, confidence, bbox, kind: "name" as const, name: tidyName(junkName) }
     const suffix = statSuffix(text)
     if (suffix) return { index, text, confidence, bbox, kind: "stat" as const, stat: suffix.stat, statText: suffix.statText }
     return { index, text, confidence, bbox, kind: "noise" as const }
@@ -526,6 +704,7 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
       confidence: Math.max(0.05, Math.min(1, item.confidence - issues.length * 0.15)),
       sourceLines: [item.index],
       issues,
+      side: item.side ?? null,
     })
   }
 
@@ -543,6 +722,7 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
     // two lines either side, preferring the one before.
     let number = item.number ?? null
     let name: string | null = null
+    let side: Side | null = item.side ?? null
 
     // Name and value on the row above, as on a PrizePicks entry screen.
     if (!number) {
@@ -560,6 +740,7 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
         const nv = items[nvIndex]
         number = nv.number!
         name = nv.name!
+        side = nv.side ?? side
         used.add(nvIndex)
         sourceLines.push(nvIndex)
         if (nv.number!.repaired) {
@@ -572,8 +753,12 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
       const i = pickByPosition(items, item, "number", used, lineHeight, 3)
       if (i != null) {
         number = items[i].number!
+        side = items[i].side ?? side
         used.add(i)
         sourceLines.push(i)
+        if (number.repaired && items[i].rawValue) {
+          issues.push(`Line read as "${items[i].rawValue}" and taken as ${number.value}. Check it against the app.`)
+        }
       }
     }
     if (!number && !geometric) {
@@ -582,6 +767,7 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
         const c = items[i]
         if (c && c.kind === "number" && !used.has(i)) {
           number = c.number!
+          side = c.side ?? side
           used.add(i)
           sourceLines.push(i)
           break
@@ -592,7 +778,16 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
       issues.push("No line value found near this stat.")
       continue
     }
-    if (number.repaired && !name) issues.push("Line value needed character repair; check it.")
+    // "71.5" beside Assists is an up-arrow read as a 7 in front of 1.5; beside
+    // Receiving Yards, 71.5 is just 71.5. The stat decides.
+    if (number.alt != null && item.stat.key && !plausibleLine(item.stat.key, number.value)) {
+      const read = number.value
+      number = { value: number.alt, repaired: true }
+      issues.push(`Line read as "${read}" and taken as ${number.value}, reading the 7 as the arrow. Check it against the app.`)
+    }
+    if (number.repaired && !name && !issues.some((m) => m.startsWith("Line read as"))) {
+      issues.push("Line value needed character repair; check it.")
+    }
 
     // Name: by position when available, else nearest unused name above, then below.
     if (!name && geometric) {
@@ -631,9 +826,13 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
     used.add(item.index)
     if (!item.stat.key) issues.push(`Stat "${item.text}" was not recognised.`)
 
+    // "Reboot" beside the player on an entry screen: they did not play.
+    const dnp = markedReboot(items, sourceLines, lineHeight, geometric)
+    if (dnp) issues.push("Marked Reboot on the screenshot: the player did not play.")
+
     const lineConfidences = sourceLines.map((i) => items[i]?.confidence ?? 0.8)
     const base = lineConfidences.reduce((a, b) => a + b, 0) / lineConfidences.length
-    const penalty = issues.length * 0.15
+    const penalty = issues.filter((m) => !m.startsWith("Marked Reboot")).length * 0.15
     candidates.push({
       player: name,
       marketKey: item.stat.key,
@@ -643,6 +842,8 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
       confidence: Math.max(0.05, Math.min(1, base - penalty)),
       sourceLines: sourceLines.sort((a, b) => a - b),
       issues,
+      side,
+      dnp,
     })
   }
 
@@ -650,8 +851,36 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
     .filter((i) => !used.has(i.index) && i.kind !== "noise")
     .map((i) => ({ index: i.index, text: i.text }))
 
-  return { candidates: dedupe(candidates), leftover }
+  const paired = new Set(candidates.map((c) => nameKey(c.player)))
+  const unpairedNames = Array.from(
+    new Set(
+      items
+        .filter((i) => i.kind === "name" && !used.has(i.index) && i.name)
+        .map((i) => i.name!)
+        .filter((n) => n.includes(" ") && !paired.has(nameKey(n))),
+    ),
+  )
+
+  return { candidates: dedupe(candidates), leftover, unpairedNames }
 }
+
+/** Could this line be posted for this stat at all? Generous: only rules out the absurd. */
+function plausibleLine(key: MarketKey, value: number): boolean {
+  return value <= Math.max(10, MARKETS[key].typicalMean * 4)
+}
+
+function markedReboot(items: Classified[], sourceLines: number[], lineHeight: number, geometric: boolean): boolean {
+  const says = (i: Classified) => /\breboot\b/i.test(i.text)
+  if (sourceLines.some((i) => items[i] && says(items[i]))) return true
+  if (!geometric) return false
+  const boxes = sourceLines.map((i) => items[i]?.bbox).filter((b): b is OcrBox => !!b)
+  if (boxes.length === 0) return false
+  const top = Math.min(...boxes.map((b) => b.y0)) - lineHeight / 2
+  const bottom = Math.max(...boxes.map((b) => b.y1)) + lineHeight / 2
+  return items.some((i) => i.bbox && says(i) && cy(i.bbox) >= top && cy(i.bbox) <= bottom)
+}
+
+const nameKey = (n: string) => n.toLowerCase().replace(/[^a-z]/g, "")
 
 /** Boards repeat props across carousels; keep the highest-confidence copy. */
 function dedupe(candidates: PropCandidate[]): PropCandidate[] {
@@ -662,6 +891,41 @@ function dedupe(candidates: PropCandidate[]): PropCandidate[] {
     if (!existing || c.confidence > existing.confidence) best.set(key, c)
   }
   return Array.from(best.values())
+}
+
+export interface EntryHeader {
+  stake: number
+  payout: number
+  picks: number | null
+  mode: "power" | "flex" | null
+}
+
+/**
+ * The stake, payout and entry type from the top of an entry screen:
+ * "$2 for $12" and "3-Pick Power Play". The cleaned read turns "$" into "S",
+ * so either is accepted. The payout is what matters most: goblins and demons
+ * change it from the standard table, and it sets the bar every leg had to
+ * clear.
+ */
+export function readEntryHeader(lines: OcrLine[]): EntryHeader | null {
+  let stake: number | null = null
+  let payout: number | null = null
+  let picks: number | null = null
+  let mode: EntryHeader["mode"] = null
+  for (const l of lines) {
+    const money = l.text.match(/[$S]\s?(\d{1,5}(?:\.\d{1,2})?)\s*for\s*[$S]\s?(\d{1,6}(?:\.\d{1,2})?)/i)
+    if (money && stake == null) {
+      stake = Number.parseFloat(money[1])
+      payout = Number.parseFloat(money[2])
+    }
+    const kind = l.text.match(/(\d{1,2})\s*-?\s*Pick\s+(Power|Flex)/i)
+    if (kind && picks == null) {
+      picks = Number.parseInt(kind[1], 10)
+      mode = kind[2].toLowerCase() === "flex" ? "flex" : "power"
+    }
+  }
+  if (stake == null || payout == null || !(stake > 0) || !(payout > 0)) return null
+  return { stake, payout, picks, mode }
 }
 
 /** Split raw OCR output into lines the extractor can work with. */
@@ -683,15 +947,22 @@ export function linesFromText(text: string): OcrLine[] {
  * cleaned read found is added.
  */
 export function mergeReads(primary: PropCandidate[], secondary: PropCandidate[]): PropCandidate[] {
-  const key = (c: PropCandidate) => `${c.player.toLowerCase().replace(/[^a-z]/g, "")}|${c.marketKey ?? c.marketLabel}`
   const out = primary.map((c) => ({ ...c, issues: [...c.issues] }))
-  const byKey = new Map(out.map((c) => [key(c), c]))
   for (const c of secondary) {
-    const existing = byKey.get(key(c))
+    const existing = out.find((e) => samePlayer(e, c))
     if (!existing) {
-      out.push(c)
-      byKey.set(key(c), c)
+      out.push({ ...c, issues: [...c.issues] })
       continue
+    }
+    // The same player read two ways: "Ga Cade Otton" and "Cade Otton", or
+    // "Juszezyk" and "Juszczyk". Keep the cleaner name, and say so when the
+    // spellings genuinely differ.
+    if (nameKey(existing.player) !== nameKey(c.player)) {
+      const pick = betterName(existing, c)
+      if (!contains(existing.player, c.player) && !contains(c.player, existing.player)) {
+        existing.issues.push(`The two reads spell the name "${existing.player}" and "${c.player}". Check it.`)
+      }
+      existing.player = pick
     }
     if (existing.line !== c.line) {
       existing.issues.push(
@@ -699,6 +970,55 @@ export function mergeReads(primary: PropCandidate[], secondary: PropCandidate[])
       )
       existing.confidence = Math.max(0.05, existing.confidence - 0.3)
     }
+    if (existing.side == null) existing.side = c.side ?? null
+    else if (c.side && c.side !== existing.side) existing.side = null
+    if (c.dnp && !existing.dnp) {
+      existing.dnp = true
+      existing.issues.push("Marked Reboot on the screenshot: the player did not play.")
+    }
   }
   return out
+}
+
+const words = (n: string) => n.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/).filter(Boolean)
+
+/** Is b's name a run of words inside a's? "Ga Cade Otton" contains "Cade Otton". */
+function contains(a: string, b: string): boolean {
+  const wa = words(a)
+  const wb = words(b)
+  if (wb.length < 2 || wb.length > wa.length) return false
+  for (let i = 0; i + wb.length <= wa.length; i++) {
+    if (wb.every((w, j) => wa[i + j] === w)) return true
+  }
+  return false
+}
+
+function editDistance(a: string, b: string): number {
+  const dp = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0]
+    dp[0] = i
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j]
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1))
+      prev = tmp
+    }
+  }
+  return dp[b.length]
+}
+
+function samePlayer(a: PropCandidate, b: PropCandidate): boolean {
+  if ((a.marketKey ?? a.marketLabel) !== (b.marketKey ?? b.marketLabel)) return false
+  const ka = nameKey(a.player)
+  const kb = nameKey(b.player)
+  if (ka === kb) return true
+  if (contains(a.player, b.player) || contains(b.player, a.player)) return true
+  // A one- or two-letter misread in a long name, on the same line: same player.
+  return a.line === b.line && Math.min(ka.length, kb.length) >= 8 && editDistance(ka, kb) <= 2
+}
+
+function betterName(a: PropCandidate, b: PropCandidate): string {
+  if (contains(a.player, b.player)) return b.player
+  if (contains(b.player, a.player)) return a.player
+  return b.confidence > a.confidence ? b.player : a.player
 }

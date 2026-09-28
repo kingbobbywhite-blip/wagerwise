@@ -99,10 +99,10 @@ describe("simulateSlip", () => {
   it("voids a pushed leg and shrinks the entry", () => {
     const mode = findMode(findApp(DEFAULT_APPS, "prizepicks"), "power")!
     const payout = dfsPayout(mode)
-    // 3 picks paying 5x; if one pushes it becomes a 2-pick paying 3x.
+    // 3 picks paying 6x; if one pushes it becomes a 2-pick paying 3x.
     // DFS tables settle on counts alone, so the outcome vector is unused.
     const none = new Int8Array(3)
-    expect(payout(3, 0, 3, none)).toBe(5)
+    expect(payout(3, 0, 3, none)).toBe(6)
     expect(payout(2, 1, 3, none)).toBe(3)
     expect(payout(1, 1, 3, none)).toBe(0)
     // Shrinking below the smallest entry refunds the stake.

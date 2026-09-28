@@ -1,0 +1,396 @@
+{
+ "raw": [
+  {
+   "text": "9:09&",
+   "confidence": 76,
+   "bbox": {
+    "x0": 108,
+    "y0": 60,
+    "x1": 230,
+    "y1": 90
+   }
+  },
+  {
+   "text": "$1 for $6",
+   "confidence": 94,
+   "bbox": {
+    "x0": 185,
+    "y0": 240,
+    "x1": 326,
+    "y1": 275
+   }
+  },
+  {
+   "text": "3-Pick Power Play Loss",
+   "confidence": 94,
+   "bbox": {
+    "x0": 184,
+    "y0": 299,
+    "x1": 562,
+    "y1": 333
+   }
+  },
+  {
+   "text": "Entry Pulse",
+   "confidence": 96,
+   "bbox": {
+    "x0": 170,
+    "y0": 378,
+    "x1": 493,
+    "y1": 411
+   }
+  },
+  {
+   "text": "NFL ARI 30 vs SF 36",
+   "confidence": 58,
+   "bbox": {
+    "x0": 133,
+    "y0": 501,
+    "x1": 364,
+    "y1": 518
+   }
+  },
+  {
+   "text": "(\u00ae) Kaelon Black",
+   "confidence": 91,
+   "bbox": {
+    "x0": 117,
+    "y0": 566,
+    "x1": 411,
+    "y1": 675
+   }
+  },
+  {
+   "text": "SF \u00abRB + #26",
+   "confidence": 64,
+   "bbox": {
+    "x0": 251,
+    "y0": 629,
+    "x1": 422,
+    "y1": 649
+   }
+  },
+  {
+   "text": "\u00a9",
+   "confidence": 86,
+   "bbox": {
+    "x0": 197,
+    "y0": 646,
+    "x1": 224,
+    "y1": 672
+   }
+  },
+  {
+   "text": "@ Michael Wilson",
+   "confidence": 85,
+   "bbox": {
+    "x0": 121,
+    "y0": 796,
+    "x1": 440,
+    "y1": 897
+   }
+  },
+  {
+   "text": "ARI \u00ab WR + #14",
+   "confidence": 71,
+   "bbox": {
+    "x0": 250,
+    "y0": 856,
+    "x1": 442,
+    "y1": 875
+   }
+  },
+  {
+   "text": "(0)",
+   "confidence": 33,
+   "bbox": {
+    "x0": 197,
+    "y0": 872,
+    "x1": 224,
+    "y1": 899
+   }
+  },
+  {
+   "text": "NFL LV 35vs NO 27",
+   "confidence": 57,
+   "bbox": {
+    "x0": 133,
+    "y0": 1073,
+    "x1": 362,
+    "y1": 1090
+   }
+  },
+  {
+   "text": "\\ 89 Brock Bowers",
+   "confidence": 93,
+   "bbox": {
+    "x0": 143,
+    "y0": 1159,
+    "x1": 421,
+    "y1": 1196
+   }
+  },
+  {
+   "text": "LV -TE + #89",
+   "confidence": 73,
+   "bbox": {
+    "x0": 252,
+    "y0": 1201,
+    "x1": 421,
+    "y1": 1221
+   }
+  },
+  {
+   "text": "o",
+   "confidence": 73,
+   "bbox": {
+    "x0": 522,
+    "y0": 1319,
+    "x1": 533,
+    "y1": 1335
+   }
+  },
+  {
+   "text": "all F &)",
+   "confidence": 67,
+   "bbox": {
+    "x0": 660,
+    "y0": 59,
+    "x1": 839,
+    "y1": 90
+   }
+  },
+  {
+   "text": "Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 677,
+    "y0": 382,
+    "x1": 760,
+    "y1": 401
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 97,
+   "bbox": {
+    "x0": 753,
+    "y0": 502,
+    "x1": 798,
+    "y1": 518
+   }
+  },
+  {
+   "text": "oT 145",
+   "confidence": 50,
+   "bbox": {
+    "x0": 641,
+    "y0": 586,
+    "x1": 776,
+    "y1": 618
+   }
+  },
+  {
+   "text": "Rush Yards",
+   "confidence": 96,
+   "bbox": {
+    "x0": 665,
+    "y0": 630,
+    "x1": 777,
+    "y1": 646
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 97,
+   "bbox": {
+    "x0": 753,
+    "y0": 1074,
+    "x1": 798,
+    "y1": 1090
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:09",
+   "confidence": 0,
+   "bbox": {
+    "x0": 275,
+    "y0": 152,
+    "x1": 588,
+    "y1": 230
+   }
+  },
+  {
+   "text": "Dp S1 for S6",
+   "confidence": 60,
+   "bbox": {
+    "x0": 239,
+    "y0": 612,
+    "x1": 832,
+    "y1": 797
+   }
+  },
+  {
+   "text": "3-Pick Power Play Loss",
+   "confidence": 88,
+   "bbox": {
+    "x0": 470,
+    "y0": 763,
+    "x1": 1435,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1258,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "NFL ARI 30 vs SF 36",
+   "confidence": 62,
+   "bbox": {
+    "x0": 339,
+    "y0": 1279,
+    "x1": 930,
+    "y1": 1324
+   }
+  },
+  {
+   "text": "Kaelon Black",
+   "confidence": 94,
+   "bbox": {
+    "x0": 643,
+    "y0": 1501,
+    "x1": 1048,
+    "y1": 1551
+   }
+  },
+  {
+   "text": "SF \u00abRB \u00a2 #26",
+   "confidence": 59,
+   "bbox": {
+    "x0": 641,
+    "y0": 1606,
+    "x1": 1078,
+    "y1": 1656
+   }
+  },
+  {
+   "text": "Michael Wilson",
+   "confidence": 95,
+   "bbox": {
+    "x0": 643,
+    "y0": 2080,
+    "x1": 1123,
+    "y1": 2130
+   }
+  },
+  {
+   "text": "ARI \u00a2 WR - #14",
+   "confidence": 78,
+   "bbox": {
+    "x0": 638,
+    "y0": 2186,
+    "x1": 1128,
+    "y1": 2235
+   }
+  },
+  {
+   "text": "NFL LV 35vs NO 27",
+   "confidence": 51,
+   "bbox": {
+    "x0": 339,
+    "y0": 2740,
+    "x1": 924,
+    "y1": 2785
+   }
+  },
+  {
+   "text": "(()) Brock Bowers",
+   "confidence": 55,
+   "bbox": {
+    "x0": 308,
+    "y0": 2914,
+    "x1": 1075,
+    "y1": 3175
+   }
+  },
+  {
+   "text": "LV -TE - #89",
+   "confidence": 51,
+   "bbox": {
+    "x0": 644,
+    "y0": 3067,
+    "x1": 1074,
+    "y1": 3118
+   }
+  },
+  {
+   "text": "()",
+   "confidence": 51,
+   "bbox": {
+    "x0": 506,
+    "y0": 3112,
+    "x1": 569,
+    "y1": 3176
+   }
+  },
+  {
+   "text": "Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 1729,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1025
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 97,
+   "bbox": {
+    "x0": 1922,
+    "y0": 1282,
+    "x1": 2038,
+    "y1": 1324
+   }
+  },
+  {
+   "text": "tT 14.5",
+   "confidence": 74,
+   "bbox": {
+    "x0": 1759,
+    "y0": 1513,
+    "x1": 1981,
+    "y1": 1571
+   }
+  },
+  {
+   "text": "Rush Yards",
+   "confidence": 97,
+   "bbox": {
+    "x0": 1698,
+    "y0": 1609,
+    "x1": 1983,
+    "y1": 1650
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 97,
+   "bbox": {
+    "x0": 1922,
+    "y0": 2743,
+    "x1": 2038,
+    "y1": 2785
+   }
+  }
+ ]
+}

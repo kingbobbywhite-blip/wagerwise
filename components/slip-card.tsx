@@ -59,6 +59,7 @@ export function SlipCard({
       actualMultiple: null,
       capturedPayout,
       notes: slip.label,
+      source: "built",
     }
     addSlip(tracked)
     toast.success("Logged to tracker", { description: `${slip.legs.length} legs at ${money(tracked.stake)}` })

@@ -1,0 +1,326 @@
+{
+ "raw": [
+  {
+   "text": "9:08\u00a2 wll F &",
+   "confidence": 67,
+   "bbox": {
+    "x0": 108,
+    "y0": 59,
+    "x1": 839,
+    "y1": 90
+   }
+  },
+  {
+   "text": "$2 for $12",
+   "confidence": 96,
+   "bbox": {
+    "x0": 185,
+    "y0": 240,
+    "x1": 346,
+    "y1": 275
+   }
+  },
+  {
+   "text": "3-Pick Power Play Less",
+   "confidence": 88,
+   "bbox": {
+    "x0": 184,
+    "y0": 299,
+    "x1": 562,
+    "y1": 333
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 170,
+    "y0": 378,
+    "x1": 760,
+    "y1": 411
+   }
+  },
+  {
+   "text": "NFL MIN 23vsTB16 Final",
+   "confidence": 64,
+   "bbox": {
+    "x0": 133,
+    "y0": 501,
+    "x1": 798,
+    "y1": 518
+   }
+  },
+  {
+   "text": "() Jordan Addison U55",
+   "confidence": 42,
+   "bbox": {
+    "x0": 117,
+    "y0": 566,
+    "x1": 776,
+    "y1": 675
+   }
+  },
+  {
+   "text": "MIN -WR- #3 Recs",
+   "confidence": 86,
+   "bbox": {
+    "x0": 252,
+    "y0": 629,
+    "x1": 777,
+    "y1": 649
+   }
+  },
+  {
+   "text": "<0)",
+   "confidence": 29,
+   "bbox": {
+    "x0": 153,
+    "y0": 646,
+    "x1": 224,
+    "y1": 672
+   }
+  },
+  {
+   "text": "NFL ARI 30 vs SF 36 Final",
+   "confidence": 63,
+   "bbox": {
+    "x0": 133,
+    "y0": 847,
+    "x1": 798,
+    "y1": 864
+   }
+  },
+  {
+   "text": "Tyler Allgeier D 25",
+   "confidence": 79,
+   "bbox": {
+    "x0": 250,
+    "y0": 933,
+    "x1": 776,
+    "y1": 960
+   }
+  },
+  {
+   "text": "ARI + RB \u00ab #22 Rush Yards",
+   "confidence": 85,
+   "bbox": {
+    "x0": 250,
+    "y0": 974,
+    "x1": 777,
+    "y1": 994
+   }
+  },
+  {
+   "text": "\u00a9",
+   "confidence": 64,
+   "bbox": {
+    "x0": 197,
+    "y0": 991,
+    "x1": 224,
+    "y1": 1018
+   }
+  },
+  {
+   "text": ")",
+   "confidence": 14,
+   "bbox": {
+    "x0": 117,
+    "y0": 1039,
+    "x1": 191,
+    "y1": 1085
+   }
+  },
+  {
+   "text": "NFL LV 35vs NO 27 Final",
+   "confidence": 70,
+   "bbox": {
+    "x0": 133,
+    "y0": 1165,
+    "x1": 798,
+    "y1": 1182
+   }
+  },
+  {
+   "text": "a |\\ Jack Bech tT 05",
+   "confidence": 63,
+   "bbox": {
+    "x0": 157,
+    "y0": 1251,
+    "x1": 777,
+    "y1": 1279
+   }
+  },
+  {
+   "text": "LV -WR-#18+ Reboot @ Rec Yards",
+   "confidence": 74,
+   "bbox": {
+    "x0": 252,
+    "y0": 1292,
+    "x1": 777,
+    "y1": 1317
+   }
+  },
+  {
+   "text": "oc",
+   "confidence": 40,
+   "bbox": {
+    "x0": 195,
+    "y0": 1281,
+    "x1": 224,
+    "y1": 1336
+   }
+  },
+  {
+   "text": "(\u00b0) Gai",
+   "confidence": 41,
+   "bbox": {
+    "x0": 118,
+    "y0": 1251,
+    "x1": 191,
+    "y1": 1403
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:08& . Te",
+   "confidence": 29,
+   "bbox": {
+    "x0": 275,
+    "y0": 151,
+    "x1": 2105,
+    "y1": 230
+   }
+  },
+  {
+   "text": "$2 for $12",
+   "confidence": 88,
+   "bbox": {
+    "x0": 472,
+    "y0": 612,
+    "x1": 882,
+    "y1": 702
+   }
+  },
+  {
+   "text": "pP ! \u2014\u2014e",
+   "confidence": 1,
+   "bbox": {
+    "x0": 243,
+    "y0": 655,
+    "x1": 1833,
+    "y1": 795
+   }
+  },
+  {
+   "text": "3-Pick Power Play Loss",
+   "confidence": 89,
+   "bbox": {
+    "x0": 470,
+    "y0": 763,
+    "x1": 1434,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "NFL MIN 23 vs TB 16 Final",
+   "confidence": 51,
+   "bbox": {
+    "x0": 339,
+    "y0": 1279,
+    "x1": 2038,
+    "y1": 1324
+   }
+  },
+  {
+   "text": "Jordan Addison J 5.5",
+   "confidence": 79,
+   "bbox": {
+    "x0": 637,
+    "y0": 1501,
+    "x1": 1981,
+    "y1": 1573
+   }
+  },
+  {
+   "text": "MIN - WR - #3 Recs",
+   "confidence": 77,
+   "bbox": {
+    "x0": 644,
+    "y0": 1606,
+    "x1": 1984,
+    "y1": 1656
+   }
+  },
+  {
+   "text": "NFL ARI 30 vs SF 36 Final",
+   "confidence": 69,
+   "bbox": {
+    "x0": 339,
+    "y0": 2162,
+    "x1": 2038,
+    "y1": 2206
+   }
+  },
+  {
+   "text": "Tyler Allgeier tN 25",
+   "confidence": 77,
+   "bbox": {
+    "x0": 638,
+    "y0": 2384,
+    "x1": 1981,
+    "y1": 2453
+   }
+  },
+  {
+   "text": "ARI \u00ab RB \u00ab #22 Rush Yards",
+   "confidence": 84,
+   "bbox": {
+    "x0": 638,
+    "y0": 2489,
+    "x1": 1983,
+    "y1": 2539
+   }
+  },
+  {
+   "text": "NFL LV 35vs NO 27 Final",
+   "confidence": 71,
+   "bbox": {
+    "x0": 339,
+    "y0": 2975,
+    "x1": 2038,
+    "y1": 3019
+   }
+  },
+  {
+   "text": "Jack Bech * 0.5",
+   "confidence": 70,
+   "bbox": {
+    "x0": 637,
+    "y0": 3196,
+    "x1": 1983,
+    "y1": 3265
+   }
+  },
+  {
+   "text": "LV >WR- #18+ Reboot @ Rec Yards",
+   "confidence": 75,
+   "bbox": {
+    "x0": 644,
+    "y0": 3300,
+    "x1": 1984,
+    "y1": 3363
+   }
+  }
+ ]
+}
