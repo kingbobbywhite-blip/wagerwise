@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { extractProps, linesFromText, mergeReads, type OcrLine, type PropCandidate } from "@/lib/ocr/extract"
+import { extractProps, linesFromText, mergeReads, readEntryHeader, type OcrLine, type PropCandidate } from "@/lib/ocr/extract"
 import { PAGE_SEG_MODE } from "@/lib/ocr/engine"
 import grid from "./fixtures/ocr/board-grid.json"
 import list from "./fixtures/ocr/board-list.json"
 import hard from "./fixtures/ocr/board-hard.json"
 import lineup from "./fixtures/ocr/real-prizepicks-lineup.json"
+import settledAddison from "./fixtures/ocr/settled-nfl-addison.json"
+import settledOtton from "./fixtures/ocr/settled-nfl-otton.json"
+import settledJuszczyk from "./fixtures/ocr/settled-nfl-juszczyk.json"
+import settledBlack from "./fixtures/ocr/settled-nfl-black.json"
+import settledIriafen from "./fixtures/ocr/settled-wnba-iriafen.json"
 
 /**
  * Capture-a-slate regression tests.
@@ -89,6 +94,85 @@ describe("real OCR output", () => {
       { text: "LeBron James", bbox: { x0: 50, y0: 200, x1: 300, y1: 240 } },
     ]
     expect(extractProps(lines).candidates).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Settled PrizePicks entry screens.
+//
+// Real phone screenshots of five settled entries (four NFL, one WNBA), read by
+// the app's own OCR in a browser, both the raw and the cleaned-up pass. Before
+// these, capture got 0 props from two of them and the wrong value from most of
+// the rest. What the reads have in common:
+//
+//   - The up/down arrow before the line comes out as junk: "tT", "oT", "St",
+//     "*", '"', "T" for up; "J", "wv", "oY", "U", "\" for down. It usually
+//     swallows the decimal point too: 44.5 reads "445", 0.5 reads "05".
+//   - The stat shares a row with "TEAM - POS - #N", and receptions print "Recs".
+//   - Jersey numbers and icons leave junk before the name: "99 Brock Bowers".
+//   - A player who did not play is marked "Reboot".
+//
+// The arrow is also the only record of which side was taken, so it is read
+// where it can be, and left blank rather than guessed where it cannot.
+// ---------------------------------------------------------------------------
+
+type Read = { raw: OcrLine[]; cleaned: OcrLine[] }
+const both = (r: Read) => mergeReads(extractProps(r.raw).candidates, extractProps(r.cleaned).candidates)
+const legs = (r: Read) =>
+  both(r)
+    .map((c) => `${c.player} | ${c.line} | ${c.marketKey} | ${c.side ?? "?"}${c.dnp ? " | DNP" : ""}`)
+    .sort()
+
+describe("settled PrizePicks entry screens", () => {
+  it("reads an NFL entry with a receptions under, a rushing over and a Reboot", () => {
+    expect(legs(settledAddison as Read)).toEqual([
+      "Jack Bech | 0.5 | REC_YDS | OVER | DNP",
+      "Jordan Addison | 5.5 | REC | UNDER",
+      "Tyler Allgeier | 2.5 | RUSH_YDS | OVER",
+    ])
+  })
+
+  it("reads all three unders, including two whose stat is only 'Recs'", () => {
+    expect(legs(settledOtton as Read)).toEqual([
+      "Brock Bowers | 9.5 | REC | UNDER",
+      "Cade Otton | 65.5 | REC_YDS | UNDER",
+      "George Pickens | 5.5 | REC | UNDER",
+    ])
+  })
+
+  it("restores the decimal an arrow swallowed, and picks the better spelling of a name", () => {
+    expect(legs(settledJuszczyk as Read)).toEqual([
+      "Jack Bech | 4.5 | REC_YDS | OVER | DNP",
+      "Kyle Juszczyk | 0.5 | REC_YDS | OVER",
+      "Tyler Shough | 44.5 | RUSH_YDS | UNDER",
+    ])
+  })
+
+  it("reads what is on screen and reports the players whose line it could not see", () => {
+    // Neither read caught Michael Wilson's or Brock Bowers's line, so they are
+    // not invented; they are listed so the tracker can ask for them.
+    expect(legs(settledBlack as Read)).toEqual(["Kaelon Black | 14.5 | RUSH_YDS | OVER"])
+    const r = settledBlack as Read
+    const missing = new Set([...extractProps(r.raw).unpairedNames, ...extractProps(r.cleaned).unpairedNames])
+    expect(missing).toContain("Michael Wilson")
+    expect(missing).toContain("Brock Bowers")
+  })
+
+  it("reads a WNBA entry, including a whole-number line and an l misread for I", () => {
+    expect(legs(settledIriafen as Read)).toEqual([
+      "Jessica Shepard | 4.5 | AST | OVER",
+      "Kiki Iriafen | 9 | REB | OVER",
+      "Paige Bueckers | 2.5 | REB | OVER",
+      "Sonia Citron | 3.5 | AST | OVER",
+    ])
+  })
+
+  it("reads the stake, the payout and the entry type from the header", () => {
+    expect(readEntryHeader((settledAddison as Read).raw)).toEqual({ stake: 2, payout: 12, picks: 3, mode: "power" })
+    expect(readEntryHeader((settledOtton as Read).raw)).toEqual({ stake: 1, payout: 5.5, picks: 3, mode: "power" })
+    expect(readEntryHeader((settledIriafen as Read).raw)).toEqual({ stake: 4, payout: 26.1, picks: 4, mode: "power" })
+    // The cleaned pass reads "$" as "S": "Dp S1 for S6".
+    expect(readEntryHeader((settledBlack as Read).cleaned)).toEqual({ stake: 1, payout: 6, picks: 3, mode: "power" })
   })
 })
 
@@ -191,6 +275,22 @@ describe("typed and pasted text", () => {
       "Saquon Barkley | 120.5 | RUSH_REC_YDS",
       "Travis Kelce | 5.5 | REC",
     ])
+  })
+
+  it("lets the stat decide whether a leading 7 is the arrow", () => {
+    // 71.5 assists is impossible, so the 7 was the up-arrow and the line is 1.5.
+    // 72.5 receiving yards is an ordinary line and must be left alone.
+    expect(typed("Jonquel Jones 71.5\nNYL - C - #35 Assists\nJustin Jefferson 72.5\nMIN - WR - #18 Receiving Yards")).toEqual([
+      "Jonquel Jones | 1.5 | AST",
+      "Justin Jefferson | 72.5 | REC_YDS",
+    ])
+  })
+
+  it("reads the side a person typed, for logging an entry", () => {
+    const sides = extractProps(linesFromText("Jordan Addison under 5.5 Recs\nTyler Allgeier over 2.5 Rush Yards\nKiki Iriafen 9 Rebounds"))
+      .candidates.map((c) => `${c.player} | ${c.side ?? "?"}`)
+      .sort()
+    expect(sides).toEqual(["Jordan Addison | UNDER", "Kiki Iriafen | ?", "Tyler Allgeier | OVER"])
   })
 
   it("does not read a bare three-digit number as a line", () => {

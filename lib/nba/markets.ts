@@ -156,7 +156,7 @@ alias("PASS_ATT", "pass attempts", "passing attempts", "pass att")
 alias("PASS_INT", "interceptions", "interceptions thrown", "pass ints", "pass interceptions", "int thrown")
 alias("RUSH_YDS", "rushing yards", "rush yards", "rush yds", "rushing yds", "rush yd")
 alias("RUSH_ATT", "rush attempts", "rushing attempts", "carries", "rush att", "rushes")
-alias("REC", "receptions", "catches", "rec", "total receptions")
+alias("REC", "receptions", "catches", "rec", "recs", "total receptions")
 alias("REC_YDS", "receiving yards", "rec yards", "rec yds", "receiving yds", "rec yd")
 alias("RUSH_REC_YDS", "rush+rec yds", "rush+rec yards", "rushing+receiving yards", "rush+rec", "scrimmage yards",
   "rushing receiving yards", "rush rec yds", "rush+rec yd")
