@@ -156,18 +156,28 @@ export interface TrackedSlip {
   /**
    * The payout the app actually displayed when the entry was built, captured
    * rather than read back from a stored table. Stored tables drift; the number
-   * on screen at build time is ground truth.
+   * on screen at build time is ground truth. Null for a logged flex entry that
+   * had already paid out: its screen shows what it paid, not what it would have.
    */
-  capturedPayout: CapturedPayout
+  capturedPayout: CapturedPayout | null
   /** Snapshot of what the model believed when the bet went in. Null when any leg was never priced. */
   evAtEntry: number | null
   pAllHitAtEntry: number | null
   /** "built" in the app, or "logged" from an entry placed elsewhere. Absent on older entries, which were all built. */
   source?: "built" | "logged"
-  topMultiple: number
+  /** Null when the entry was logged after it paid out and its all-hit payout was never shown. */
+  topMultiple: number | null
   status: SlipStatus
   /** Gross multiple actually returned, once settled. */
   actualMultiple: number | null
+  /**
+   * Dollars the app actually returned, read off the settled entry ("$10 paid
+   * $5", or nothing for one marked Loss). When known it IS the result: it
+   * already reflects goblins, demons, reboots and whatever table the app
+   * really used, none of which a stored table gets right. Absent on entries
+   * settled from their legs.
+   */
+  paidOut?: number | null
   notes: string
 }
 

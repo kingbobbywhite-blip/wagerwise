@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest"
-import { DEFAULT_APPS, capturedToMode } from "@/lib/quant/payouts"
+import { DEFAULT_APPS, capturedToMode, type CapturedPayout } from "@/lib/quant/payouts"
 import type { LegResult, TrackedLeg, TrackedSlip } from "@/lib/store/schema"
-import { entryExpectation, openExposure, recordByType, settlementMode, withResults } from "@/lib/tracker/entries"
+import { summarise } from "@/lib/quant/calibration"
+import {
+  entryExpectation,
+  legClash,
+  nightReviews,
+  openExposure,
+  recordByType,
+  settlementMode,
+  tableMultiple,
+  withResults,
+} from "@/lib/tracker/entries"
 
 /**
  * The tracker against five real settled PrizePicks entries: four NFL 3-pick
@@ -12,7 +22,7 @@ function leg(player: string, marketLabel: string, line: number, side: "OVER" | "
   return { player, marketKey: null, marketLabel, line, side, pWinAtEntry: null, app: "prizepicks", result, actual: null }
 }
 
-function slip(id: string, stake: number, payout: number, legs: TrackedLeg[]): TrackedSlip {
+function slip(id: string, stake: number, payout: number, legs: TrackedLeg[]): TrackedSlip & { capturedPayout: CapturedPayout } {
   const n = legs.length
   return {
     id, createdAt: "2026-09-27T17:00:00Z", settledAt: null, appId: "prizepicks", modeId: "power", legs, stake,
@@ -110,6 +120,143 @@ describe("exposure across open entries", () => {
     const one = settle(slip("x", 1, 6, [leg("Brock Bowers", "Receptions", 9.5, "UNDER", "LOSS")]))
     const two = slip("y", 1, 6, [leg("Brock Bowers", "Receptions", 9.5, "UNDER", "PENDING")])
     expect(openExposure([one, two])).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// One night: five PrizePicks entries on two WNBA games and one baseball game,
+// logged from their settled screens. $30 in, $7 back.
+// ---------------------------------------------------------------------------
+
+/** A logged entry settled at what the app paid, with no payout table captured for a flex that paid. */
+function paidSlip(id: string, modeId: "power" | "flex", stake: number, top: number | null, paid: number, legs: TrackedLeg[]): TrackedSlip {
+  const n = legs.length
+  return settle({
+    id, createdAt: "2026-09-29T23:30:00Z", settledAt: null, appId: "prizepicks", modeId, legs, stake,
+    capturedPayout: top ? { picks: n, tiers: { [n]: top / stake }, confirmed: modeId === "power", capturedAt: "" } : null,
+    evAtEntry: null, pAllHitAtEntry: null, topMultiple: top ? top / stake : null, status: "PENDING", actualMultiple: null,
+    paidOut: paid, notes: "", source: "logged",
+  })
+}
+
+const night = [
+  paidSlip("three", "power", 5, 30, 0, [
+    leg("Breanna Stewart", "Assists", 3.5, "UNDER", "LOSS"),
+    leg("Courtney Williams", "Assists", 4, "UNDER", "LOSS"),
+    leg("Marine Johannes", "Points", 4.5, "UNDER", "LOSS"),
+  ]),
+  paidSlip("flexA", "flex", 10, null, 5, [
+    leg("Jewell Loyd", "3-Pointers Made", 0.5, "OVER", "WIN"),
+    leg("Kelsey Mitchell", "Rebounds", 1.5, "UNDER", "WIN"),
+    leg("Jonquel Jones", "3-Pointers Made", 1.5, "OVER", "LOSS"),
+    leg("Kayla McBride", "Rebounds", 1.5, "OVER", "WIN"),
+    leg("Leonie Fiebich", "3-Pointers Made", 0.5, "OVER", "WIN"),
+    leg("Olivia Miles", "3-Pointers Made", 0.5, "OVER", "WIN"),
+  ]),
+  paidSlip("two", "power", 5, 15, 0, [
+    leg("Courtney Williams", "Assists", 4, "UNDER", "LOSS"),
+    leg("Marine Johannes", "Points", 4.5, "UNDER", "LOSS"),
+  ]),
+  paidSlip("flexB", "flex", 5, null, 2, [
+    leg("Kelsey Mitchell", "Rebounds", 1.5, "OVER", "LOSS"),
+    leg("Lexie Hull", "Rebounds", 2.5, "UNDER", "LOSS"),
+    leg("Jonquel Jones", "Assists", 2.5, "UNDER", "WIN"),
+    leg("Leonie Fiebich", "Rebounds", 3.5, "UNDER", "WIN"),
+    leg("Napheesa Collier", "Assists", 2.5, "UNDER", "WIN"),
+    leg("Olivia Miles", "Assists", 6.5, "UNDER", "WIN"),
+  ]),
+  paidSlip("six", "power", 5, 305, 0, [
+    leg("Chase Meidroth", "Hitter Fantasy Score", 4.5, "OVER", "WIN"),
+    leg("Christian Walker", "Hits + Runs + RBIs", 1.5, "OVER", "LOSS"),
+    leg("A'ja Wilson", "Pts + Reb + Ast", 42.5, "OVER", "LOSS"),
+    leg("Jackie Young", "Assists", 7.5, "OVER", "LOSS"),
+    leg("Breanna Stewart", "Pts + Reb", 33, "OVER", "LOSS"),
+    leg("Pauline Astier", "Reb + Ast", 7.5, "OVER", "WIN"),
+  ]),
+]
+
+describe("settling at what the app paid", () => {
+  it("scores a flex that hit five of six goblins at the half-stake it paid, not the table's 2x", () => {
+    const flex = night[1]
+    expect(flex.status).toBe("SETTLED")
+    expect(flex.actualMultiple).toBe(0.5)
+    // The stored table would have booked a $10 profit on a $5 loss.
+    expect(tableMultiple(flex, DEFAULT_APPS)).toBe(2)
+  })
+
+  it("settles at what was paid before any leg is filled in", () => {
+    const s = paidSlip("p", "flex", 5, null, 2, [leg("A One", "Assists", 2.5, "UNDER", "PENDING"), leg("B Two", "Assists", 2.5, "UNDER", "PENDING")])
+    expect(s.status).toBe("SETTLED")
+    expect(s.actualMultiple).toBeCloseTo(0.4, 9)
+    expect(tableMultiple(s, DEFAULT_APPS)).toBeNull()
+  })
+
+  it("keeps the paid result when a leg is changed afterwards", () => {
+    const s = withResults(night[0], night[0].legs.map((l, i) => (i === 0 ? { ...l, result: "WIN" as const } : l)), DEFAULT_APPS)
+    expect(s.actualMultiple).toBe(0)
+  })
+
+  it("adds the night up to $30 in and $7 back, with neither Win badge a profit", () => {
+    const p = summarise(night)
+    expect(p.staked).toBe(30)
+    expect(p.returned).toBe(7)
+    expect(p.profit).toBe(-23)
+    expect(p.wins).toBe(0)
+  })
+})
+
+describe("reviewing a settled night for overlap", () => {
+  const review = nightReviews(night, () => "2026-09-29")
+
+  it("groups the night and totals it", () => {
+    expect(review).toHaveLength(1)
+    expect(review[0]).toMatchObject({ day: "2026-09-29", entries: 5, staked: 30, returned: 7 })
+  })
+
+  it("puts the both-sides pair first: over and under 1.5 rebounds cannot both hit", () => {
+    const [first] = review[0].exposure
+    expect(first.player).toBe("Kelsey Mitchell")
+    expect(first.cannotBothHit).toBe(true)
+  })
+
+  it("names the legs that were played twice, and how they went", () => {
+    const williams = review[0].exposure.find((e) => e.player === "Courtney Williams")!
+    expect(williams.repeated).toBe(true)
+    expect(williams.bets).toEqual(["under 4 Assists \u00d72, missed"])
+    expect(review[0].exposure.find((e) => e.player === "Marine Johannes")!.repeated).toBe(true)
+  })
+
+  it("lists a player on different stats without calling it a conflict", () => {
+    const jones = review[0].exposure.find((e) => e.player === "Jonquel Jones")!
+    expect(jones.conflicting).toBe(false)
+    expect(jones.repeated).toBe(false)
+  })
+
+  it("leaves out a day with only one entry", () => {
+    expect(nightReviews([night[0]], () => "2026-09-29")).toHaveLength(0)
+  })
+})
+
+describe("checking a leg against entries already logged", () => {
+  const others = night.map((s) => ({ id: s.id, legs: s.legs }))
+
+  it("catches the other side of the same line", () => {
+    const c = legClash({ player: "Kelsey Mitchell", marketKey: null, marketLabel: "Rebounds", line: 1.5, side: "OVER" }, [others[1]])
+    expect(c).toEqual({ entries: 1, repeated: 0, oppositeSide: true, cannotBothHit: true })
+  })
+
+  it("counts the same leg already played", () => {
+    const c = legClash({ player: "Courtney Williams", marketKey: null, marketLabel: "Assists", line: 4, side: "UNDER" }, others)
+    expect(c.repeated).toBe(2)
+  })
+
+  it("does not call a middle impossible: over 0.5 and under 4.5 can both hit", () => {
+    const c = legClash(
+      { player: "Jack Bech", marketKey: null, marketLabel: "Receiving Yards", line: 0.5, side: "OVER" },
+      [{ id: "x", legs: [leg("Jack Bech", "Receiving Yards", 4.5, "UNDER", "PENDING")] }],
+    )
+    expect(c.oppositeSide).toBe(true)
+    expect(c.cannotBothHit).toBe(false)
   })
 })
 

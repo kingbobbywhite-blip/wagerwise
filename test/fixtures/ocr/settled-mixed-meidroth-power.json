@@ -1,0 +1,596 @@
+{
+ "raw": [
+  {
+   "text": "9:12€",
+   "confidence": 38,
+   "bbox": {
+    "x0": 111,
+    "y0": 59,
+    "x1": 226,
+    "y1": 90
+   }
+  },
+  {
+   "text": "$5 for $305",
+   "confidence": 95,
+   "bbox": {
+    "x0": 185,
+    "y0": 240,
+    "x1": 380,
+    "y1": 275
+   }
+  },
+  {
+   "text": "6-Pick Power Play Loss",
+   "confidence": 92,
+   "bbox": {
+    "x0": 185,
+    "y0": 299,
+    "x1": 562,
+    "y1": 333
+   }
+  },
+  {
+   "text": "Entry Pulse",
+   "confidence": 96,
+   "bbox": {
+    "x0": 170,
+    "y0": 382,
+    "x1": 493,
+    "y1": 407
+   }
+  },
+  {
+   "text": "@ Sx Chase Meidroth",
+   "confidence": 40,
+   "bbox": {
+    "x0": 159,
+    "y0": 431,
+    "x1": 449,
+    "y1": 543
+   }
+  },
+  {
+   "text": "CWS - IF - #10",
+   "confidence": 76,
+   "bbox": {
+    "x0": 251,
+    "y0": 495,
+    "x1": 441,
+    "y1": 515
+   }
+  },
+  {
+   "text": "eal! 5Gu @",
+   "confidence": 12,
+   "bbox": {
+    "x0": 655,
+    "y0": 60,
+    "x1": 843,
+    "y1": 89
+   }
+  },
+  {
+   "text": "Details",
+   "confidence": 97,
+   "bbox": {
+    "x0": 677,
+    "y0": 382,
+    "x1": 760,
+    "y1": 401
+   }
+  },
+  {
+   "text": "Tt 45",
+   "confidence": 72,
+   "bbox": {
+    "x0": 699,
+    "y0": 459,
+    "x1": 777,
+    "y1": 481
+   }
+  },
+  {
+   "text": "Hitter FS",
+   "confidence": 96,
+   "bbox": {
+    "x0": 688,
+    "y0": 496,
+    "x1": 777,
+    "y1": 513
+   }
+  },
+  {
+   "text": "@ Christian Walker",
+   "confidence": 67,
+   "bbox": {
+    "x0": 150,
+    "y0": 675,
+    "x1": 457,
+    "y1": 728
+   }
+  },
+  {
+   "text": "HOU - IF - #8",
+   "confidence": 81,
+   "bbox": {
+    "x0": 252,
+    "y0": 722,
+    "x1": 427,
+    "y1": 742
+   }
+  },
+  {
+   "text": "3)",
+   "confidence": 91,
+   "bbox": {
+    "x0": 133,
+    "y0": 663,
+    "x1": 224,
+    "y1": 766
+   }
+  },
+  {
+   "text": "WNBA LVA89 vs IND 99",
+   "confidence": 57,
+   "bbox": {
+    "x0": 131,
+    "y0": 912,
+    "x1": 413,
+    "y1": 929
+   }
+  },
+  {
+   "text": "@) A\\ja Wilson",
+   "confidence": 59,
+   "bbox": {
+    "x0": 121,
+    "y0": 977,
+    "x1": 387,
+    "y1": 1086
+   }
+  },
+  {
+   "text": "—& 4 LVA-C- #22",
+   "confidence": 60,
+   "bbox": {
+    "x0": 146,
+    "y0": 1039,
+    "x1": 425,
+    "y1": 1060
+   }
+  },
+  {
+   "text": "©",
+   "confidence": 85,
+   "bbox": {
+    "x0": 197,
+    "y0": 1056,
+    "x1": 224,
+    "y1": 1084
+   }
+  },
+  {
+   "text": "£ Jackie Young",
+   "confidence": 73,
+   "bbox": {
+    "x0": 158,
+    "y0": 1222,
+    "x1": 414,
+    "y1": 1270
+   }
+  },
+  {
+   "text": "re o) LVA+G- #0",
+   "confidence": 52,
+   "bbox": {
+    "x0": 151,
+    "y0": 1263,
+    "x1": 415,
+    "y1": 1314
+   }
+  },
+  {
+   "text": "WNBA_  MIN/71vs NYL 87",
+   "confidence": 70,
+   "bbox": {
+    "x0": 131,
+    "y0": 1457,
+    "x1": 411,
+    "y1": 1474
+   }
+  },
+  {
+   "text": "Breanna Stewart",
+   "confidence": 97,
+   "bbox": {
+    "x0": 252,
+    "y0": 1543,
+    "x1": 456,
+    "y1": 1563
+   }
+  },
+  {
+   "text": ", NYL + F + #30",
+   "confidence": 40,
+   "bbox": {
+    "x0": 189,
+    "y0": 1584,
+    "x1": 426,
+    "y1": 1608
+   }
+  },
+  {
+   "text": "Pauline Astier",
+   "confidence": 93,
+   "bbox": {
+    "x0": 252,
+    "y0": 1770,
+    "x1": 422,
+    "y1": 1790
+   }
+  },
+  {
+   "text": "g NYL+-G- #18",
+   "confidence": 69,
+   "bbox": {
+    "x0": 151,
+    "y0": 1774,
+    "x1": 424,
+    "y1": 1844
+   }
+  },
+  {
+   "text": "O)",
+   "confidence": 0,
+   "bbox": {
+    "x0": 197,
+    "y0": 1601,
+    "x1": 224,
+    "y1": 1628
+   }
+  },
+  {
+   "text": "©",
+   "confidence": 97,
+   "bbox": {
+    "x0": 197,
+    "y0": 1828,
+    "x1": 224,
+    "y1": 1855
+   }
+  },
+  {
+   "text": "Or 15",
+   "confidence": 0,
+   "bbox": {
+    "x0": 658,
+    "y0": 680,
+    "x1": 777,
+    "y1": 712
+   }
+  },
+  {
+   "text": "Hits+Runs+RBls",
+   "confidence": 63,
+   "bbox": {
+    "x0": 613,
+    "y0": 723,
+    "x1": 777,
+    "y1": 739
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 97,
+   "bbox": {
+    "x0": 753,
+    "y0": 913,
+    "x1": 798,
+    "y1": 929
+   }
+  },
+  {
+   "text": "Oo r75",
+   "confidence": 0,
+   "bbox": {
+    "x0": 654,
+    "y0": 1224,
+    "x1": 777,
+    "y1": 1256
+   }
+  },
+  {
+   "text": "Assists",
+   "confidence": 96,
+   "bbox": {
+    "x0": 709,
+    "y0": 1268,
+    "x1": 777,
+    "y1": 1284
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 97,
+   "bbox": {
+    "x0": 753,
+    "y0": 1457,
+    "x1": 798,
+    "y1": 1474
+   }
+  },
+  {
+   "text": "tT 33",
+   "confidence": 72,
+   "bbox": {
+    "x0": 707,
+    "y0": 1548,
+    "x1": 776,
+    "y1": 1571
+   }
+  },
+  {
+   "text": "Pts+Rebs",
+   "confidence": 93,
+   "bbox": {
+    "x0": 682,
+    "y0": 1586,
+    "x1": 777,
+    "y1": 1602
+   }
+  },
+  {
+   "text": "Oo nr75",
+   "confidence": 0,
+   "bbox": {
+    "x0": 654,
+    "y0": 1769,
+    "x1": 777,
+    "y1": 1801
+   }
+  },
+  {
+   "text": "Rebs+Asts",
+   "confidence": 84,
+   "bbox": {
+    "x0": 671,
+    "y0": 1812,
+    "x1": 777,
+    "y1": 1829
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:12 etl 5Gw ft!",
+   "confidence": 28,
+   "bbox": {
+    "x0": 284,
+    "y0": 152,
+    "x1": 2151,
+    "y1": 230
+   }
+  },
+  {
+   "text": "$5 for $305",
+   "confidence": 96,
+   "bbox": {
+    "x0": 472,
+    "y0": 612,
+    "x1": 969,
+    "y1": 702
+   }
+  },
+  {
+   "text": "jo . (ty eee",
+   "confidence": 51,
+   "bbox": {
+    "x0": 239,
+    "y0": 651,
+    "x1": 2113,
+    "y1": 799
+   }
+  },
+  {
+   "text": "6-Pick Power Play Loss",
+   "confidence": 89,
+   "bbox": {
+    "x0": 471,
+    "y0": 764,
+    "x1": 1436,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "4) Chase Meidroth 4 4.5",
+   "confidence": 69,
+   "bbox": {
+    "x0": 408,
+    "y0": 1139,
+    "x1": 1983,
+    "y1": 1376
+   }
+  },
+  {
+   "text": "CWS - IF « #10 Hitter FS",
+   "confidence": 76,
+   "bbox": {
+    "x0": 641,
+    "y0": 1265,
+    "x1": 1983,
+    "y1": 1316
+   }
+  },
+  {
+   "text": "op Christian Walker = P15",
+   "confidence": 53,
+   "bbox": {
+    "x0": 385,
+    "y0": 1723,
+    "x1": 1983,
+    "y1": 1861
+   }
+  },
+  {
+   "text": "| 6) HOU - IF - #8 Hits+Runs+RBls",
+   "confidence": 74,
+   "bbox": {
+    "x0": 475,
+    "y0": 1839,
+    "x1": 1984,
+    "y1": 1957
+   }
+  },
+  {
+   "text": "—,",
+   "confidence": 0,
+   "bbox": {
+    "x0": 319,
+    "y0": 2010,
+    "x1": 486,
+    "y1": 2061
+   }
+  },
+  {
+   "text": "0)",
+   "confidence": 66,
+   "bbox": {
+    "x0": 302,
+    "y0": 2030,
+    "x1": 486,
+    "y1": 2124
+   }
+  },
+  {
+   "text": "WNBA LVA 89 vs IND 99 Final",
+   "confidence": 74,
+   "bbox": {
+    "x0": 335,
+    "y0": 2329,
+    "x1": 2038,
+    "y1": 2373
+   }
+  },
+  {
+   "text": "% A'ja Wilson 4 42.5",
+   "confidence": 62,
+   "bbox": {
+    "x0": 402,
+    "y0": 2551,
+    "x1": 1983,
+    "y1": 2678
+   }
+  },
+  {
+   "text": "% @) LVA «Ce #22 PRA",
+   "confidence": 64,
+   "bbox": {
+    "x0": 407,
+    "y0": 2652,
+    "x1": 1984,
+    "y1": 2769
+   }
+  },
+  {
+   "text": "2. Jackie Young oh 75",
+   "confidence": 53,
+   "bbox": {
+    "x0": 413,
+    "y0": 3130,
+    "x1": 1983,
+    "y1": 3208
+   }
+  },
+  {
+   "text": "wy S) LVA+Ge- #0 Assists",
+   "confidence": 28,
+   "bbox": {
+    "x0": 398,
+    "y0": 3226,
+    "x1": 1983,
+    "y1": 3348
+   }
+  },
+  {
+   "text": "WNBA _ MIN 71vs NYL 87 Final",
+   "confidence": 50,
+   "bbox": {
+    "x0": 334,
+    "y0": 3721,
+    "x1": 2038,
+    "y1": 3765
+   }
+  },
+  {
+   "text": "Breanna Stewart 4 33",
+   "confidence": 80,
+   "bbox": {
+    "x0": 643,
+    "y0": 3942,
+    "x1": 1981,
+    "y1": 4012
+   }
+  },
+  {
+   "text": "&. NYL « F + #30 Pts+Rebs",
+   "confidence": 67,
+   "bbox": {
+    "x0": 383,
+    "y0": 4047,
+    "x1": 1984,
+    "y1": 4107
+   }
+  },
+  {
+   "text": "K J ()",
+   "confidence": 4,
+   "bbox": {
+    "x0": 386,
+    "y0": 4089,
+    "x1": 569,
+    "y1": 4160
+   }
+  },
+  {
+   "text": "Pauline Astier ~ A 7.5",
+   "confidence": 78,
+   "bbox": {
+    "x0": 643,
+    "y0": 4517,
+    "x1": 1983,
+    "y1": 4590
+   }
+  },
+  {
+   "text": "wd",
+   "confidence": 28,
+   "bbox": {
+    "x0": 1676,
+    "y0": 4577,
+    "x1": 1726,
+    "y1": 4598
+   }
+  },
+  {
+   "text": "NYL+-G- #18 Rebs+Asts",
+   "confidence": 59,
+   "bbox": {
+    "x0": 644,
+    "y0": 4626,
+    "x1": 1984,
+    "y1": 4676
+   }
+  }
+ ]
+}

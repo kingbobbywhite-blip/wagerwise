@@ -3,7 +3,7 @@ import { extractProps, linesFromText, type PropCandidate } from "@/lib/ocr/extra
 import { normalizeName } from "@/lib/quant/correlation"
 import { resolveLine } from "@/lib/quant/distributions"
 import { dfsPayout } from "@/lib/quant/evaluate"
-import { capturedToMode, findApp, findMode, type BookApp, type PayoutMode } from "@/lib/quant/payouts"
+import { breakEvenLegProb, capturedToMode, findApp, findMode, type BookApp, type CapturedPayout, type PayoutMode } from "@/lib/quant/payouts"
 import { groupQuotes, referenceProjection, type FeedQuote, type ValueBetSettings } from "@/lib/quant/valuebets"
 import type { LegResult, TrackedLeg, TrackedSlip } from "@/lib/store/schema"
 
@@ -29,23 +29,64 @@ export const DROPS_OUT: LegResult[] = ["PUSH", "VOID"]
  * The payout table a slip settles against: the multiple captured for its full
  * size, and the app's stored table for any smaller size a void shrinks it to.
  */
-export function settlementMode(slip: Pick<TrackedSlip, "appId" | "modeId" | "capturedPayout">, apps: BookApp[]): PayoutMode {
+export function settlementMode(
+  slip: Pick<TrackedSlip, "appId" | "modeId"> & { capturedPayout: CapturedPayout },
+  apps: BookApp[],
+): PayoutMode {
   const stored = findMode(findApp(apps, slip.appId), slip.modeId)
   const captured = capturedToMode(slip.capturedPayout)
   return { ...captured, table: { ...(stored?.table ?? {}), ...captured.table } }
 }
 
-/** Apply leg results and, once every leg is decided, settle the entry. */
+/**
+ * Apply leg results and, once every leg is decided, settle the entry.
+ *
+ * An entry logged with what the app paid is settled at that, whatever its legs
+ * say or whether they are filled in yet. Scoring it from a table instead is
+ * how a 6-pick flex that hit five goblins, and paid $5 on $10, would have gone
+ * into the tracker as a $10 profit: the stored table pays 2x for 5 of 6, and
+ * goblins cut every tier, not just the top one.
+ */
 export function withResults(slip: TrackedSlip, legs: TrackedLeg[], apps: BookApp[]): TrackedSlip {
+  if (slip.paidOut != null) {
+    const actualMultiple = slip.stake > 0 ? slip.paidOut / slip.stake : 0
+    return { ...slip, legs, status: "SETTLED", actualMultiple, settledAt: slip.settledAt ?? new Date().toISOString() }
+  }
   const settledAll = legs.every((l) => l.result !== "PENDING")
   if (!settledAll) return { ...slip, legs, status: "PENDING", actualMultiple: null, settledAt: null }
   const wins = legs.filter((l) => l.result === "WIN").length
   const drops = legs.filter((l) => DROPS_OUT.includes(l.result)).length
   const outcomes = Int8Array.from(legs.map((l) => (l.result === "WIN" ? 1 : DROPS_OUT.includes(l.result) ? 0 : -1)))
   const actualMultiple = slip.capturedPayout
-    ? dfsPayout(settlementMode(slip, apps))(wins, drops, legs.length, outcomes)
+    ? dfsPayout(settlementMode({ ...slip, capturedPayout: slip.capturedPayout }, apps))(wins, drops, legs.length, outcomes)
     : 0
   return { ...slip, legs, status: "SETTLED", actualMultiple, settledAt: slip.settledAt ?? new Date().toISOString() }
+}
+
+/** The per-leg hit rate an entry needed to break even at its captured payout. Null without one. */
+export function entryBreakEven(slip: TrackedSlip, apps: BookApp[]): number | null {
+  if (!slip.capturedPayout) return null
+  return breakEvenLegProb(settlementMode({ ...slip, capturedPayout: slip.capturedPayout }, apps), slip.legs.length)
+}
+
+/**
+ * What the payout table says an entry should have returned, from its leg
+ * results: the captured table where there is one, the app's stored table
+ * otherwise. Null until every leg is decided, or when no table covers it.
+ *
+ * Beside what the app actually paid, this is how a stored table is caught
+ * being wrong for an entry, which for goblins and demons it usually is.
+ */
+export function tableMultiple(slip: TrackedSlip, apps: BookApp[]): number | null {
+  if (slip.legs.some((l) => l.result === "PENDING")) return null
+  const mode = slip.capturedPayout
+    ? settlementMode({ ...slip, capturedPayout: slip.capturedPayout }, apps)
+    : findMode(findApp(apps, slip.appId), slip.modeId)
+  if (!mode || !mode.table[slip.legs.length]) return null
+  const wins = slip.legs.filter((l) => l.result === "WIN").length
+  const drops = slip.legs.filter((l) => DROPS_OUT.includes(l.result)).length
+  const outcomes = Int8Array.from(slip.legs.map((l) => (l.result === "WIN" ? 1 : DROPS_OUT.includes(l.result) ? 0 : -1)))
+  return dfsPayout(mode)(wins, drops, slip.legs.length, outcomes)
 }
 
 /**
@@ -100,47 +141,160 @@ export function priceLeg(
 export interface Exposure {
   player: string
   entries: number
-  /** Distinct side-and-line combinations across those entries. */
+  /** Each distinct bet on the player: side, line, stat, how many entries carried it, and how it went. */
   bets: string[]
-  /** Over in one entry and under in another: they cannot both win. */
+  /** Over in one entry and under in another, on the same stat. */
   conflicting: boolean
+  /**
+   * An over at or above an under on the same stat, so the two cannot both hit:
+   * over 1.5 and under 1.5 rebounds is one guaranteed miss. Over 0.5 and under
+   * 4.5 is not; both hit if it lands in between.
+   */
+  cannotBothHit: boolean
+  /** The identical leg, same side, line and stat, in more than one entry. */
+  repeated: boolean
 }
 
+const RESULT_WORD: Record<LegResult, string> = { PENDING: "", WIN: "hit", LOSS: "missed", VOID: "did not play", PUSH: "push" }
+
 /**
- * Players who appear in more than one open entry. Each extra entry on the same
- * player is the same bet again: one quiet game, or one blowout, settles all of
- * them together, which multiplies the swing without adding any edge.
+ * Players who appear in more than one of these entries. Each extra entry on
+ * the same player is the same bet again: one quiet game, or one blowout,
+ * settles all of them together, which multiplies the swing without adding any
+ * edge.
  */
-export function openExposure(slips: TrackedSlip[]): Exposure[] {
-  const byPlayer = new Map<string, { player: string; slips: Set<string>; bets: Set<string>; sides: Set<string> }>()
-  for (const s of slips) {
-    if (s.status !== "PENDING") continue
+export function entryOverlap(entries: { id: string; legs: TrackedLeg[] }[]): Exposure[] {
+  const byPlayer = new Map<string, { player: string; slips: Set<string>; legs: { slip: string; leg: TrackedLeg }[] }>()
+  for (const s of entries) {
     for (const l of s.legs) {
-      if (l.result !== "PENDING") continue
       const k = normalizeName(l.player)
-      const e = byPlayer.get(k) ?? { player: l.player, slips: new Set(), bets: new Set(), sides: new Set() }
+      const e = byPlayer.get(k) ?? { player: l.player, slips: new Set<string>(), legs: [] }
       e.slips.add(s.id)
-      e.bets.add(`${l.side === "OVER" ? "over" : "under"} ${l.line} ${l.marketLabel}`)
-      e.sides.add(`${l.marketKey ?? l.marketLabel}|${l.side}`)
+      e.legs.push({ slip: s.id, leg: l })
       byPlayer.set(k, e)
     }
   }
   return Array.from(byPlayer.values())
     .filter((e) => e.slips.size > 1)
     .map((e) => {
-      const markets = new Map<string, Set<string>>()
-      for (const x of e.sides) {
-        const [m, side] = x.split("|")
-        markets.set(m, (markets.get(m) ?? new Set()).add(side))
+      const bets = new Map<string, { label: string; slips: Set<string>; results: Set<LegResult> }>()
+      const sides = new Map<string, { over: number[]; under: number[] }>()
+      for (const { slip, leg } of e.legs) {
+        const market = leg.marketKey ?? leg.marketLabel
+        const key = `${market}|${leg.side}|${leg.line}`
+        const b = bets.get(key) ?? {
+          label: `${leg.side === "OVER" ? "over" : "under"} ${leg.line} ${leg.marketLabel}`,
+          slips: new Set<string>(),
+          results: new Set<LegResult>(),
+        }
+        b.slips.add(slip)
+        b.results.add(leg.result)
+        bets.set(key, b)
+        const m = sides.get(market) ?? { over: [], under: [] }
+        ;(leg.side === "OVER" ? m.over : m.under).push(leg.line)
+        sides.set(market, m)
       }
+      const markets = Array.from(sides.values())
       return {
         player: e.player,
         entries: e.slips.size,
-        bets: Array.from(e.bets),
-        conflicting: Array.from(markets.values()).some((v) => v.size > 1),
+        bets: Array.from(bets.values()).map((b) => {
+          const outcome = Array.from(b.results).map((r) => RESULT_WORD[r]).filter(Boolean).join("/")
+          return `${b.label}${b.slips.size > 1 ? ` \u00d7${b.slips.size}` : ""}${outcome ? `, ${outcome}` : ""}`
+        }),
+        conflicting: markets.some((m) => m.over.length > 0 && m.under.length > 0),
+        cannotBothHit: markets.some((m) => m.over.some((o) => m.under.some((u) => o >= u))),
+        repeated: Array.from(bets.values()).some((b) => b.slips.size > 1),
       }
     })
-    .sort((a, b) => b.entries - a.entries)
+    .sort((a, b) => Number(b.cannotBothHit) - Number(a.cannotBothHit) || Number(b.repeated) - Number(a.repeated) || b.entries - a.entries)
+}
+
+export interface LegClash {
+  /** Other entries with this player in them. */
+  entries: number
+  /** Other entries holding this exact leg: same stat, side and line. */
+  repeated: number
+  /** Another entry takes the other side of this stat. */
+  oppositeSide: boolean
+  /** ...at a line where the two cannot both hit. */
+  cannotBothHit: boolean
+}
+
+/** How one leg overlaps a set of other entries, for warning before it is logged. */
+export function legClash(
+  leg: Pick<TrackedLeg, "player" | "marketKey" | "marketLabel" | "line" | "side">,
+  others: { id: string; legs: TrackedLeg[] }[],
+): LegClash {
+  const who = normalizeName(leg.player)
+  const market = leg.marketKey ?? leg.marketLabel
+  const out: LegClash = { entries: 0, repeated: 0, oppositeSide: false, cannotBothHit: false }
+  for (const e of others) {
+    const same = e.legs.filter((l) => normalizeName(l.player) === who)
+    if (same.length === 0) continue
+    out.entries++
+    const onStat = same.filter((l) => (l.marketKey ?? l.marketLabel) === market)
+    if (onStat.some((l) => l.side === leg.side && l.line === leg.line)) out.repeated++
+    for (const l of onStat) {
+      if (l.side === leg.side) continue
+      out.oppositeSide = true
+      const [over, under] = leg.side === "OVER" ? [leg.line, l.line] : [l.line, leg.line]
+      if (over >= under) out.cannotBothHit = true
+    }
+  }
+  return out
+}
+
+/** Players riding in more than one open entry, counting only legs still to be decided. */
+export function openExposure(slips: TrackedSlip[]): Exposure[] {
+  return entryOverlap(
+    slips
+      .filter((s) => s.status === "PENDING")
+      .map((s) => ({ id: s.id, legs: s.legs.filter((l) => l.result === "PENDING") })),
+  )
+}
+
+/** The local calendar day of a timestamp, as yyyy-mm-dd. */
+export function localDay(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+export interface NightReview {
+  /** The day the entries were logged or built, yyyy-mm-dd. */
+  day: string
+  entries: number
+  staked: number
+  returned: number
+  exposure: Exposure[]
+}
+
+/**
+ * Settled entries grouped by the day they went in, with the players who ran
+ * through more than one of them.
+ *
+ * The open-entry warning only helps before the games. Entries logged from
+ * screenshots arrive already settled, where it never fires, and that is when
+ * a doubled-up leg or an over-and-under pair is worth seeing: it shows what
+ * the habit cost. Newest day first; only days with two or more entries.
+ */
+export function nightReviews(slips: TrackedSlip[], dayOf: (iso: string) => string = localDay): NightReview[] {
+  const days = new Map<string, TrackedSlip[]>()
+  for (const s of slips) {
+    if (s.status !== "SETTLED") continue
+    const d = dayOf(s.createdAt)
+    days.set(d, [...(days.get(d) ?? []), s])
+  }
+  return Array.from(days.entries())
+    .filter(([, list]) => list.length > 1)
+    .map(([day, list]) => ({
+      day,
+      entries: list.length,
+      staked: list.reduce((a, s) => a + s.stake, 0),
+      returned: list.reduce((a, s) => a + s.stake * (s.actualMultiple ?? 0), 0),
+      exposure: entryOverlap(list.map((s) => ({ id: s.id, legs: s.legs }))),
+    }))
+    .sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0))
 }
 
 export interface LegRecord {
@@ -234,11 +388,8 @@ export function legsFromText(text: string): DraftLeg[] {
 }
 
 export function draftFromCandidate(c: PropCandidate, result: LegResult = "PENDING"): DraftLeg {
-  const notes = [
-    c.side ? null : "Pick over or under.",
-    c.marketKey ? null : `Stat "${c.rawMarket}" was not recognised.`,
-    ...c.issues.filter((i) => !i.startsWith("Marked Reboot")),
-  ].filter(Boolean)
+  // A stat the extractor could not model already carries its own note.
+  const notes = [c.side ? null : "Pick over or under.", ...c.issues.filter((i) => !i.startsWith("Marked Reboot"))].filter(Boolean)
   return {
     player: c.player,
     marketKey: c.marketKey,

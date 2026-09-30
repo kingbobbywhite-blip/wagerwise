@@ -35,6 +35,12 @@ Boosted picks (PrizePicks demons and goblins, Underdog boosts) change both the m
 the implied probability of the pick itself. The app models the multiplier if you type it in.
 It does not know the pick was boosted.
 
+They also move every flex tier, not just the top one, and the entry screen only ever shows the
+top. A settled flex entry is therefore scored at what the app says it paid ("$10 paid $5"),
+never at a stored table: that 5-of-6 goblin flex would otherwise have gone into the tracker as
+a $10 profit instead of a $5 loss. When the table and the payment disagree, the entry says so.
+An entry that is still open has no payment to read, so it settles from its legs and the table.
+
 ## 2. Injuries, rest and rotations are still not modelled
 
 There is no news feed. A star ruled out ninety minutes before tip changes every team-mate's

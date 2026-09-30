@@ -239,6 +239,21 @@ Calibration is the only diagnostic that catches it. It needs volume: a gap is on
 highlighted once it exceeds two standard errors on at least twenty legs, and the headline
 bias figure stays neutral until roughly a hundred legs have settled.
 
+### Profit comes from what the app paid
+
+An entry logged from its settled screen carries the amount the app returned: "$10 paid $5",
+or nothing under a Loss badge. That amount is the result. It already includes goblins, demons,
+reboots and whatever table the app really used, so the entry is settled at it even before its
+legs are filled in, and changing a leg afterwards only changes the record by stat. An entry
+still in play has no payment to read and settles from its legs against the captured table.
+
+### Overlap across entries
+
+The same leg in two entries is the same bet twice, and an over in one entry with an under at
+the same line or higher in another cannot both hit. Open entries are checked as they go in.
+Settled entries are grouped by the day they were logged and checked afterwards, because
+entries logged from screenshots arrive already settled.
+
 
 ## The daily pipeline
 

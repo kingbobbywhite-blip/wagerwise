@@ -10,8 +10,16 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { brierScore, calibrationBias, calibrationBuckets, logLoss, summarise, type Observation } from "@/lib/quant/calibration"
 import { LogEntry } from "@/components/log-entry"
-import { breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
-import { openExposure, recordByType, settlementMode, withResults } from "@/lib/tracker/entries"
+import { findApp, findMode } from "@/lib/quant/payouts"
+import {
+  entryBreakEven,
+  nightReviews,
+  openExposure,
+  recordByType,
+  tableMultiple,
+  withResults,
+  type Exposure,
+} from "@/lib/tracker/entries"
 import { useStore } from "@/lib/store/provider"
 import type { LegResult, TrackedSlip } from "@/lib/store/schema"
 import { money, multiple, pct, shortDate, signedPct } from "@/lib/format"
@@ -40,6 +48,7 @@ export default function TrackerPage() {
   const brier = brierScore(observations)
   const ll = logLoss(observations)
   const exposure = React.useMemo(() => openExposure(slips), [slips])
+  const nights = React.useMemo(() => nightReviews(slips).filter((n) => n.exposure.length > 0).slice(0, 3), [slips])
   const record = React.useMemo(() => recordByType(slips), [slips])
   const [logging, setLogging] = React.useState(false)
 
@@ -48,8 +57,8 @@ export default function TrackerPage() {
     let legs = 0
     let acc = 0
     for (const s of slips) {
-      if (s.status !== "SETTLED" || !s.capturedPayout) continue
-      const be = breakEvenLegProb(settlementMode(s, state.settings.apps), s.legs.length)
+      if (s.status !== "SETTLED") continue
+      const be = entryBreakEven(s, state.settings.apps)
       if (be == null) continue
       const decided = s.legs.filter((l) => l.result === "WIN" || l.result === "LOSS").length
       legs += decided
@@ -107,19 +116,30 @@ export default function TrackerPage() {
           <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-accent">Same player in several open entries</h2>
           <ul className="mt-2 space-y-1">
             {exposure.map((e) => (
-              <li key={e.player}>
-                <span className="font-medium">{e.player}</span>{" "}
-                <span className="text-muted-foreground">
-                  is in {e.entries} open entries ({e.bets.join("; ")}).{" "}
-                  {e.conflicting
-                    ? "Over in one and under in another: at least one of those legs loses."
-                    : "One game decides all of them together, which multiplies the swing without adding edge."}
-                </span>
-              </li>
+              <ExposureItem key={e.player} e={e} open />
             ))}
           </ul>
         </section>
       ) : null}
+
+      {nights.map((n) => (
+        <section key={n.day} className="rounded-lg border border-border/60 bg-card/40 p-4 text-xs leading-relaxed">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+              Overlap on {new Date(`${n.day}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </h2>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {n.entries} entries · {money(n.staked)} in · {money(n.returned)} back ·{" "}
+              <span className={n.returned >= n.staked ? "text-primary" : "text-destructive"}>{money(n.returned - n.staked)}</span>
+            </span>
+          </div>
+          <ul className="mt-2 space-y-1">
+            {n.exposure.map((e) => (
+              <ExposureItem key={e.player} e={e} />
+            ))}
+          </ul>
+        </section>
+      ))}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatTile label="Settled" value={`${perf.settled}/${perf.entries}`} hint={`${perf.wins} returned a profit, ${perf.losses} did not.`} />
@@ -246,7 +266,9 @@ export default function TrackerPage() {
           const app = findApp(state.settings.apps, s.appId)
           const mode = findMode(app, s.modeId)
           const wins = s.legs.filter((l) => l.result === "WIN").length
-          const be = s.capturedPayout ? breakEvenLegProb(settlementMode(s, state.settings.apps), s.legs.length) : null
+          const legsSet = s.legs.every((l) => l.result !== "PENDING")
+          const be = entryBreakEven(s, state.settings.apps)
+          const table = s.paidOut != null ? tableMultiple(s, state.settings.apps) : null
           return (
             <div key={s.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -268,16 +290,29 @@ export default function TrackerPage() {
                       payout captured:{" "}
                       {Object.entries(s.capturedPayout.tiers)
                         .sort((a, b) => Number(b[0]) - Number(a[0]))
-                        .map(([k, v]) => `${k}/${s.capturedPayout.picks} ${v}x`)
+                        .map(([k, v]) => `${k}/${s.capturedPayout!.picks} ${v}x`)
                         .join(" · ")}
                       {s.capturedPayout.confirmed ? "" : " (unconfirmed)"}
                     </div>
-                  ) : (
+                  ) : null}
+                  {s.paidOut != null ? (
+                    <div className="font-mono text-[10px] text-muted-foreground">
+                      settled at what the app paid: {money(s.paidOut)} on {money(s.stake)}
+                      {s.paidOut > 0 && s.paidOut < s.stake ? ", a loss whatever its Win badge says" : ""}
+                    </div>
+                  ) : null}
+                  {table != null && s.stake > 0 && Math.abs(table - s.paidOut! / s.stake) > 0.005 ? (
+                    <div className="font-mono text-[10px] text-accent">
+                      The payout table says {wins} of {s.legs.length} pays {multiple(table)}; the app paid{" "}
+                      {multiple(s.paidOut! / s.stake)}. Goblins and demons move every tier, not just the top one.
+                    </div>
+                  ) : null}
+                  {!s.capturedPayout && s.paidOut == null ? (
                     <div className="font-mono text-[10px] text-accent">
                       No payout captured for this entry, so it was settled at zero. Entries logged before payout capture
                       existed cannot be scored.
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {s.status === "SETTLED" ? (
@@ -288,7 +323,7 @@ export default function TrackerPage() {
                         (s.actualMultiple ?? 0) > 1 ? "border-primary/40 text-primary" : "border-destructive/40 text-destructive",
                       )}
                     >
-                      {wins}/{s.legs.length} · {multiple(s.actualMultiple ?? 0)} ·{" "}
+                      {legsSet ? `${wins}/${s.legs.length}` : "legs unset"} · {multiple(s.actualMultiple ?? 0)} ·{" "}
                       {money(s.stake * ((s.actualMultiple ?? 0) - 1))}
                     </Badge>
                   ) : (
@@ -336,5 +371,24 @@ export default function TrackerPage() {
         })}
       </div>
     </div>
+  )
+}
+
+function ExposureItem({ e, open = false }: { e: Exposure; open?: boolean }) {
+  const where = open ? "open entries" : "entries"
+  return (
+    <li>
+      <span className="font-medium">{e.player}</span>{" "}
+      <span className="text-muted-foreground">
+        is in {e.entries} {where} ({e.bets.join("; ")}).{" "}
+        {e.cannotBothHit
+          ? "Over in one entry and under in another, with the over's line at or above the under's: they cannot both hit, so one of those entries carried a miss before the game started."
+          : e.conflicting
+            ? "Over in one and under in another: both hit only if it lands between the lines; otherwise you were betting against yourself."
+            : e.repeated
+              ? "The same leg in several entries: it wins or loses all of them together, which multiplies the swing without adding edge."
+              : "One game decides all of them together, which multiplies the swing without adding edge."}
+      </span>
+    </li>
   )
 }
