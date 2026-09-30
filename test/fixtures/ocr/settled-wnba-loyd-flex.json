@@ -1,0 +1,456 @@
+{
+ "raw": [
+  {
+   "text": "9:13 & ll 5G",
+   "confidence": 61,
+   "bbox": {
+    "x0": 111,
+    "y0": 59,
+    "x1": 843,
+    "y1": 90
+   }
+  },
+  {
+   "text": "$10 paid $5",
+   "confidence": 96,
+   "bbox": {
+    "x0": 185,
+    "y0": 240,
+    "x1": 376,
+    "y1": 278
+   }
+  },
+  {
+   "text": ": ; h coe",
+   "confidence": 17,
+   "bbox": {
+    "x0": 244,
+    "y0": 266,
+    "x1": 828,
+    "y1": 311
+   }
+  },
+  {
+   "text": "6-Pick Flex Play",
+   "confidence": 95,
+   "bbox": {
+    "x0": 184,
+    "y0": 299,
+    "x1": 442,
+    "y1": 333
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 97,
+   "bbox": {
+    "x0": 170,
+    "y0": 378,
+    "x1": 760,
+    "y1": 412
+   }
+  },
+  {
+   "text": "2 Jewell Loyd @r05",
+   "confidence": 58,
+   "bbox": {
+    "x0": 159,
+    "y0": 514,
+    "x1": 777,
+    "y1": 565
+   }
+  },
+  {
+   "text": "ro) LVA + G+ #24 3PTM",
+   "confidence": 52,
+   "bbox": {
+    "x0": 194,
+    "y0": 554,
+    "x1": 776,
+    "y1": 604
+   }
+  },
+  {
+   "text": "(§) Kelsey Mitchell © vis",
+   "confidence": 44,
+   "bbox": {
+    "x0": 117,
+    "y0": 720,
+    "x1": 777,
+    "y1": 829
+   }
+  },
+  {
+   "text": "IND-G-#0 Rebounds",
+   "confidence": 76,
+   "bbox": {
+    "x0": 252,
+    "y0": 783,
+    "x1": 777,
+    "y1": 803
+   }
+  },
+  {
+   "text": "40)",
+   "confidence": 18,
+   "bbox": {
+    "x0": 186,
+    "y0": 800,
+    "x1": 224,
+    "y1": 826
+   }
+  },
+  {
+   "text": "WNBA MIN 71 vs NYL 87 Final",
+   "confidence": 54,
+   "bbox": {
+    "x0": 131,
+    "y0": 973,
+    "x1": 798,
+    "y1": 991
+   }
+  },
+  {
+   "text": "( & ) Jonquel Jones Ow r15",
+   "confidence": 50,
+   "bbox": {
+    "x0": 121,
+    "y0": 1057,
+    "x1": 777,
+    "y1": 1128
+   }
+  },
+  {
+   "text": "vi NYL+C-+#35 3PTM",
+   "confidence": 56,
+   "bbox": {
+    "x0": 199,
+    "y0": 1101,
+    "x1": 776,
+    "y1": 1121
+   }
+  },
+  {
+   "text": "(o)",
+   "confidence": 0,
+   "bbox": {
+    "x0": 197,
+    "y0": 1118,
+    "x1": 224,
+    "y1": 1145
+   }
+  },
+  {
+   "text": "( : ) Kayla McBride Or15",
+   "confidence": 68,
+   "bbox": {
+    "x0": 124,
+    "y0": 1268,
+    "x1": 777,
+    "y1": 1369
+   }
+  },
+  {
+   "text": "MIN -G- #21 Rebounds",
+   "confidence": 82,
+   "bbox": {
+    "x0": 252,
+    "y0": 1327,
+    "x1": 777,
+    "y1": 1347
+   }
+  },
+  {
+   "text": "(O)",
+   "confidence": 0,
+   "bbox": {
+    "x0": 197,
+    "y0": 1344,
+    "x1": 224,
+    "y1": 1371
+   }
+  },
+  {
+   "text": "a “ . .",
+   "confidence": 19,
+   "bbox": {
+    "x0": 161,
+    "y0": 1504,
+    "x1": 401,
+    "y1": 1517
+   }
+  },
+  {
+   "text": "(¢) Leonie Fiebich ty tT 0.5",
+   "confidence": 56,
+   "bbox": {
+    "x0": 117,
+    "y0": 1491,
+    "x1": 777,
+    "y1": 1600
+   }
+  },
+  {
+   "text": "NYL-F - #13 3PTM",
+   "confidence": 56,
+   "bbox": {
+    "x0": 252,
+    "y0": 1554,
+    "x1": 776,
+    "y1": 1574
+   }
+  },
+  {
+   "text": "O)",
+   "confidence": 0,
+   "bbox": {
+    "x0": 197,
+    "y0": 1571,
+    "x1": 224,
+    "y1": 1598
+   }
+  },
+  {
+   "text": "(3) Olivia Miles w ros",
+   "confidence": 77,
+   "bbox": {
+    "x0": 117,
+    "y0": 1718,
+    "x1": 777,
+    "y1": 1826
+   }
+  },
+  {
+   "text": ", MIN -G- #5 3PT™M",
+   "confidence": 62,
+   "bbox": {
+    "x0": 197,
+    "y0": 1780,
+    "x1": 776,
+    "y1": 1802
+   }
+  },
+  {
+   "text": "©",
+   "confidence": 71,
+   "bbox": {
+    "x0": 197,
+    "y0": 1798,
+    "x1": 224,
+    "y1": 1824
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:13 & oth 5Gu",
+   "confidence": 17,
+   "bbox": {
+    "x0": 284,
+    "y0": 152,
+    "x1": 2151,
+    "y1": 230
+   }
+  },
+  {
+   "text": "$10 paid $5",
+   "confidence": 96,
+   "bbox": {
+    "x0": 472,
+    "y0": 612,
+    "x1": 961,
+    "y1": 710
+   }
+  },
+  {
+   "text": "jo . (tj eee",
+   "confidence": 43,
+   "bbox": {
+    "x0": 239,
+    "y0": 651,
+    "x1": 2113,
+    "y1": 799
+   }
+  },
+  {
+   "text": "6-Pick Flex Play",
+   "confidence": 95,
+   "bbox": {
+    "x0": 471,
+    "y0": 764,
+    "x1": 1129,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "Jewell Loyd @ * 0.5",
+   "confidence": 66,
+   "bbox": {
+    "x0": 637,
+    "y0": 1315,
+    "x1": 1983,
+    "y1": 1394
+   }
+  },
+  {
+   "text": "LVA-Ge #24 3PTM",
+   "confidence": 73,
+   "bbox": {
+    "x0": 644,
+    "y0": 1421,
+    "x1": 1980,
+    "y1": 1472
+   }
+  },
+  {
+   "text": "g Kelsey Mitchell oY 15",
+   "confidence": 45,
+   "bbox": {
+    "x0": 399,
+    "y0": 1884,
+    "x1": 1983,
+    "y1": 2056
+   }
+  },
+  {
+   "text": "Wi IND+G-+ #0 Rebounds",
+   "confidence": 68,
+   "bbox": {
+    "x0": 375,
+    "y0": 2000,
+    "x1": 1984,
+    "y1": 2067
+   }
+  },
+  {
+   "text": "Y",
+   "confidence": 75,
+   "bbox": {
+    "x0": 493,
+    "y0": 2043,
+    "x1": 571,
+    "y1": 2110
+   }
+  },
+  {
+   "text": "WNBA) MIN 71vs NYL 87 Final",
+   "confidence": 68,
+   "bbox": {
+    "x0": 335,
+    "y0": 2485,
+    "x1": 2038,
+    "y1": 2529
+   }
+  },
+  {
+   "text": "Jonquel Jones @ T 15",
+   "confidence": 82,
+   "bbox": {
+    "x0": 637,
+    "y0": 2707,
+    "x1": 1983,
+    "y1": 2785
+   }
+  },
+  {
+   "text": "NYL -C + #35 3PTM",
+   "confidence": 76,
+   "bbox": {
+    "x0": 644,
+    "y0": 2812,
+    "x1": 1980,
+    "y1": 2863
+   }
+  },
+  {
+   "text": "Kayla McBride Q@ 15",
+   "confidence": 67,
+   "bbox": {
+    "x0": 643,
+    "y0": 3285,
+    "x1": 1983,
+    "y1": 3363
+   }
+  },
+  {
+   "text": "MIN «Ge #21 Rebounds",
+   "confidence": 87,
+   "bbox": {
+    "x0": 644,
+    "y0": 3391,
+    "x1": 1984,
+    "y1": 3441
+   }
+  },
+  {
+   "text": "Y",
+   "confidence": 51,
+   "bbox": {
+    "x0": 504,
+    "y0": 3434,
+    "x1": 571,
+    "y1": 3501
+   }
+  },
+  {
+   "text": "Leonie Fiebich @ tT 0.5",
+   "confidence": 76,
+   "bbox": {
+    "x0": 643,
+    "y0": 3864,
+    "x1": 1983,
+    "y1": 3942
+   }
+  },
+  {
+   "text": "NYL + F « #13 3PTM",
+   "confidence": 71,
+   "bbox": {
+    "x0": 644,
+    "y0": 3969,
+    "x1": 1980,
+    "y1": 4020
+   }
+  },
+  {
+   "text": "Olivia Miles @ tT 05",
+   "confidence": 72,
+   "bbox": {
+    "x0": 641,
+    "y0": 4442,
+    "x1": 1983,
+    "y1": 4521
+   }
+  },
+  {
+   "text": "MIN -Ge #5 3PTM",
+   "confidence": 78,
+   "bbox": {
+    "x0": 644,
+    "y0": 4548,
+    "x1": 1980,
+    "y1": 4598
+   }
+  },
+  {
+   "text": "©",
+   "confidence": 79,
+   "bbox": {
+    "x0": 502,
+    "y0": 4591,
+    "x1": 571,
+    "y1": 4659
+   }
+  }
+ ]
+}

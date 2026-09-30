@@ -1,0 +1,496 @@
+{
+ "raw": [
+  {
+   "text": "9:13 & al 5GK",
+   "confidence": 30,
+   "bbox": {
+    "x0": 111,
+    "y0": 59,
+    "x1": 843,
+    "y1": 90
+   }
+  },
+  {
+   "text": "$5 paid $2",
+   "confidence": 96,
+   "bbox": {
+    "x0": 185,
+    "y0": 240,
+    "x1": 358,
+    "y1": 278
+   }
+  },
+  {
+   "text": "6-Pick Flex Play",
+   "confidence": 95,
+   "bbox": {
+    "x0": 185,
+    "y0": 299,
+    "x1": 442,
+    "y1": 333
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 97,
+   "bbox": {
+    "x0": 170,
+    "y0": 378,
+    "x1": 760,
+    "y1": 412
+   }
+  },
+  {
+   "text": "om",
+   "confidence": 41,
+   "bbox": {
+    "x0": 121,
+    "y0": 499,
+    "x1": 224,
+    "y1": 602
+   }
+  },
+  {
+   "text": "Kelsey Mitchell OW r15",
+   "confidence": 51,
+   "bbox": {
+    "x0": 252,
+    "y0": 517,
+    "x1": 777,
+    "y1": 548
+   }
+  },
+  {
+   "text": "IND-G- #0 Rebounds",
+   "confidence": 74,
+   "bbox": {
+    "x0": 252,
+    "y0": 559,
+    "x1": 777,
+    "y1": 578
+   }
+  },
+  {
+   "text": "CY Lexie Hull © v.25",
+   "confidence": 79,
+   "bbox": {
+    "x0": 117,
+    "y0": 722,
+    "x1": 776,
+    "y1": 831
+   }
+  },
+  {
+   "text": "IND +-G- #10 Rebounds",
+   "confidence": 64,
+   "bbox": {
+    "x0": 252,
+    "y0": 785,
+    "x1": 777,
+    "y1": 805
+   }
+  },
+  {
+   "text": "©)",
+   "confidence": 95,
+   "bbox": {
+    "x0": 197,
+    "y0": 802,
+    "x1": 224,
+    "y1": 829
+   }
+  },
+  {
+   "text": "WNBA MIN/71vs NYL 87 Final",
+   "confidence": 72,
+   "bbox": {
+    "x0": 131,
+    "y0": 975,
+    "x1": 798,
+    "y1": 993
+   }
+  },
+  {
+   "text": "Pa Jonquel Jones OW v 25",
+   "confidence": 74,
+   "bbox": {
+    "x0": 149,
+    "y0": 1058,
+    "x1": 776,
+    "y1": 1116
+   }
+  },
+  {
+   "text": "WO) NYL + C+ #35 Assists",
+   "confidence": 54,
+   "bbox": {
+    "x0": 149,
+    "y0": 1098,
+    "x1": 777,
+    "y1": 1151
+   }
+  },
+  {
+   "text": "Lal . . :",
+   "confidence": 22,
+   "bbox": {
+    "x0": 157,
+    "y0": 1276,
+    "x1": 401,
+    "y1": 1298
+   }
+  },
+  {
+   "text": "@ Leonie Fiebich @ 1 35",
+   "confidence": 72,
+   "bbox": {
+    "x0": 121,
+    "y0": 1271,
+    "x1": 777,
+    "y1": 1372
+   }
+  },
+  {
+   "text": "NYL+F + #13 Rebounds",
+   "confidence": 66,
+   "bbox": {
+    "x0": 252,
+    "y0": 1330,
+    "x1": 777,
+    "y1": 1350
+   }
+  },
+  {
+   "text": "Q",
+   "confidence": 55,
+   "bbox": {
+    "x0": 197,
+    "y0": 1347,
+    "x1": 224,
+    "y1": 1373
+   }
+  },
+  {
+   "text": "Napheesa Collier OS v25",
+   "confidence": 72,
+   "bbox": {
+    "x0": 252,
+    "y0": 1514,
+    "x1": 776,
+    "y1": 1546
+   }
+  },
+  {
+   "text": "MIN - F + #24 Assists",
+   "confidence": 72,
+   "bbox": {
+    "x0": 252,
+    "y0": 1556,
+    "x1": 777,
+    "y1": 1576
+   }
+  },
+  {
+   "text": "©)",
+   "confidence": 35,
+   "bbox": {
+    "x0": 121,
+    "y0": 1497,
+    "x1": 224,
+    "y1": 1600
+   }
+  },
+  {
+   "text": "|",
+   "confidence": 80,
+   "bbox": {
+    "x0": 121,
+    "y0": 1621,
+    "x1": 429,
+    "y1": 1667
+   }
+  },
+  {
+   "text": "Olivia Miles Wv 65",
+   "confidence": 86,
+   "bbox": {
+    "x0": 251,
+    "y0": 1741,
+    "x1": 776,
+    "y1": 1772
+   }
+  },
+  {
+   "text": "MIN -G- #5 Assists",
+   "confidence": 87,
+   "bbox": {
+    "x0": 252,
+    "y0": 1783,
+    "x1": 777,
+    "y1": 1803
+   }
+  },
+  {
+   "text": "&)",
+   "confidence": 85,
+   "bbox": {
+    "x0": 121,
+    "y0": 1724,
+    "x1": 224,
+    "y1": 1826
+   }
+  },
+  {
+   "text": ":",
+   "confidence": 7,
+   "bbox": {
+    "x0": 121,
+    "y0": 1847,
+    "x1": 263,
+    "y1": 1893
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:13 & etl 5Gw ft!",
+   "confidence": 39,
+   "bbox": {
+    "x0": 284,
+    "y0": 152,
+    "x1": 2151,
+    "y1": 230
+   }
+  },
+  {
+   "text": "$5 paid $2",
+   "confidence": 95,
+   "bbox": {
+    "x0": 472,
+    "y0": 612,
+    "x1": 913,
+    "y1": 710
+   }
+  },
+  {
+   "text": "pp (Te",
+   "confidence": 19,
+   "bbox": {
+    "x0": 243,
+    "y0": 655,
+    "x1": 1833,
+    "y1": 795
+   }
+  },
+  {
+   "text": "6-Pick Flex Play",
+   "confidence": 95,
+   "bbox": {
+    "x0": 471,
+    "y0": 764,
+    "x1": 1129,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "3 Kelsey Mitchell @ 715",
+   "confidence": 74,
+   "bbox": {
+    "x0": 399,
+    "y0": 1311,
+    "x1": 1983,
+    "y1": 1484
+   }
+  },
+  {
+   "text": "aso IND-+Ge #0 Rebounds",
+   "confidence": 60,
+   "bbox": {
+    "x0": 374,
+    "y0": 1427,
+    "x1": 1983,
+    "y1": 1536
+   }
+  },
+  {
+   "text": "CU)",
+   "confidence": 25,
+   "bbox": {
+    "x0": 1370,
+    "y0": 1593,
+    "x1": 1554,
+    "y1": 1708
+   }
+  },
+  {
+   "text": "Lexie Hull - 125",
+   "confidence": 74,
+   "bbox": {
+    "x0": 643,
+    "y0": 1900,
+    "x1": 1981,
+    "y1": 1972
+   }
+  },
+  {
+   "text": "ed",
+   "confidence": 35,
+   "bbox": {
+    "x0": 1671,
+    "y0": 1957,
+    "x1": 1722,
+    "y1": 1977
+   }
+  },
+  {
+   "text": "IND -Ge #10 Rebounds",
+   "confidence": 59,
+   "bbox": {
+    "x0": 644,
+    "y0": 2005,
+    "x1": 1984,
+    "y1": 2056
+   }
+  },
+  {
+   "text": "(7)",
+   "confidence": 78,
+   "bbox": {
+    "x0": 1871,
+    "y0": 2172,
+    "x1": 2055,
+    "y1": 2285
+   }
+  },
+  {
+   "text": "®",
+   "confidence": 69,
+   "bbox": {
+    "x0": 311,
+    "y0": 1856,
+    "x1": 569,
+    "y1": 2114
+   }
+  },
+  {
+   "text": "WNBA MIN 7ivs NYL 87 Final",
+   "confidence": 80,
+   "bbox": {
+    "x0": 335,
+    "y0": 2492,
+    "x1": 2038,
+    "y1": 2536
+   }
+  },
+  {
+   "text": "Jonquel Jones @ vv 25",
+   "confidence": 75,
+   "bbox": {
+    "x0": 637,
+    "y0": 2713,
+    "x1": 1981,
+    "y1": 2791
+   }
+  },
+  {
+   "text": "NYL «C+ #35 Assists",
+   "confidence": 86,
+   "bbox": {
+    "x0": 644,
+    "y0": 2818,
+    "x1": 1984,
+    "y1": 2868
+   }
+  },
+  {
+   "text": "| Leonie Fiebich = Vv 3.5",
+   "confidence": 67,
+   "bbox": {
+    "x0": 483,
+    "y0": 3291,
+    "x1": 1983,
+    "y1": 3373
+   }
+  },
+  {
+   "text": "1 NYL-F- #13 Rebounds",
+   "confidence": 62,
+   "bbox": {
+    "x0": 474,
+    "y0": 3375,
+    "x1": 1984,
+    "y1": 3447
+   }
+  },
+  {
+   "text": "©",
+   "confidence": 71,
+   "bbox": {
+    "x0": 504,
+    "y0": 3440,
+    "x1": 571,
+    "y1": 3507
+   }
+  },
+  {
+   "text": "Napheesa Collier LV 25",
+   "confidence": 62,
+   "bbox": {
+    "x0": 643,
+    "y0": 3869,
+    "x1": 1981,
+    "y1": 3947
+   }
+  },
+  {
+   "text": "MIN - F «#24 Assists",
+   "confidence": 63,
+   "bbox": {
+    "x0": 644,
+    "y0": 3975,
+    "x1": 1984,
+    "y1": 4025
+   }
+  },
+  {
+   "text": "Y",
+   "confidence": 64,
+   "bbox": {
+    "x0": 504,
+    "y0": 4018,
+    "x1": 571,
+    "y1": 4086
+   }
+  },
+  {
+   "text": "Olivia Miles @ J 65",
+   "confidence": 76,
+   "bbox": {
+    "x0": 641,
+    "y0": 4448,
+    "x1": 1981,
+    "y1": 4526
+   }
+  },
+  {
+   "text": "MIN «Ge #5 Assists",
+   "confidence": 70,
+   "bbox": {
+    "x0": 644,
+    "y0": 4554,
+    "x1": 1984,
+    "y1": 4604
+   }
+  }
+ ]
+}

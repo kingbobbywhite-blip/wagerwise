@@ -1,0 +1,406 @@
+{
+ "raw": [
+  {
+   "text": "9:13",
+   "confidence": 0,
+   "bbox": {
+    "x0": 111,
+    "y0": 60,
+    "x1": 227,
+    "y1": 90
+   }
+  },
+  {
+   "text": "$5 for $30",
+   "confidence": 97,
+   "bbox": {
+    "x0": 185,
+    "y0": 240,
+    "x1": 358,
+    "y1": 275
+   }
+  },
+  {
+   "text": "3-Pick Power Play Loss",
+   "confidence": 95,
+   "bbox": {
+    "x0": 184,
+    "y0": 299,
+    "x1": 562,
+    "y1": 333
+   }
+  },
+  {
+   "text": "Entry Pulse",
+   "confidence": 96,
+   "bbox": {
+    "x0": 170,
+    "y0": 382,
+    "x1": 493,
+    "y1": 407
+   }
+  },
+  {
+   "text": "WNBA _ MIN/71vs NYL 87",
+   "confidence": 49,
+   "bbox": {
+    "x0": 131,
+    "y0": 501,
+    "x1": 410,
+    "y1": 518
+   }
+  },
+  {
+   "text": "Breanna Stewart",
+   "confidence": 96,
+   "bbox": {
+    "x0": 252,
+    "y0": 588,
+    "x1": 456,
+    "y1": 607
+   }
+  },
+  {
+   "text": "y NYL-F + #30",
+   "confidence": 63,
+   "bbox": {
+    "x0": 188,
+    "y0": 629,
+    "x1": 426,
+    "y1": 654
+   }
+  },
+  {
+   "text": "Courtney Williams",
+   "confidence": 96,
+   "bbox": {
+    "x0": 251,
+    "y0": 814,
+    "x1": 479,
+    "y1": 840
+   }
+  },
+  {
+   "text": "4 MIN+G- #10",
+   "confidence": 60,
+   "bbox": {
+    "x0": 201,
+    "y0": 855,
+    "x1": 427,
+    "y1": 875
+   }
+  },
+  {
+   "text": "Marine Johannes",
+   "confidence": 96,
+   "bbox": {
+    "x0": 252,
+    "y0": 1041,
+    "x1": 461,
+    "y1": 1061
+   }
+  },
+  {
+   "text": "NYL+-G- #23",
+   "confidence": 58,
+   "bbox": {
+    "x0": 252,
+    "y0": 1082,
+    "x1": 427,
+    "y1": 1102
+   }
+  },
+  {
+   "text": "@",
+   "confidence": 38,
+   "bbox": {
+    "x0": 197,
+    "y0": 646,
+    "x1": 224,
+    "y1": 672
+   }
+  },
+  {
+   "text": "i)",
+   "confidence": 19,
+   "bbox": {
+    "x0": 197,
+    "y0": 872,
+    "x1": 224,
+    "y1": 899
+   }
+  },
+  {
+   "text": "©",
+   "confidence": 46,
+   "bbox": {
+    "x0": 197,
+    "y0": 1099,
+    "x1": 224,
+    "y1": 1126
+   }
+  },
+  {
+   "text": "eal 5G @",
+   "confidence": 20,
+   "bbox": {
+    "x0": 655,
+    "y0": 60,
+    "x1": 791,
+    "y1": 89
+   }
+  },
+  {
+   "text": "Details",
+   "confidence": 97,
+   "bbox": {
+    "x0": 677,
+    "y0": 382,
+    "x1": 760,
+    "y1": 401
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 97,
+   "bbox": {
+    "x0": 753,
+    "y0": 502,
+    "x1": 798,
+    "y1": 518
+   }
+  },
+  {
+   "text": "Vv 3.5",
+   "confidence": 64,
+   "bbox": {
+    "x0": 700,
+    "y0": 592,
+    "x1": 777,
+    "y1": 616
+   }
+  },
+  {
+   "text": "Assists",
+   "confidence": 96,
+   "bbox": {
+    "x0": 709,
+    "y0": 630,
+    "x1": 777,
+    "y1": 646
+   }
+  },
+  {
+   "text": "3)",
+   "confidence": 37,
+   "bbox": {
+    "x0": 732,
+    "y0": 693,
+    "x1": 806,
+    "y1": 739
+   }
+  },
+  {
+   "text": "v4",
+   "confidence": 71,
+   "bbox": {
+    "x0": 722,
+    "y0": 819,
+    "x1": 777,
+    "y1": 842
+   }
+  },
+  {
+   "text": "Assists",
+   "confidence": 96,
+   "bbox": {
+    "x0": 709,
+    "y0": 857,
+    "x1": 777,
+    "y1": 873
+   }
+  },
+  {
+   "text": "Cs)",
+   "confidence": 79,
+   "bbox": {
+    "x0": 732,
+    "y0": 920,
+    "x1": 806,
+    "y1": 966
+   }
+  },
+  {
+   "text": "\\ 4.5",
+   "confidence": 37,
+   "bbox": {
+    "x0": 699,
+    "y0": 1046,
+    "x1": 777,
+    "y1": 1069
+   }
+  },
+  {
+   "text": "Points",
+   "confidence": 96,
+   "bbox": {
+    "x0": 716,
+    "y0": 1083,
+    "x1": 777,
+    "y1": 1099
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:13 & ath 5Gue",
+   "confidence": 22,
+   "bbox": {
+    "x0": 284,
+    "y0": 152,
+    "x1": 2151,
+    "y1": 230
+   }
+  },
+  {
+   "text": "D $5 for $30",
+   "confidence": 94,
+   "bbox": {
+    "x0": 243,
+    "y0": 612,
+    "x1": 913,
+    "y1": 793
+   }
+  },
+  {
+   "text": ". (ty eee",
+   "confidence": 45,
+   "bbox": {
+    "x0": 622,
+    "y0": 676,
+    "x1": 2113,
+    "y1": 799
+   }
+  },
+  {
+   "text": "3-Pick Power Play Loss",
+   "confidence": 92,
+   "bbox": {
+    "x0": 470,
+    "y0": 763,
+    "x1": 1434,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "WNBA) MIN 7ivs NYL 87 Final",
+   "confidence": 62,
+   "bbox": {
+    "x0": 334,
+    "y0": 1279,
+    "x1": 2038,
+    "y1": 1324
+   }
+  },
+  {
+   "text": "Breanna Stewart VY 3.5",
+   "confidence": 80,
+   "bbox": {
+    "x0": 643,
+    "y0": 1501,
+    "x1": 1983,
+    "y1": 1573
+   }
+  },
+  {
+   "text": ". Ae NYL -F «#30 Assists",
+   "confidence": 54,
+   "bbox": {
+    "x0": 385,
+    "y0": 1605,
+    "x1": 1984,
+    "y1": 1715
+   }
+  },
+  {
+   "text": "C4)",
+   "confidence": 57,
+   "bbox": {
+    "x0": 1871,
+    "y0": 1773,
+    "x1": 2055,
+    "y1": 1886
+   }
+  },
+  {
+   "text": "Courtney Williams JL 4",
+   "confidence": 77,
+   "bbox": {
+    "x0": 641,
+    "y0": 2079,
+    "x1": 1984,
+    "y1": 2151
+   }
+  },
+  {
+   "text": "MIN - Ge #10 Assists",
+   "confidence": 84,
+   "bbox": {
+    "x0": 644,
+    "y0": 2185,
+    "x1": 1983,
+    "y1": 2235
+   }
+  },
+  {
+   "text": "C5)",
+   "confidence": 86,
+   "bbox": {
+    "x0": 1871,
+    "y0": 2351,
+    "x1": 2055,
+    "y1": 2465
+   }
+  },
+  {
+   "text": "Marine Johannes J 45",
+   "confidence": 81,
+   "bbox": {
+    "x0": 643,
+    "y0": 2658,
+    "x1": 1983,
+    "y1": 2730
+   }
+  },
+  {
+   "text": "NYL+-Ge #23 Points",
+   "confidence": 74,
+   "bbox": {
+    "x0": 644,
+    "y0": 2763,
+    "x1": 1984,
+    "y1": 2814
+   }
+  },
+  {
+   "text": "C8)",
+   "confidence": 68,
+   "bbox": {
+    "x0": 1871,
+    "y0": 2930,
+    "x1": 2055,
+    "y1": 3043
+   }
+  }
+ ]
+}

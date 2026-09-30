@@ -156,26 +156,36 @@ function repairNumeric(raw: string): string {
 /**
  * The arrow PrizePicks prints before a line, as OCR renders it.
  *
- * Read from five real settled-entry screenshots: up came out as "tT", "oT",
- * "St", "T", "t", "*" and a quote mark; down as "J", "wv", "oY", "U" and a
- * backslash. Anything else, or a mix of both, reads as unknown: a side is only
- * reported when the glyph says so, never guessed.
+ * Read from ten real settled-entry screenshots: up came out as "tT", "oT",
+ * "St", "T", "t", "r", "*" and a quote mark; down as "J", "wv", "oY", "U", "v"
+ * and a backslash.
+ *
+ * A goblin or demon icon sits just before the arrow and reads as letters too:
+ * "OW", "Ow", "Oo", "OS", "w", "@". So the side comes from the arrow glyph
+ * nearest the value, not from everything in front of it: "OW r15" is a goblin
+ * then an up arrow, and read as a whole its W looked like a down arrow. W is
+ * not an arrow glyph at all; the down arrow's "wv" still ends in v. With no
+ * arrow glyph, the side is unknown: reported when the glyph says so, never
+ * guessed.
  */
-const UP_GLYPH = /[tT*^"'\u2191\u201c\u201d]/
-const DOWN_GLYPH = /[JjvVwWyYU\\\u2193]/
+const UP_GLYPH = /[tTr*^"'\u2191\u201c\u201d]/
+const DOWN_GLYPH = /[JjvVyYU\\\u2193]/
 
 function glyphSide(glyphs: string): Side | null {
-  const up = UP_GLYPH.test(glyphs)
-  const down = DOWN_GLYPH.test(glyphs)
-  if (up === down) return null
-  return up ? "OVER" : "UNDER"
+  for (let i = glyphs.length - 1; i >= 0; i--) {
+    if (UP_GLYPH.test(glyphs[i])) return "OVER"
+    if (DOWN_GLYPH.test(glyphs[i])) return "UNDER"
+  }
+  return null
 }
 
 /** A short token that is an arrow, icon or stray mark rather than a word: "tT", "J", "@", "+.)". */
 function isGlyphToken(tok: string): boolean {
   if (/\d/.test(tok)) return false
-  // Name suffixes are words, not arrows: "Kenneth Walker III 72.5".
-  if (/^(jr|sr|ii|iii|iv|v)\.?$/i.test(tok)) return false
+  // Name suffixes are words, not arrows: "Kenneth Walker III 72.5". A lone
+  // "v" is not one: before a value it is the down arrow ("OW v 25"), and
+  // reading it as a suffix lost both the side and the decimal point.
+  if (/^(jr|sr|ii|iii|iv)\.?$/i.test(tok)) return false
   const letters = tok.replace(/[^A-Za-z]/g, "").length
   if (letters === 0) return tok.length <= 4
   return letters <= 2 && tok.length <= 4
@@ -227,7 +237,11 @@ function trailingValue(tokens: string[]): TrailingValue | null {
   let glyphs = ""
   let digits: string | null = null
 
-  const attached = last.match(/^([A-Za-z*\\"'^\u2191\u2193\u201c\u201d]{1,2})(\d{1,4}(?:[.,]\d)?)$/)
+  const attached =
+    last.match(/^([A-Za-z*\\"'^\u2191\u2193\u201c\u201d]{1,2})(\d{1,4}(?:[.,]\d)?)$/) ??
+    // The arrow's tip read as a stray point: "v.25" is a down arrow and 2.5.
+    // Two digits at least, so "T.5" is not taken for a 5.
+    last.match(/^([A-Za-z*\\"'^\u2191\u2193\u201c\u201d]{1,2})[.,](\d{2,4})$/)
   const plain = last.match(/^(\d{1,4}(?:[.,]\d)?)$/)
   if (attached) {
     glyphs = attached[1]
@@ -289,11 +303,49 @@ export function parseLineValue(raw: string): { value: number; repaired: boolean 
   return null
 }
 
+/**
+ * Stats the pick'em apps post that this app does not model, mostly baseball,
+ * which turns up in the same entry as basketball legs. Recognising them keeps
+ * the leg, unpriced, under the label the app printed, where before "Hitter FS"
+ * read as a player's name and the leg vanished, and an entry with one could
+ * not be logged at all. Checked ahead of the modelled stats, so "Hitter
+ * Fantasy Score" never turns into basketball's Fantasy Score.
+ */
+const UNMODELLED_STATS: [RegExp, string][] = [
+  [/^hitter (fs|fantasy score)$/, "Hitter Fantasy Score"],
+  [/^pitcher (fs|fantasy score)$/, "Pitcher Fantasy Score"],
+  // OCR reads the I in RBIs as an l.
+  [/^hits ?\+ ?runs ?\+ ?rb[il1]s$/, "Hits + Runs + RBIs"],
+  [/^total bases$/, "Total Bases"],
+  [/^pitcher strikeouts$/, "Pitcher Strikeouts"],
+  [/^hitter strikeouts$/, "Hitter Strikeouts"],
+  [/^hits allowed$/, "Hits Allowed"],
+  [/^earned runs allowed$/, "Earned Runs Allowed"],
+  [/^pitching outs$/, "Pitching Outs"],
+  [/^walks allowed$/, "Walks Allowed"],
+  [/^home runs$/, "Home Runs"],
+  [/^stolen bases$/, "Stolen Bases"],
+  [/^rb[il1]s$/, "RBIs"],
+  [/^shots on goal$/, "Shots On Goal"],
+  [/^goalie saves$/, "Goalie Saves"],
+]
+
+const UNMODELLED_LABELS = new Set(UNMODELLED_STATS.map(([, label]) => label))
+
+/** Is this a stat label the app recognises but does not model? */
+export function isUnmodelledStat(label: string): boolean {
+  return UNMODELLED_LABELS.has(label)
+}
+
 function isStatLine(text: string): { label: string; key: MarketKey | null } | null {
   const lower = text.replace(/[\u2122\u00ae\u00a9]/g, "").toLowerCase().trim().replace(/\s+/g, " ")
   if (!lower) return null
   // Strip a leading number so "24.5 Points" is recognised as a stat line.
   const withoutNumber = lower.replace(/^[\d.,ols|]+\s+/, "").trim()
+  for (const candidate of [lower, withoutNumber]) {
+    const other = UNMODELLED_STATS.find(([re]) => re.test(candidate))
+    if (other) return { label: other[1], key: null }
+  }
   for (const candidate of [lower, withoutNumber]) {
     if (!candidate) continue
     if (STAT_WORDS.some((w) => candidate === w || candidate.startsWith(w + " ") || candidate === w + "s")) {
@@ -481,7 +533,7 @@ function statSuffix(text: string): { stat: { label: string; key: MarketKey | nul
   for (let k = Math.min(4, tokens.length - 1); k >= 1; k--) {
     const statText = tokens.slice(tokens.length - k).join(" ")
     const stat = isStatLine(statText)
-    if (stat && stat.key) return { stat, statText }
+    if (stat && (stat.key || isUnmodelledStat(stat.label))) return { stat, statText }
   }
   return null
 }
@@ -690,7 +742,7 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
   for (const item of items) {
     if (item.kind !== "prop" || !item.stat || !item.number || !item.name) continue
     const issues: string[] = []
-    if (!item.stat.key) issues.push(`Stat "${item.statText}" was not recognised.`)
+    if (!item.stat.key) issues.push(statNote(item.stat.label, item.statText ?? item.text))
     if (!item.name.includes(" ")) {
       issues.push("Only one name was given. Use the full name, or the odds feed cannot match it.")
     }
@@ -824,7 +876,7 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
     }
 
     used.add(item.index)
-    if (!item.stat.key) issues.push(`Stat "${item.text}" was not recognised.`)
+    if (!item.stat.key) issues.push(statNote(item.stat.label, item.text))
 
     // "Reboot" beside the player on an entry screen: they did not play.
     const dnp = markedReboot(items, sourceLines, lineHeight, geometric)
@@ -864,6 +916,13 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
   return { candidates: dedupe(candidates), leftover, unpairedNames }
 }
 
+/** Why a leg has no modelled stat: one the app does not model, or one it could not read. */
+function statNote(label: string, raw: string): string {
+  return isUnmodelledStat(label)
+    ? `${label} is not a stat this app models. The leg is kept, unpriced.`
+    : `Stat "${raw}" was not recognised.`
+}
+
 /** Could this line be posted for this stat at all? Generous: only rules out the absurd. */
 function plausibleLine(key: MarketKey, value: number): boolean {
   return value <= Math.max(10, MARKETS[key].typicalMean * 4)
@@ -895,37 +954,73 @@ function dedupe(candidates: PropCandidate[]): PropCandidate[] {
 
 export interface EntryHeader {
   stake: number
-  payout: number
+  /** What it pays if every leg hits: "$2 for $12". A settled entry that paid out shows what it paid instead. */
+  payout: number | null
+  /**
+   * What the entry returned once settled: "$10 paid $5", or 0 for one marked
+   * Loss. Null while it is open, or when the screen did not say.
+   */
+  paid: number | null
   picks: number | null
   mode: "power" | "flex" | null
 }
 
 /**
  * The stake, payout and entry type from the top of an entry screen:
- * "$2 for $12" and "3-Pick Power Play". The cleaned read turns "$" into "S",
- * so either is accepted. The payout is what matters most: goblins and demons
- * change it from the standard table, and it sets the bar every leg had to
- * clear.
+ * "$2 for $12" and "3-Pick Power Play Loss". The cleaned read turns "$" into
+ * "S", so either is accepted.
+ *
+ * A settled entry that paid anything says so instead: "$10 paid $5". That is
+ * the result, and the only trustworthy one: a 6-pick flex of goblins that hit
+ * five paid half the stake back under a green Win badge, where the stored
+ * table says 2x. A Loss badge means it paid nothing.
+ *
+ * Pass both reads of a screenshot. Each field comes from the first read that
+ * has it: the raw read of one real screen turned the Loss badge into "Less",
+ * and the cleaned read of the same screen got it right.
  */
-export function readEntryHeader(lines: OcrLine[]): EntryHeader | null {
-  let stake: number | null = null
-  let payout: number | null = null
-  let picks: number | null = null
-  let mode: EntryHeader["mode"] = null
+export function readEntryHeader(...reads: OcrLine[][]): EntryHeader | null {
+  const found = reads.map(headerFrom)
+  const first = <K extends Exclude<keyof RawHeader, "lost">>(k: K): RawHeader[K] | null =>
+    found.find((h) => h[k] != null)?.[k] ?? null
+  const stake = first("stake")
+  const payout = first("payout")
+  const paid = first("paid") ?? (found.some((h) => h.lost) ? 0 : null)
+  if (stake == null || !(stake > 0)) return null
+  if (payout == null && paid == null) return null
+  if (payout != null && !(payout > 0)) return null
+  return { stake, payout, paid, picks: first("picks"), mode: first("mode") }
+}
+
+interface RawHeader {
+  stake: number | null
+  payout: number | null
+  paid: number | null
+  lost: boolean
+  picks: number | null
+  mode: EntryHeader["mode"]
+}
+
+function headerFrom(lines: OcrLine[]): RawHeader {
+  const h: RawHeader = { stake: null, payout: null, paid: null, lost: false, picks: null, mode: null }
   for (const l of lines) {
-    const money = l.text.match(/[$S]\s?(\d{1,5}(?:\.\d{1,2})?)\s*for\s*[$S]\s?(\d{1,6}(?:\.\d{1,2})?)/i)
-    if (money && stake == null) {
-      stake = Number.parseFloat(money[1])
-      payout = Number.parseFloat(money[2])
+    const money = l.text.match(/[$S]\s?(\d{1,5}(?:\.\d{1,2})?)\s*(for|paid)\s*[$S]\s?(\d{1,6}(?:\.\d{1,2})?)/i)
+    if (money && h.stake == null) {
+      h.stake = Number.parseFloat(money[1])
+      const amount = Number.parseFloat(money[3])
+      if (money[2].toLowerCase() === "paid") h.paid = amount
+      else h.payout = amount
     }
     const kind = l.text.match(/(\d{1,2})\s*-?\s*Pick\s+(Power|Flex)/i)
-    if (kind && picks == null) {
-      picks = Number.parseInt(kind[1], 10)
-      mode = kind[2].toLowerCase() === "flex" ? "flex" : "power"
+    if (kind && h.picks == null) {
+      h.picks = Number.parseInt(kind[1], 10)
+      h.mode = kind[2].toLowerCase() === "flex" ? "flex" : "power"
+      // The result badge shares this row, and nothing else does, so "Less"
+      // here is a misread Loss rather than the pick'em word.
+      if (/\bl[oe]ss\b/i.test(l.text)) h.lost = true
     }
   }
-  if (stake == null || payout == null || !(stake > 0) || !(payout > 0)) return null
-  return { stake, payout, picks, mode }
+  return h
 }
 
 /** Split raw OCR output into lines the extractor can work with. */
@@ -965,9 +1060,13 @@ export function mergeReads(primary: PropCandidate[], secondary: PropCandidate[])
       existing.player = pick
     }
     if (existing.line !== c.line) {
+      const kept = settleDisagreement(existing, c.line)
       existing.issues.push(
-        `Two reads of the screenshot disagree: ${existing.line} and ${c.line}. Check it against the app.`,
+        kept === existing.line
+          ? `Two reads of the screenshot disagree: ${existing.line} and ${c.line}. Check it against the app.`
+          : `Two reads of the screenshot disagree: ${existing.line} and ${c.line}. Took ${kept}; check it against the app.`,
       )
+      existing.line = kept
       existing.confidence = Math.max(0.05, existing.confidence - 0.3)
     }
     if (existing.side == null) existing.side = c.side ?? null
@@ -978,6 +1077,29 @@ export function mergeReads(primary: PropCandidate[], secondary: PropCandidate[])
     }
   }
   return out
+}
+
+/**
+ * Which of two reads of one line value to keep. The as-is read wins by
+ * default, except where it is plainly the one that lost its decimal point:
+ *
+ *   - it is impossible for the stat and the other read is not: 35 rebounds
+ *     beside 3.5;
+ *   - the two are the same digits and only the other has a point, at .5: 25
+ *     and 2.5. Lines end in .5 almost without exception; the whole-number
+ *     ones that do exist (Pts+Rebs 33) never lose to a 3.3.
+ */
+function settleDisagreement(existing: PropCandidate, other: number): number {
+  const a = existing.line
+  const key = existing.marketKey
+  if (key) {
+    const okA = plausibleLine(key, a)
+    const okB = plausibleLine(key, other)
+    if (okA !== okB) return okA ? a : other
+  }
+  const digits = (v: number) => String(v).replace(".", "")
+  if (digits(a) === digits(other) && Number.isInteger(a) && other % 1 === 0.5) return other
+  return a
 }
 
 const words = (n: string) => n.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/).filter(Boolean)

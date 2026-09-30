@@ -10,16 +10,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { LEAGUES, LEAGUE_IDS, type LeagueId } from "@/lib/leagues"
 import { MARKETS, MARKET_KEYS, marketSport, type MarketKey } from "@/lib/nba/markets"
-import { extractProps, mergeReads, readEntryHeader } from "@/lib/ocr/extract"
+import { extractProps, isUnmodelledStat, mergeReads, readEntryHeader } from "@/lib/ocr/extract"
 import { normalizeName } from "@/lib/quant/correlation"
-import { breakEvenLegProb, findApp } from "@/lib/quant/payouts"
+import { breakEvenLegProb, findApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_VALUE_SETTINGS } from "@/lib/quant/valuebets"
 import { useStore } from "@/lib/store/provider"
-import type { LegResult, TrackedSlip } from "@/lib/store/schema"
+import type { LegResult, TrackedLeg, TrackedSlip } from "@/lib/store/schema"
 import {
   draftFromCandidate,
   entryExpectation,
+  legClash,
   legsFromText,
+  localDay,
   priceLeg,
   settlementMode,
   withResults,
@@ -27,13 +29,22 @@ import {
 } from "@/lib/tracker/entries"
 import { money, pct } from "@/lib/format"
 
+/** Stat picker value for a stat the app does not model, such as a baseball leg in a mixed entry. */
+const OTHER = "__other"
+
+/** A leg being edited. `other` is set once the stat is confirmed as one the app does not model. */
+type Row = DraftLeg & { other?: boolean }
+
+const toRow = (d: DraftLeg): Row => ({ ...d, other: !d.marketKey && isUnmodelledStat(d.marketLabel) })
+const emptyRow = (): Row => ({ player: "", marketKey: null, marketLabel: "", line: Number.NaN, side: null, result: "PENDING", note: null })
+
 /**
  * Log an entry placed straight in a pick'em app.
  *
  * Most entries never pass through the build screen, so without this the
  * tracker only ever sees a sliver of what is actually played. Drop in the
  * entry's screenshot, or type the legs, set what happened, and it is scored at
- * the payout the app really showed, goblins, demons and all.
+ * what the app really paid, goblins, demons and all.
  */
 export function LogEntry({ onDone }: { onDone?: () => void }) {
   const { state, addSlip } = useStore()
@@ -43,18 +54,22 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
   const [league, setLeague] = React.useState<LeagueId>(s.daily.league)
   const [stake, setStake] = React.useState("")
   const [payout, setPayout] = React.useState("")
+  const [paid, setPaid] = React.useState("")
   const [text, setText] = React.useState("")
-  const [legs, setLegs] = React.useState<DraftLeg[]>([])
+  const [legs, setLegs] = React.useState<Row[]>([])
   const [busy, setBusy] = React.useState(false)
 
   const app = findApp(s.apps, appId)
   const dfsApps = s.apps.filter((a) => a.kind === "dfs")
   const stakeN = Number.parseFloat(stake)
   const payoutN = Number.parseFloat(payout)
+  const paidN = paid.trim() === "" ? null : Number.parseFloat(paid)
+  const paidOut = paidN != null && Number.isFinite(paidN) && paidN >= 0 ? paidN : null
   const n = legs.length
+  // The all-hit multiple. A settled flex that paid out does not show it.
   const multiple = stakeN > 0 && payoutN > 0 ? payoutN / stakeN : null
 
-  const capturedPayout = React.useMemo(() => {
+  const capturedPayout = React.useMemo<CapturedPayout | null>(() => {
     if (!multiple || n < 2) return null
     const stored = app?.modes.find((m) => m.id === modeId)?.table[n] ?? {}
     // Power: the screen's "$X for $Y" is the only tier. Flex: the lower tiers
@@ -83,20 +98,30 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       : null,
   )
 
-  // Players already riding in an open entry.
-  const open = React.useMemo(() => {
-    const m = new Map<string, number>()
-    for (const sl of state.slips) {
-      if (sl.status !== "PENDING") continue
-      for (const l of sl.legs) if (l.result === "PENDING") m.set(normalizeName(l.player), (m.get(normalizeName(l.player)) ?? 0) + 1)
-    }
-    return m
+  // Entries these legs could collide with: anything still open, and anything
+  // logged today, which is where a night's settled screenshots all land.
+  const others = React.useMemo(() => {
+    const today = localDay(new Date().toISOString())
+    return state.slips
+      .filter((sl) => sl.status === "PENDING" || localDay(sl.createdAt) === today)
+      .map((sl) => ({ id: sl.id, legs: sl.status === "PENDING" ? sl.legs.filter((l) => l.result === "PENDING") : sl.legs }))
   }, [state.slips])
+
+  function clashNote(l: Row): string | null {
+    if (!l.player.trim() || !l.side || !Number.isFinite(l.line)) return null
+    const c = legClash({ player: l.player, marketKey: l.marketKey, marketLabel: l.marketLabel, line: l.line, side: l.side }, others)
+    if (c.entries === 0) return null
+    const other = (k: number) => `${k} other ${k === 1 ? "entry" : "entries"}`
+    if (c.cannotBothHit) return "The other side of this is in another entry: they cannot both hit."
+    if (c.oppositeSide) return "The other side of this stat is in another entry."
+    if (c.repeated > 0) return `This exact leg is already in ${other(c.repeated)}.`
+    return `Player already in ${other(c.entries)}, open or logged today.`
+  }
 
   function readText() {
     const parsed = legsFromText(text)
     if (parsed.length === 0) return toast.error("Type one leg per line first")
-    setLegs(parsed)
+    setLegs(parsed.map(toRow))
   }
 
   async function readScreenshot(e: React.ChangeEvent<HTMLInputElement>) {
@@ -110,21 +135,33 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       const raw = extractProps(out.lines)
       const cleaned = extractProps(out.cleanedLines)
       const merged = mergeReads(raw.candidates, cleaned.candidates)
-      const found = merged.map((c) => draftFromCandidate(c))
+      let found: Row[] = merged.map((c) => toRow(draftFromCandidate(c)))
       const seen = new Set(found.map((l) => normalizeName(l.player)))
       for (const name of [...raw.unpairedNames, ...cleaned.unpairedNames]) {
         if (seen.has(normalizeName(name))) continue
         seen.add(normalizeName(name))
-        found.push({ player: name, marketKey: null, marketLabel: "", line: Number.NaN, side: null, result: "PENDING", note: "The line was not readable. Fill in the stat, line and side." })
+        found.push({ ...emptyRow(), player: name, note: "The line was not readable. Fill in the stat, line and side." })
       }
-      const header = readEntryHeader(out.lines) ?? readEntryHeader(out.cleanedLines)
+      const header = readEntryHeader(out.lines, out.cleanedLines)
+      const mode = header?.mode ?? modeId
       if (header) {
         setStake(String(header.stake))
-        setPayout(String(header.payout))
+        setPayout(header.payout != null ? String(header.payout) : "")
+        setPaid(header.paid != null ? String(header.paid) : "")
         if (header.mode) setModeId(header.mode)
       }
-      // A football stat on the screen means an NFL entry.
-      if (found.some((l) => l.marketKey && marketSport(l.marketKey) === "football")) setLeague("nfl")
+      // A power play that paid anything paid because every pick that played
+      // hit, so those results are known. A flex that paid, or any loss, does
+      // not say which legs missed.
+      if (mode === "power" && header?.paid != null && header.paid > 0) {
+        found = found.map((l) => (l.result === "VOID" ? l : { ...l, result: "WIN" }))
+      }
+      // Each game on an entry screen is headed by its league: "WNBA MIN 71 vs
+      // NYL 87". Failing that, a football stat means an NFL entry.
+      const screen = [...out.lines, ...out.cleanedLines].map((l) => l.text).join(" ")
+      const named = LEAGUE_IDS.find((id) => new RegExp(`\\b${id}\\b`, "i").test(screen))
+      if (named) setLeague(named)
+      else if (found.some((l) => l.marketKey && marketSport(l.marketKey) === "football")) setLeague("nfl")
       setLegs(found)
       if (found.length === 0) toast.error("No legs read from that screenshot", { description: "Type them in instead." })
       else toast.success(`Read ${found.length} legs`, { description: "Check each one and set what happened." })
@@ -135,30 +172,33 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
     }
   }
 
-  function update(i: number, patch: Partial<DraftLeg>) {
+  function update(i: number, patch: Partial<Row>) {
     setLegs((prev) => prev.map((l, j) => (j === i ? { ...l, ...patch, note: null } : l)))
   }
 
+  const statOk = (l: Row) => !!l.marketKey || (!!l.other && l.marketLabel.trim().length > 0)
   const problems: string[] = []
   if (!(stakeN > 0)) problems.push("Enter the stake.")
-  if (!(payoutN > stakeN)) problems.push("Enter what it pays if every leg hits (more than the stake).")
+  if (paid.trim() !== "" && paidOut == null) problems.push("What it paid must be a number, 0 for a loss.")
+  if (payout.trim() !== "" && !(payoutN > stakeN)) problems.push("What it pays if every leg hits must be more than the stake.")
+  if (paidOut == null && !(payoutN > stakeN)) problems.push("Enter what it pays if every leg hits, or what it paid if it has settled.")
   if (n < 2) problems.push("An entry needs at least two legs.")
   legs.forEach((l, i) => {
-    if (!l.side || !l.marketKey || !Number.isFinite(l.line) || !l.player.trim()) problems.push(`Leg ${i + 1} needs a player, stat, line and side.`)
+    if (!l.side || !statOk(l) || !Number.isFinite(l.line) || !l.player.trim()) problems.push(`Leg ${i + 1} needs a player, stat, line and side.`)
   })
 
   function save() {
-    if (problems.length > 0 || !capturedPayout) return
+    if (problems.length > 0) return
     const tracked: TrackedSlip = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
       settledAt: null,
       appId,
       modeId,
-      legs: legs.map((l, i) => ({
+      legs: legs.map<TrackedLeg>((l, i) => ({
         player: l.player.trim(),
         marketKey: l.marketKey,
-        marketLabel: l.marketKey ? MARKETS[l.marketKey].label : l.marketLabel,
+        marketLabel: l.marketKey ? MARKETS[l.marketKey].label : l.marketLabel.trim(),
         line: l.line,
         side: l.side!,
         pWinAtEntry: priced[i],
@@ -170,23 +210,30 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       capturedPayout,
       evAtEntry: null,
       pAllHitAtEntry: null,
-      topMultiple: multiple!,
+      topMultiple: multiple,
       status: "PENDING",
       actualMultiple: null,
+      paidOut,
       notes: "",
       source: "logged",
     }
-    const exp = entryExpectation(priced, settlementMode(tracked, s.apps))
+    const exp = capturedPayout ? entryExpectation(priced, settlementMode({ ...tracked, capturedPayout }, s.apps)) : null
     if (exp) {
       tracked.evAtEntry = exp.ev
       tracked.pAllHitAtEntry = exp.pAllHit
     }
     addSlip(withResults(tracked, tracked.legs, s.apps))
-    toast.success("Entry logged", { description: `${n} legs, ${money(stakeN)} to pay ${money(payoutN)}` })
+    toast.success("Entry logged", {
+      description:
+        paidOut != null
+          ? `${n} legs, ${money(stakeN)} in, ${money(paidOut)} back`
+          : `${n} legs, ${money(stakeN)} to pay ${money(payoutN)}`,
+    })
     setLegs([])
     setText("")
     setStake("")
     setPayout("")
+    setPaid("")
     onDone?.()
   }
 
@@ -198,12 +245,13 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
         <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Log an entry you placed</h2>
         <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
           Drop in the entry&apos;s screenshot, or type one leg per line, like{" "}
-          <code className="font-mono">Jordan Addison under 5.5 Recs win</code>. The payout comes from the entry
-          screen (&quot;$2 for $12&quot;), so goblins and demons are scored at what the app actually paid.
+          <code className="font-mono">Jordan Addison under 5.5 Recs win</code>. The money comes off the entry screen:
+          &quot;$2 for $12&quot; is the all-hit payout, and on a settled entry &quot;$10 paid $5&quot; is what it
+          actually returned, which is what it is scored at.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
         <div>
           <Label className={labelCls}>App</Label>
           <Select value={appId} onValueChange={setAppId}>
@@ -239,7 +287,22 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
           <Label className={labelCls}>Pays if all hit $</Label>
           <Input inputMode="decimal" value={payout} onChange={(e) => setPayout(e.target.value)} placeholder="12" className="mt-1 h-8 text-xs" />
         </div>
+        <div>
+          <Label className={labelCls}>Paid $</Label>
+          <Input
+            inputMode="decimal"
+            value={paid}
+            onChange={(e) => setPaid(e.target.value)}
+            placeholder="blank if open"
+            className="mt-1 h-8 text-xs"
+            aria-describedby="paid-hint"
+          />
+        </div>
       </div>
+      <p id="paid-hint" className="-mt-2 text-[10px] leading-relaxed text-muted-foreground">
+        Paid: what the settled entry returned, 0 for a loss. Leave it blank for an entry still in play and it settles
+        from its legs instead.
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild size="sm" variant="secondary" disabled={busy}>
@@ -264,64 +327,89 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
 
       {legs.length > 0 ? (
         <div className="space-y-2">
-          {legs.map((l, i) => (
-            <div key={i} className="rounded-md border border-border/50 p-2">
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-[1.4fr_1.2fr_0.6fr_0.8fr_1fr_auto]">
-                <Input value={l.player} onChange={(e) => update(i, { player: e.target.value })} className="col-span-2 h-8 text-xs md:col-span-1" aria-label="Player" />
-                <Select value={l.marketKey ?? ""} onValueChange={(v) => update(i, { marketKey: v as MarketKey, marketLabel: MARKETS[v as MarketKey].label })}>
-                  <SelectTrigger className="h-8 text-xs" aria-label="Stat"><SelectValue placeholder="Stat" /></SelectTrigger>
-                  <SelectContent>
-                    {MARKET_KEYS.filter((k) => marketSport(k) === LEAGUES[league].sport).map((k) => (
-                      <SelectItem key={k} value={k}>{MARKETS[k].label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  inputMode="decimal"
-                  value={Number.isFinite(l.line) ? String(l.line) : ""}
-                  onChange={(e) => update(i, { line: e.target.value === "" ? Number.NaN : Number.parseFloat(e.target.value) })}
-                  placeholder="Line"
-                  className="h-8 text-xs"
-                  aria-label="Line"
-                />
-                <Select value={l.side ?? ""} onValueChange={(v) => update(i, { side: v as "OVER" | "UNDER" })}>
-                  <SelectTrigger className="h-8 text-xs" aria-label="Side"><SelectValue placeholder="Side" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="OVER">Over</SelectItem>
-                    <SelectItem value="UNDER">Under</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={l.result} onValueChange={(v) => update(i, { result: v as LegResult })}>
-                  <SelectTrigger className="h-8 text-xs" aria-label="Result"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PENDING">Not settled</SelectItem>
-                    <SelectItem value="WIN">Hit</SelectItem>
-                    <SelectItem value="LOSS">Missed</SelectItem>
-                    <SelectItem value="VOID">Did not play</SelectItem>
-                    <SelectItem value="PUSH">Push</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => setLegs((p) => p.filter((_, j) => j !== i))} aria-label="Remove leg">
-                  <X className="size-3.5" />
-                </Button>
-              </div>
-              <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-[10px] text-muted-foreground">
-                <span>{priced[i] != null ? `App's price from your last pull: ${pct(priced[i]!)} to hit` : "Not priced by the app"}</span>
-                {open.get(normalizeName(l.player)) ? (
-                  <span className="text-accent">Already in {open.get(normalizeName(l.player))} open {open.get(normalizeName(l.player)) === 1 ? "entry" : "entries"}</span>
+          {legs.map((l, i) => {
+            const clash = clashNote(l)
+            return (
+              <div key={i} className="rounded-md border border-border/50 p-2">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-[1.4fr_1.2fr_0.6fr_0.8fr_1fr_auto]">
+                  <Input value={l.player} onChange={(e) => update(i, { player: e.target.value })} className="col-span-2 h-8 text-xs md:col-span-1" aria-label="Player" />
+                  <Select
+                    value={l.marketKey ?? (l.other ? OTHER : "")}
+                    onValueChange={(v) =>
+                      v === OTHER
+                        ? update(i, { marketKey: null, other: true, marketLabel: isUnmodelledStat(l.marketLabel) ? l.marketLabel : "" })
+                        : update(i, { marketKey: v as MarketKey, marketLabel: MARKETS[v as MarketKey].label, other: false })
+                    }
+                  >
+                    <SelectTrigger className="h-8 text-xs" aria-label="Stat"><SelectValue placeholder="Stat" /></SelectTrigger>
+                    <SelectContent>
+                      {MARKET_KEYS.filter((k) => marketSport(k) === LEAGUES[league].sport).map((k) => (
+                        <SelectItem key={k} value={k}>{MARKETS[k].label}</SelectItem>
+                      ))}
+                      <SelectItem value={OTHER}>Other stat (not priced)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    inputMode="decimal"
+                    value={Number.isFinite(l.line) ? String(l.line) : ""}
+                    onChange={(e) => update(i, { line: e.target.value === "" ? Number.NaN : Number.parseFloat(e.target.value) })}
+                    placeholder="Line"
+                    className="h-8 text-xs"
+                    aria-label="Line"
+                  />
+                  <Select value={l.side ?? ""} onValueChange={(v) => update(i, { side: v as "OVER" | "UNDER" })}>
+                    <SelectTrigger className="h-8 text-xs" aria-label="Side"><SelectValue placeholder="Side" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="OVER">Over</SelectItem>
+                      <SelectItem value="UNDER">Under</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={l.result} onValueChange={(v) => update(i, { result: v as LegResult })}>
+                    <SelectTrigger className="h-8 text-xs" aria-label="Result"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PENDING">Not settled</SelectItem>
+                      <SelectItem value="WIN">Hit</SelectItem>
+                      <SelectItem value="LOSS">Missed</SelectItem>
+                      <SelectItem value="VOID">Did not play</SelectItem>
+                      <SelectItem value="PUSH">Push</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => setLegs((p) => p.filter((_, j) => j !== i))} aria-label="Remove leg">
+                    <X className="size-3.5" />
+                  </Button>
+                </div>
+                {l.other ? (
+                  <Input
+                    value={l.marketLabel}
+                    onChange={(e) => update(i, { marketLabel: e.target.value })}
+                    placeholder="Stat as the app shows it, e.g. Hitter Fantasy Score"
+                    className="mt-2 h-8 text-xs"
+                    aria-label="Other stat"
+                  />
                 ) : null}
-                {l.note ? <span className="text-accent">{l.note}</span> : null}
+                <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-[10px] text-muted-foreground">
+                  <span>{priced[i] != null ? `App's price from your last pull: ${pct(priced[i]!)} to hit` : "Not priced by the app"}</span>
+                  {clash ? <span className="text-accent">{clash}</span> : null}
+                  {l.note ? <span className="text-accent">{l.note}</span> : null}
+                </div>
               </div>
-            </div>
-          ))}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setLegs((p) => [...p, { player: "", marketKey: null, marketLabel: "", line: Number.NaN, side: null, result: "PENDING", note: null }])}
-          >
+            )
+          })}
+          <Button size="sm" variant="ghost" onClick={() => setLegs((p) => [...p, emptyRow()])}>
             <Plus className="mr-1 size-3.5" /> Add a leg
           </Button>
         </div>
+      ) : null}
+
+      {paidOut != null && stakeN > 0 ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          Paid {money(paidOut)} on {money(stakeN)}:{" "}
+          <span className={paidOut >= stakeN ? "font-mono text-primary" : "font-mono text-destructive"}>
+            {money(paidOut - stakeN)}
+          </span>
+          .{paidOut > 0 && paidOut < stakeN ? " The app may call that a win; it is a loss." : ""}
+          {modeId === "flex" && paidOut > 0 ? " Set which legs hit so the record by stat stays right; the profit is already right." : ""}
+        </p>
       ) : null}
 
       {breakEven != null ? (

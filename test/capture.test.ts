@@ -10,6 +10,11 @@ import settledOtton from "./fixtures/ocr/settled-nfl-otton.json"
 import settledJuszczyk from "./fixtures/ocr/settled-nfl-juszczyk.json"
 import settledBlack from "./fixtures/ocr/settled-nfl-black.json"
 import settledIriafen from "./fixtures/ocr/settled-wnba-iriafen.json"
+import nightStewart from "./fixtures/ocr/settled-wnba-stewart-power.json"
+import nightLoyd from "./fixtures/ocr/settled-wnba-loyd-flex.json"
+import nightWilliams from "./fixtures/ocr/settled-wnba-williams-power.json"
+import nightMitchell from "./fixtures/ocr/settled-wnba-mitchell-flex.json"
+import nightMeidroth from "./fixtures/ocr/settled-mixed-meidroth-power.json"
 
 /**
  * Capture-a-slate regression tests.
@@ -168,11 +173,104 @@ describe("settled PrizePicks entry screens", () => {
   })
 
   it("reads the stake, the payout and the entry type from the header", () => {
-    expect(readEntryHeader((settledAddison as Read).raw)).toEqual({ stake: 2, payout: 12, picks: 3, mode: "power" })
-    expect(readEntryHeader((settledOtton as Read).raw)).toEqual({ stake: 1, payout: 5.5, picks: 3, mode: "power" })
-    expect(readEntryHeader((settledIriafen as Read).raw)).toEqual({ stake: 4, payout: 26.1, picks: 4, mode: "power" })
+    // Every one of these was marked Loss, so each paid nothing. The raw read
+    // of Addison's screen turned the badge into "Less".
+    expect(readEntryHeader((settledAddison as Read).raw)).toEqual({ stake: 2, payout: 12, paid: 0, picks: 3, mode: "power" })
+    expect(readEntryHeader((settledOtton as Read).raw)).toEqual({ stake: 1, payout: 5.5, paid: 0, picks: 3, mode: "power" })
+    expect(readEntryHeader((settledIriafen as Read).raw)).toEqual({ stake: 4, payout: 26.1, paid: 0, picks: 4, mode: "power" })
     // The cleaned pass reads "$" as "S": "Dp S1 for S6".
-    expect(readEntryHeader((settledBlack as Read).cleaned)).toEqual({ stake: 1, payout: 6, picks: 3, mode: "power" })
+    expect(readEntryHeader((settledBlack as Read).cleaned)).toEqual({ stake: 1, payout: 6, paid: 0, picks: 3, mode: "power" })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// One night of settled entries: five PrizePicks screens, four WNBA and one
+// mixed with baseball, read the same way. What they added to the list above:
+//
+//   - The up arrow also reads as "r", glued to the value: "Or15", "Oo r75".
+//   - A goblin or demon icon sits before the arrow and reads as letters,
+//     "OW", "Ow", "Oo", "OS", "w". Read as a whole, "OW r15" took its W for a
+//     down arrow and recorded an over as an under.
+//   - A lone "v" before the value is the down arrow, not the name suffix V.
+//   - A settled entry that paid shows "$10 paid $5", not "$10 for $X".
+//   - Baseball legs share entries with basketball ones.
+// ---------------------------------------------------------------------------
+
+describe("a night of settled entries", () => {
+  it("reads a 3-pick power play of unders", () => {
+    expect(legs(nightStewart as Read)).toEqual([
+      "Breanna Stewart | 3.5 | AST | UNDER",
+      "Courtney Williams | 4 | AST | UNDER",
+      "Marine Johannes | 4.5 | PTS | UNDER",
+    ])
+  })
+
+  it("reads a 6-pick flex of goblins and a demon", () => {
+    expect(legs(nightLoyd as Read)).toEqual([
+      "Jewell Loyd | 0.5 | 3PM | OVER",
+      "Jonquel Jones | 1.5 | 3PM | OVER",
+      "Kayla McBride | 1.5 | REB | OVER",
+      "Kelsey Mitchell | 1.5 | REB | UNDER",
+      "Leonie Fiebich | 0.5 | 3PM | OVER",
+      "Olivia Miles | 0.5 | 3PM | OVER",
+    ])
+  })
+
+  it("reads a 2-pick power play", () => {
+    expect(legs(nightWilliams as Read)).toEqual([
+      "Courtney Williams | 4 | AST | UNDER",
+      "Marine Johannes | 4.5 | PTS | UNDER",
+    ])
+  })
+
+  it("reads the other side of the same line in another entry as an over", () => {
+    // The regression: "Kelsey Mitchell OW r15" is a goblin then an up arrow,
+    // and came out UNDER, which hid that she was on both sides of 1.5.
+    // Jones "OW v 25" read as 25 assists; Fiebich's raw 35 rebounds loses to
+    // the cleaned 3.5; Hull's "v.25" is 2.5, not the cleaned 12.5.
+    expect(legs(nightMitchell as Read)).toEqual([
+      "Jonquel Jones | 2.5 | AST | UNDER",
+      "Kelsey Mitchell | 1.5 | REB | OVER",
+      "Leonie Fiebich | 3.5 | REB | UNDER",
+      "Lexie Hull | 2.5 | REB | UNDER",
+      "Napheesa Collier | 2.5 | AST | UNDER",
+      "Olivia Miles | 6.5 | AST | UNDER",
+    ])
+  })
+
+  it("keeps baseball legs in a mixed entry, unpriced, instead of dropping them", () => {
+    const c = both(nightMeidroth as Read)
+    expect(c.map((x) => `${x.player} | ${x.line} | ${x.marketKey ?? x.marketLabel} | ${x.side ?? "?"}`).sort()).toEqual([
+      // No arrow survived on Wilson's row in either read: left blank, not guessed.
+      "A'ja Wilson | 42.5 | PRA | ?",
+      "Breanna Stewart | 33 | PR | OVER",
+      "Chase Meidroth | 4.5 | Hitter Fantasy Score | OVER",
+      "Christian Walker | 1.5 | Hits + Runs + RBIs | OVER",
+      "Jackie Young | 7.5 | AST | OVER",
+      "Pauline Astier | 7.5 | RA | OVER",
+    ])
+    const meidroth = c.find((x) => x.player === "Chase Meidroth")!
+    expect(meidroth.issues.join(" ")).toMatch(/not a stat this app models/)
+  })
+
+  it("reads what a settled entry paid, and a Loss as paying nothing", () => {
+    const h = (r: Read) => readEntryHeader(r.raw, r.cleaned)
+    expect(h(nightStewart as Read)).toEqual({ stake: 5, payout: 30, paid: 0, picks: 3, mode: "power" })
+    expect(h(nightWilliams as Read)).toEqual({ stake: 5, payout: 15, paid: 0, picks: 2, mode: "power" })
+    expect(h(nightMeidroth as Read)).toEqual({ stake: 5, payout: 305, paid: 0, picks: 6, mode: "power" })
+    // Flex entries under a Win badge that returned less than the stake.
+    expect(h(nightLoyd as Read)).toEqual({ stake: 10, payout: null, paid: 5, picks: 6, mode: "flex" })
+    expect(h(nightMitchell as Read)).toEqual({ stake: 5, payout: null, paid: 2, picks: 6, mode: "flex" })
+  })
+
+  it("takes the side from the arrow nearest the value, not the icon before it", () => {
+    const one = (text: string, stat: string) => extractProps([{ text }, { text: stat }]).candidates[0]
+    expect(one("Kelsey Mitchell OW r15", "IND-G- #0 Rebounds").side).toBe("OVER")
+    expect(one("Jackie Young Oo r75", "LVA-G- #0 Assists").side).toBe("OVER")
+    expect(one("Napheesa Collier OS v25", "MIN-F- #24 Assists").side).toBe("UNDER")
+    // The old reads still hold: "wv" is a down arrow, "tT" an up one.
+    expect(one("Cade Otton wv 655", "TB-TE- #88 Rec Yards").side).toBe("UNDER")
+    expect(one("Olivia Miles @ tT 05", "MIN-G- #5 3PTM").side).toBe("OVER")
   })
 })
 
@@ -191,6 +289,20 @@ describe("merging the raw and cleaned reads", () => {
     const [m] = mergeReads([cand("Anthony Edwards", 3.5)], [cand("Anthony Edwards", 3.9)])
     expect(m.line).toBe(3.5)
     expect(m.issues.join(" ")).toMatch(/disagree: 3.5 and 3.9/)
+  })
+
+  it("prefers the read that kept its decimal point", () => {
+    // 35 rebounds is not a line anyone posts; 3.5 is. And 25 beside 2.5 is
+    // the same digits with the point lost.
+    const reb = (line: number): PropCandidate => ({ ...cand("Leonie Fiebich", line), marketKey: "REB", marketLabel: "Rebounds" })
+    const [a] = mergeReads([reb(35)], [reb(3.5)])
+    expect(a.line).toBe(3.5)
+    expect(a.issues.join(" ")).toMatch(/Took 3.5/)
+    const [b] = mergeReads([cand("Marine Johannes", 45)], [cand("Marine Johannes", 4.5)])
+    expect(b.line).toBe(4.5)
+    // Whole-number lines exist. A 3.3 is not a line, so 33 stays.
+    const [c] = mergeReads([cand("Breanna Stewart", 33)], [cand("Breanna Stewart", 3.3)])
+    expect(c.line).toBe(33)
   })
 
   it("adds props only the cleaned read found", () => {

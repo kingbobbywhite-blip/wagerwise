@@ -97,7 +97,7 @@ precedence. Without a working key the app has no prices, and it will say so rath
 invent an edge.
 
 ```bash
-npm test         # 298 unit tests over the probability engine
+npm test         # 400 unit tests over the probability engine and screenshot reading
 npm run build
 ```
 
@@ -171,7 +171,7 @@ The per-leg hit rate you need just to break even, summed across every paying tie
 | Entry | Top pays | Break-even per leg | All-hit shortcut would say |
 | --- | --- | --- | --- |
 | Power 2-pick | 3x | 57.7% | 57.7% |
-| Power 3-pick | 5x | 58.5% | 58.5% |
+| Power 3-pick | 6x | 55.0% | 55.0% |
 | Power 4-pick | 10x | 56.2% | 56.2% |
 | Power 5-pick | 20x | 54.9% | 54.9% |
 | Power 6-pick | 37.5x | 54.7% | 54.7% |
@@ -181,7 +181,11 @@ The per-leg hit rate you need just to break even, summed across every paying tie
 | Flex 6-pick | 25x | **54.2%** | 58.5% |
 
 A 55% leg is a losing bet on most of these. "I hit 60% of my picks" is not the same as being
-profitable, and a three-pick is harder to beat than a six-pick.
+profitable, and a two-pick is the hardest of them all to beat.
+
+These are standard picks. Goblins and demons change every tier: a real 6-pick flex of five
+goblins and a demon hit five of six and paid **0.5x**, where the table above pays 2x. That is
+why the tracker scores a logged entry at what the app actually paid, not at a table.
 
 The right-hand column is what you get by raising the top multiplier to the power of minus
 one over n, which is the shortcut almost every parlay calculator uses. It is correct for
