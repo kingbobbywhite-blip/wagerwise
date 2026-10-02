@@ -223,3 +223,26 @@ describe("dfsTargetsFor line granularity", () => {
     }
   })
 })
+
+import { dfsVerdict } from "@/lib/today/build"
+
+describe("one verdict per pick'em target", () => {
+  // Judkins receiving yards: over worth it at 9.5 or lower, under at 16.5 or
+  // higher. Shown as two columns, that read as take both.
+  const t = { overAt: 9.5, underAt: 16.5, fairLine: 12.5 }
+
+  it("names the over below its threshold, the under above its own, and passes between", () => {
+    expect(dfsVerdict(t, 8.5)).toBe("OVER")
+    expect(dfsVerdict(t, 9.5)).toBe("OVER")
+    expect(dfsVerdict(t, 12.5)).toBe("PASS")
+    expect(dfsVerdict(t, 16.5)).toBe("UNDER")
+    expect(dfsVerdict(t, 20.5)).toBe("UNDER")
+  })
+
+  it("never returns both sides for any line", () => {
+    for (let line = 0.5; line < 30; line += 1) {
+      expect(["OVER", "UNDER", "PASS"]).toContain(dfsVerdict(t, line))
+    }
+    expect(dfsVerdict({ overAt: null, underAt: 16.5, fairLine: 12.5 }, 8.5)).toBe("PASS")
+  })
+})

@@ -185,26 +185,29 @@ export default function TrackerPage() {
           </div>
           <table className="mt-3 w-full text-xs">
             <tbody>
-              {[...record.byType, record.priced, record.unpriced]
-                .filter((r) => r.wins + r.losses > 0)
-                .map((r, i) => (
-                  <tr key={r.label} className={cn("border-t border-border/40", i === record.byType.length && "border-t-2")}>
-                    <td className="py-1.5">{r.label}</td>
-                    <td className="py-1.5 text-right font-mono tabular-nums">
-                      {r.wins}-{r.losses}
-                    </td>
-                    <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">
-                      {pct(r.wins / (r.wins + r.losses), 0)}
-                    </td>
-                  </tr>
-                ))}
+              {[record.byPick, record.byType, [record.priced, record.unpriced]].map((group, g) =>
+                group
+                  .filter((r) => r.wins + r.losses > 0)
+                  .map((r, i) => (
+                    <tr key={`${g}-${r.label}`} className={cn("border-t border-border/40", i === 0 && g > 0 && "border-t-2")}>
+                      <td className="py-1.5">{r.label}</td>
+                      <td className="py-1.5 text-right font-mono tabular-nums">
+                        {r.wins}-{r.losses}
+                      </td>
+                      <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                        {pct(r.wins / (r.wins + r.losses), 0)}
+                      </td>
+                    </tr>
+                  )),
+              )}
             </tbody>
           </table>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
             {decided < 50
               ? `${decided} legs is far too few to tell skill from luck: at a 55% true rate, anywhere from about ${pct(Math.max(0, 0.55 - 2 * Math.sqrt(0.2475 / decided)), 0)} to ${pct(Math.min(1, 0.55 + 2 * Math.sqrt(0.2475 / decided)), 0)} is normal. Use this to spot habits, not to judge them.`
               : "A row needs roughly 50 legs before its rate means much. Legs the app never priced are the ones to compare against the ones it did."}{" "}
-            Did-not-play and pushes are left out.
+            Did-not-play and pushes are left out. Goblins should hit far more often than standard picks: they pay
+            less for it, so compare each against the bar its own payout set, not against each other.
           </p>
         </section>
       ) : null}

@@ -1,0 +1,243 @@
+{
+ "raw": [
+  {
+   "text": "9:09 ii] ) atl ©",
+   "confidence": 52,
+   "bbox": {
+    "x0": 124,
+    "y0": 63,
+    "x1": 1093,
+    "y1": 131
+   }
+  },
+  {
+   "text": "$5 for $20 nN",
+   "confidence": 66,
+   "bbox": {
+    "x0": 242,
+    "y0": 314,
+    "x1": 934,
+    "y1": 393
+   }
+  },
+  {
+   "text": "3-Pick Power Play (U6 O",
+   "confidence": 78,
+   "bbox": {
+    "x0": 241,
+    "y0": 372,
+    "x1": 941,
+    "y1": 436
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 223,
+    "y0": 501,
+    "x1": 996,
+    "y1": 534
+   }
+  },
+  {
+   "text": "NFL PIT 24vs CLE 27 Final",
+   "confidence": 83,
+   "bbox": {
+    "x0": 174,
+    "y0": 657,
+    "x1": 1046,
+    "y1": 679
+   }
+  },
+  {
+   "text": "r) Aaron Rodgers J 1.5",
+   "confidence": 49,
+   "bbox": {
+    "x0": 199,
+    "y0": 765,
+    "x1": 1018,
+    "y1": 821
+   },
+   "boost": null
+  },
+  {
+   "text": "eo PIT > QB - #8 Rush Yards",
+   "confidence": 66,
+   "bbox": {
+    "x0": 255,
+    "y0": 821,
+    "x1": 1018,
+    "y1": 885
+   }
+  },
+  {
+   "text": "‘4 Deshaun Watson ty J 33.5",
+   "confidence": 71,
+   "bbox": {
+    "x0": 200,
+    "y0": 1062,
+    "x1": 1017,
+    "y1": 1119
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "eo CLE - QB - #4 Rush Yards",
+   "confidence": 69,
+   "bbox": {
+    "x0": 255,
+    "y0": 1118,
+    "x1": 1018,
+    "y1": 1182
+   }
+  },
+  {
+   "text": "T KC Concepcion Jr. ty J 38.5",
+   "confidence": 73,
+   "bbox": {
+    "x0": 204,
+    "y0": 1363,
+    "x1": 1017,
+    "y1": 1412
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "oF CLE -WR- #1 Rec Yards",
+   "confidence": 79,
+   "bbox": {
+    "x0": 258,
+    "y0": 1415,
+    "x1": 1018,
+    "y1": 1480
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:09 Wt ne",
+   "confidence": 55,
+   "bbox": {
+    "x0": 242,
+    "y0": 122,
+    "x1": 2026,
+    "y1": 255
+   }
+  },
+  {
+   "text": "D $5 for $20",
+   "confidence": 93,
+   "bbox": {
+    "x0": 243,
+    "y0": 613,
+    "x1": 913,
+    "y1": 793
+   },
+   "boost": null
+  },
+  {
+   "text": "tT eee",
+   "confidence": 52,
+   "bbox": {
+    "x0": 1759,
+    "y0": 676,
+    "x1": 2113,
+    "y1": 761
+   }
+  },
+  {
+   "text": "3-Pick Power Play Loss C)",
+   "confidence": 86,
+   "bbox": {
+    "x0": 471,
+    "y0": 724,
+    "x1": 1832,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "NFL PIT 24 vs CLE 27 Final",
+   "confidence": 69,
+   "bbox": {
+    "x0": 339,
+    "y0": 1280,
+    "x1": 2038,
+    "y1": 1324
+   }
+  },
+  {
+   "text": "Aaron Rodgers J 15",
+   "confidence": 79,
+   "bbox": {
+    "x0": 638,
+    "y0": 1501,
+    "x1": 1983,
+    "y1": 1573
+   },
+   "boost": null
+  },
+  {
+   "text": "PIT - QB - #8 Rush Yards",
+   "confidence": 85,
+   "bbox": {
+    "x0": 644,
+    "y0": 1606,
+    "x1": 1983,
+    "y1": 1667
+   }
+  },
+  {
+   "text": "Deshaun Watson @ J 335",
+   "confidence": 77,
+   "bbox": {
+    "x0": 644,
+    "y0": 2077,
+    "x1": 1981,
+    "y1": 2158
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "CLE - QB - #4 Rush Yards",
+   "confidence": 83,
+   "bbox": {
+    "x0": 641,
+    "y0": 2185,
+    "x1": 1983,
+    "y1": 2245
+   }
+  },
+  {
+   "text": "KC Concepcion Jr. @ J 385",
+   "confidence": 83,
+   "bbox": {
+    "x0": 644,
+    "y0": 2656,
+    "x1": 1981,
+    "y1": 2736
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "CLE + WR « #1 Rec Yards",
+   "confidence": 86,
+   "bbox": {
+    "x0": 641,
+    "y0": 2763,
+    "x1": 1983,
+    "y1": 2814
+   }
+  }
+ ]
+}

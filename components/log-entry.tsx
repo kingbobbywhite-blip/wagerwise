@@ -15,7 +15,7 @@ import { normalizeName } from "@/lib/quant/correlation"
 import { breakEvenLegProb, findApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_VALUE_SETTINGS } from "@/lib/quant/valuebets"
 import { useStore } from "@/lib/store/provider"
-import type { LegResult, TrackedLeg, TrackedSlip } from "@/lib/store/schema"
+import type { LegResult, PickType, TrackedLeg, TrackedSlip } from "@/lib/store/schema"
 import {
   draftFromCandidate,
   entryExpectation,
@@ -205,6 +205,7 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
         app: appId,
         result: l.result,
         actual: null,
+        pickType: l.pickType,
       })),
       stake: stakeN,
       capturedPayout,
@@ -245,7 +246,8 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
         <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Log an entry you placed</h2>
         <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
           Drop in the entry&apos;s screenshot, or type one leg per line, like{" "}
-          <code className="font-mono">Jordan Addison under 5.5 Recs win</code>. The money comes off the entry screen:
+          <code className="font-mono">Jordan Addison under 5.5 Recs win</code>, adding goblin or demon where it was
+          one. The money comes off the entry screen:
           &quot;$2 for $12&quot; is the all-hit payout, and on a settled entry &quot;$10 paid $5&quot; is what it
           actually returned, which is what it is scored at.
         </p>
@@ -331,7 +333,7 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
             const clash = clashNote(l)
             return (
               <div key={i} className="rounded-md border border-border/50 p-2">
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-[1.4fr_1.2fr_0.6fr_0.8fr_1fr_auto]">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-[1.4fr_1.2fr_0.6fr_0.8fr_0.9fr_1fr_auto]">
                   <Input value={l.player} onChange={(e) => update(i, { player: e.target.value })} className="col-span-2 h-8 text-xs md:col-span-1" aria-label="Player" />
                   <Select
                     value={l.marketKey ?? (l.other ? OTHER : "")}
@@ -362,6 +364,14 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
                     <SelectContent>
                       <SelectItem value="OVER">Over</SelectItem>
                       <SelectItem value="UNDER">Under</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={l.pickType ?? ""} onValueChange={(v) => update(i, { pickType: v as PickType })}>
+                    <SelectTrigger className="h-8 text-xs" aria-label="Pick type"><SelectValue placeholder="Pick type" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="standard">Standard</SelectItem>
+                      <SelectItem value="goblin">Goblin</SelectItem>
+                      <SelectItem value="demon">Demon</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={l.result} onValueChange={(v) => update(i, { result: v as LegResult })}>

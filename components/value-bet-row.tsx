@@ -28,6 +28,12 @@ export function ValueBetRow({ bet, bankroll }: { bet: ValueBet; bankroll: Bankro
           </span>
         </div>
         <div className="font-mono text-[10px] text-muted-foreground">{bet.gameId.replace("@", " at ")}</div>
+        {bet.otherSide ? (
+          <div className="mt-0.5 max-w-xs text-[10px] leading-snug text-accent">
+            The {bet.otherSide.side === "OVER" ? "over" : "under"} {bet.otherSide.line} at {bet.otherSide.bookName} also
+            priced positive. That is a middle between two books&apos; lines, not a second pick: take this side only.
+          </div>
+        ) : null}
       </td>
       <td className="px-3 py-2 font-mono text-xs">{bet.marketLabel}</td>
       <td className="px-3 py-2">

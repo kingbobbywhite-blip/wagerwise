@@ -97,7 +97,7 @@ precedence. Without a working key the app has no prices, and it will say so rath
 invent an edge.
 
 ```bash
-npm test         # 400 unit tests over the probability engine and screenshot reading
+npm test         # 416 unit tests over the probability engine and screenshot reading
 npm run build
 ```
 
@@ -117,9 +117,10 @@ and only within a single book, because a leg at DraftKings cannot be combined wi
 at FanDuel onto one ticket. Correlation between legs is priced rather than ignored.
 
 **Pick'em targets.** Nothing here can see what PrizePicks or Underdog are offering, so
-instead you get the number to look for: the projection, the fair line, and the line at
-which each side becomes worth taking. Open your app, find the player, and take the side
-only if their number is at or beyond it.
+type in the line your app shows for a player and you get one answer: the over, the under,
+or pass. Never both. Value bets likewise show one side per player and stat: an over at one
+book and an under at another is a middle, not two picks, and on a pick'em app one of the
+two always loses.
 
 Nothing is fetched until you press the button, and the result is cached, because player
 props are billed per market per game and a page refresh that silently re-pulls the slate

@@ -124,6 +124,13 @@ export interface Slate {
 
 /** VOID: the player did not play ("Reboot" on PrizePicks). The leg drops out, like a push. */
 export type LegResult = "PENDING" | "WIN" | "LOSS" | "PUSH" | "VOID"
+
+/**
+ * What kind of pick a leg was. Goblins are easier lines that pay less, demons
+ * harder ones that pay more, so each needs a different hit rate to be worth
+ * it and their records only mean something kept apart.
+ */
+export type PickType = "standard" | "goblin" | "demon"
 export type SlipStatus = "PENDING" | "SETTLED" | "VOID"
 
 
@@ -143,6 +150,8 @@ export interface TrackedLeg {
   app: string | null
   result: LegResult
   actual: number | null
+  /** Absent on legs logged before pick types were recorded. */
+  pickType?: PickType
 }
 
 export interface TrackedSlip {

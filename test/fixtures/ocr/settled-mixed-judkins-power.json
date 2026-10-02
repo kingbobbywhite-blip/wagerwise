@@ -1,0 +1,441 @@
+{
+ "raw": [
+  {
+   "text": "9:09 = mh] ) tl ©)",
+   "confidence": 54,
+   "bbox": {
+    "x0": 124,
+    "y0": 63,
+    "x1": 1093,
+    "y1": 131
+   }
+  },
+  {
+   "text": "$5 for $55 in",
+   "confidence": 82,
+   "bbox": {
+    "x0": 242,
+    "y0": 311,
+    "x1": 931,
+    "y1": 393
+   }
+  },
+  {
+   "text": "A-Pick Power Play (less O",
+   "confidence": 63,
+   "bbox": {
+    "x0": 241,
+    "y0": 372,
+    "x1": 941,
+    "y1": 436
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 223,
+    "y0": 501,
+    "x1": 996,
+    "y1": 534
+   }
+  },
+  {
+   "text": "NFL PIT 24vs CLE 27 Final",
+   "confidence": 83,
+   "bbox": {
+    "x0": 174,
+    "y0": 657,
+    "x1": 1046,
+    "y1": 679
+   }
+  },
+  {
+   "text": "10 Quinshon Judkins J 12.5",
+   "confidence": 85,
+   "bbox": {
+    "x0": 200,
+    "y0": 766,
+    "x1": 1017,
+    "y1": 822
+   },
+   "boost": null
+  },
+  {
+   "text": "oF CLE - RB + #10 Rec Yards",
+   "confidence": 63,
+   "bbox": {
+    "x0": 258,
+    "y0": 821,
+    "x1": 1018,
+    "y1": 886
+   }
+  },
+  {
+   "text": "Tr Michael Pittman Jr. © 35",
+   "confidence": 64,
+   "bbox": {
+    "x0": 203,
+    "y0": 1061,
+    "x1": 1018,
+    "y1": 1118
+   },
+   "boost": "demon"
+  },
+  {
+   "text": "o) PIT - WR « #11 Recs",
+   "confidence": 71,
+   "bbox": {
+    "x0": 258,
+    "y0": 1119,
+    "x1": 1018,
+    "y1": 1183
+   }
+  },
+  {
+   "text": "WNBA _ IND 83 vs_LVA 94 Final",
+   "confidence": 61,
+   "bbox": {
+    "x0": 172,
+    "y0": 1371,
+    "x1": 1046,
+    "y1": 1393
+   }
+  },
+  {
+   "text": "A'ja Wilson D 425 0.5",
+   "confidence": 52,
+   "bbox": {
+    "x0": 328,
+    "y0": 1485,
+    "x1": 1018,
+    "y1": 1520
+   },
+   "boost": null
+  },
+  {
+   "text": "LVA + C+ #22 PRA",
+   "confidence": 50,
+   "bbox": {
+    "x0": 331,
+    "y0": 1538,
+    "x1": 1019,
+    "y1": 1564
+   }
+  },
+  {
+   "text": "Cheyenne Parker-Tyus J 3.5",
+   "confidence": 81,
+   "bbox": {
+    "x0": 329,
+    "y0": 1781,
+    "x1": 1018,
+    "y1": 1818
+   },
+   "boost": null
+  },
+  {
+   "text": "LVA + F + #32 Rebounds",
+   "confidence": 70,
+   "bbox": {
+    "x0": 331,
+    "y0": 1835,
+    "x1": 1018,
+    "y1": 1861
+   }
+  },
+  {
+   "text": "Ce)",
+   "confidence": 75,
+   "bbox": {
+    "x0": 960,
+    "y0": 1920,
+    "x1": 1056,
+    "y1": 1980
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:09 §",
+   "confidence": 47,
+   "bbox": {
+    "x0": 242,
+    "y0": 122,
+    "x1": 796,
+    "y1": 255
+   }
+  },
+  {
+   "text": "Dp S5 for $55",
+   "confidence": 80,
+   "bbox": {
+    "x0": 239,
+    "y0": 613,
+    "x1": 907,
+    "y1": 797
+   },
+   "boost": null
+  },
+  {
+   "text": "4-Pick Power Play Loss",
+   "confidence": 91,
+   "bbox": {
+    "x0": 470,
+    "y0": 764,
+    "x1": 1436,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse",
+   "confidence": 97,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1258,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "NFL PIT 24vs CLE 27",
+   "confidence": 87,
+   "bbox": {
+    "x0": 339,
+    "y0": 1280,
+    "x1": 956,
+    "y1": 1323
+   },
+   "boost": null
+  },
+  {
+   "text": "10 Quinshon Judkins",
+   "confidence": 91,
+   "bbox": {
+    "x0": 393,
+    "y0": 1496,
+    "x1": 1204,
+    "y1": 1597
+   }
+  },
+  {
+   "text": "|] CLE-RB- #10",
+   "confidence": 77,
+   "bbox": {
+    "x0": 499,
+    "y0": 1578,
+    "x1": 1125,
+    "y1": 1662
+   },
+   "boost": null
+  },
+  {
+   "text": "Michael Pittman Jr.",
+   "confidence": 96,
+   "bbox": {
+    "x0": 644,
+    "y0": 2080,
+    "x1": 1248,
+    "y1": 2130
+   }
+  },
+  {
+   "text": "PIT > WR - #11",
+   "confidence": 81,
+   "bbox": {
+    "x0": 644,
+    "y0": 2185,
+    "x1": 1097,
+    "y1": 2235
+   },
+   "boost": null
+  },
+  {
+   "text": "WNBA _ IND 83vsLVA 94",
+   "confidence": 67,
+   "bbox": {
+    "x0": 335,
+    "y0": 2671,
+    "x1": 1055,
+    "y1": 2714
+   },
+   "boost": null
+  },
+  {
+   "text": "A‘ja Wilson",
+   "confidence": 72,
+   "bbox": {
+    "x0": 638,
+    "y0": 2892,
+    "x1": 989,
+    "y1": 2957
+   }
+  },
+  {
+   "text": "LVA + C+ #22",
+   "confidence": 34,
+   "bbox": {
+    "x0": 644,
+    "y0": 2997,
+    "x1": 1085,
+    "y1": 3047
+   },
+   "boost": null
+  },
+  {
+   "text": "Cheyenne Parker-Tyus",
+   "confidence": 92,
+   "bbox": {
+    "x0": 641,
+    "y0": 3470,
+    "x1": 1361,
+    "y1": 3535
+   }
+  },
+  {
+   "text": "LVA + F « #32",
+   "confidence": 48,
+   "bbox": {
+    "x0": 644,
+    "y0": 3576,
+    "x1": 1077,
+    "y1": 3626
+   },
+   "boost": null
+  },
+  {
+   "text": "Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 1729,
+    "y0": 976,
+    "x1": 1940,
+    "y1": 1025
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 97,
+   "bbox": {
+    "x0": 1922,
+    "y0": 1282,
+    "x1": 2038,
+    "y1": 1324
+   }
+  },
+  {
+   "text": "JN 12.5",
+   "confidence": 64,
+   "bbox": {
+    "x0": 1761,
+    "y0": 1512,
+    "x1": 1981,
+    "y1": 1573
+   },
+   "boost": null
+  },
+  {
+   "text": "Rec Yards",
+   "confidence": 96,
+   "bbox": {
+    "x0": 1729,
+    "y0": 1609,
+    "x1": 1983,
+    "y1": 1650
+   }
+  },
+  {
+   "text": "= 35",
+   "confidence": 23,
+   "bbox": {
+    "x0": 1670,
+    "y0": 2091,
+    "x1": 1983,
+    "y1": 2157
+   },
+   "boost": "demon"
+  },
+  {
+   "text": "Recs",
+   "confidence": 96,
+   "bbox": {
+    "x0": 1864,
+    "y0": 2188,
+    "x1": 1983,
+    "y1": 2229
+   }
+  },
+  {
+   "text": "Final",
+   "confidence": 96,
+   "bbox": {
+    "x0": 1922,
+    "y0": 2672,
+    "x1": 2038,
+    "y1": 2715
+   }
+  },
+  {
+   "text": "tT 4250.5",
+   "confidence": 70,
+   "bbox": {
+    "x0": 1644,
+    "y0": 2903,
+    "x1": 1983,
+    "y1": 2961
+   },
+   "boost": null
+  },
+  {
+   "text": "PRA",
+   "confidence": 97,
+   "bbox": {
+    "x0": 1875,
+    "y0": 3000,
+    "x1": 1985,
+    "y1": 3041
+   }
+  },
+  {
+   "text": "J 3.5",
+   "confidence": 64,
+   "bbox": {
+    "x0": 1788,
+    "y0": 3482,
+    "x1": 1983,
+    "y1": 3542
+   },
+   "boost": null
+  },
+  {
+   "text": "Rebounds",
+   "confidence": 96,
+   "bbox": {
+    "x0": 1724,
+    "y0": 3579,
+    "x1": 1983,
+    "y1": 3620
+   }
+  },
+  {
+   "text": "C6)",
+   "confidence": 78,
+   "bbox": {
+    "x0": 1871,
+    "y0": 3741,
+    "x1": 2056,
+    "y1": 3856
+   }
+  },
+  {
+   "text": "»",
+   "confidence": 68,
+   "bbox": {
+    "x0": 2122,
+    "y0": 181,
+    "x1": 2128,
+    "y1": 198
+   }
+  }
+ ]
+}

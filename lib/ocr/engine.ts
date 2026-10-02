@@ -1,5 +1,6 @@
 "use client"
 
+import { tagBoosts, type Pixels } from "./boost"
 import type { OcrLine } from "./extract"
 
 /**
@@ -146,7 +147,35 @@ export async function readImage(file: File | Blob, onProgress?: (p: OcrProgress)
   const cleaned = prepared === file ? { lines: [], text: "" } : await recognizeLines(worker, prepared)
   const meanConfidence =
     raw.lines.length > 0 ? raw.lines.reduce((a, l) => a + (l.confidence ?? 0), 0) / raw.lines.length : 0
-  return { lines: raw.lines, cleanedLines: cleaned.lines, text: raw.text, meanConfidence }
+  // Goblins and demons are only visible in colour, so look for them in the
+  // original pixels. The cleaned read ran on an upscaled copy: scale back.
+  const px = await pixelsOf(file)
+  if (!px) return { lines: raw.lines, cleanedLines: cleaned.lines, text: raw.text, meanConfidence }
+  const scale = prepared instanceof HTMLCanvasElement ? prepared.width / px.width : 1
+  return {
+    lines: tagBoosts(raw.lines, px),
+    cleanedLines: tagBoosts(cleaned.lines, px, scale),
+    text: raw.text,
+    meanConfidence,
+  }
+}
+
+async function pixelsOf(file: File | Blob): Promise<Pixels | null> {
+  if (typeof document === "undefined" || typeof createImageBitmap !== "function") return null
+  try {
+    const bmp = await createImageBitmap(file)
+    const canvas = document.createElement("canvas")
+    canvas.width = bmp.width
+    canvas.height = bmp.height
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })
+    if (!ctx) return null
+    ctx.drawImage(bmp, 0, 0)
+    bmp.close?.()
+    return ctx.getImageData(0, 0, canvas.width, canvas.height)
+  } catch {
+    // No colour, no boost: every leg reads as a standard pick for the user to correct.
+    return null
+  }
 }
 
 type Recognizer = {
