@@ -3,7 +3,8 @@
 import * as React from "react"
 import { Input } from "@/components/ui/input"
 import { SideBadge } from "@/components/side-badge"
-import { dfsVerdict, type DfsTarget } from "@/lib/today/build"
+import { pct } from "@/lib/format"
+import { dfsVerdict, probAt, type DfsTarget } from "@/lib/today/build"
 
 /**
  * One pick'em target: type the line your app is showing and get one answer.
@@ -12,10 +13,11 @@ import { dfsVerdict, type DfsTarget } from "@/lib/today/build"
  * or higher"), but never as two picks side by side, which is how both sides of
  * one prop ended up in two entries.
  */
-export function DfsTargetRow({ t }: { t: DfsTarget }) {
+export function DfsTargetRow({ t, bar }: { t: DfsTarget; bar: number }) {
   const [line, setLine] = React.useState("")
   const value = Number.parseFloat(line)
   const verdict = line.trim() === "" ? null : dfsVerdict(t, value)
+  const chance = verdict && verdict !== "PASS" ? probAt(t, value, verdict) : null
 
   const rule = [
     t.overAt != null ? `over if ${t.overAt} or lower` : null,
@@ -37,11 +39,24 @@ export function DfsTargetRow({ t }: { t: DfsTarget }) {
         <div className="text-[10px] text-muted-foreground">fair {t.fairLine}</div>
       </td>
       <td className="px-3 py-2">
+        {/* Below the bar, neither side is a pick'em play, so no side is shown:
+            a 52% "under" here beside a sportsbook's priced "over" read as two picks. */}
+        {t.marketProb >= bar ? (
+          <div className="flex items-center gap-1.5">
+            <SideBadge side={t.marketSide} />
+            <span className="font-mono text-xs tabular-nums">{pct(t.marketProb, 0)}</span>
+          </div>
+        ) : (
+          <div className="font-mono text-xs text-muted-foreground">Pass · {pct(t.marketProb, 0)} at most</div>
+        )}
+        <div className="font-mono text-[10px] text-muted-foreground">at the books&apos; {t.marketLine}</div>
+      </td>
+      <td className="px-3 py-2">
         <Input
           inputMode="decimal"
           value={line}
           onChange={(e) => setLine(e.target.value)}
-          placeholder={String(t.fairLine)}
+          placeholder={String(t.marketLine)}
           className="h-7 w-20 font-mono text-xs"
           aria-label={`Line your app shows for ${t.player} ${t.marketLabel}`}
         />
@@ -54,7 +69,7 @@ export function DfsTargetRow({ t }: { t: DfsTarget }) {
         ) : (
           <span className="flex items-center gap-1.5">
             <SideBadge side={verdict} />
-            <span className="font-mono text-xs">only</span>
+            <span className="font-mono text-xs">only{chance != null ? ` · ${pct(chance, 0)}` : ""}</span>
           </span>
         )}
       </td>

@@ -30,6 +30,8 @@ export type MarketKey =
   // NFL
   | "PASS_YDS" | "PASS_TDS" | "PASS_COMP" | "PASS_ATT" | "PASS_INT"
   | "RUSH_YDS" | "RUSH_ATT" | "REC" | "REC_YDS" | "RUSH_REC_YDS"
+  // NHL
+  | "SOG" | "SAVES" | "HKY_PTS" | "HKY_AST" | "HKY_GOALS" | "HKY_BLK" | "HKY_PPP"
 
 export interface MarketConfig {
   key: MarketKey
@@ -83,20 +85,53 @@ export const MARKETS: Record<MarketKey, MarketConfig> = {
   REC:          { key: "REC",          label: "Receptions",            short: "Rec",  dispersion: 1.10, components: ["REC"], typicalMean: 4 },
   REC_YDS:      { key: "REC_YDS",      label: "Receiving Yards",       short: "ReYd", dispersion: 16,   components: ["REC_YDS"], typicalMean: 48 },
   RUSH_REC_YDS: { key: "RUSH_REC_YDS", label: "Rush + Rec Yards",      short: "R+R",  dispersion: 14,   components: ["RUSH_YDS", "REC_YDS"], typicalMean: 75 },
+
+  // NHL. Small counts on half-point lines, which is the point: a skater who
+  // averages 2.9 shots goes over 2.5 about 56% of the time and under 3.5 about
+  // 67%, so one side of a standard line is often far from a coin flip, and a
+  // pick'em app pays it as if it were one. Shots, points, assists and goals are
+  // close to Poisson (shots slightly over, from power-play time and score
+  // effects). Saves depend on the other team's shots and are more spread out:
+  // a 27-save goalie sits near sd 6.5, a ratio of about 1.6. Labels are distinct
+  // from the basketball ones because a label is resolved back to its market.
+  SOG:       { key: "SOG",       label: "Shots On Goal",         short: "SOG",  dispersion: 1.10, components: ["SOG"], typicalMean: 2.3 },
+  SAVES:     { key: "SAVES",     label: "Goalie Saves",          short: "SV",   dispersion: 1.60, components: ["SAVES"], typicalMean: 26 },
+  HKY_PTS:   { key: "HKY_PTS",   label: "Hockey Points",         short: "HPts", dispersion: 1.05, components: ["HKY_GOALS", "HKY_AST"], typicalMean: 0.6 },
+  HKY_AST:   { key: "HKY_AST",   label: "Hockey Assists",        short: "HAst", dispersion: 1.00, components: ["HKY_AST"], typicalMean: 0.38 },
+  HKY_GOALS: { key: "HKY_GOALS", label: "Goals",                 short: "G",    dispersion: 1.00, components: ["HKY_GOALS"], typicalMean: 0.25 },
+  HKY_BLK:   { key: "HKY_BLK",   label: "Hockey Blocked Shots",  short: "HBlk", dispersion: 1.20, components: ["HKY_BLK"], typicalMean: 1.3 },
+  HKY_PPP:   { key: "HKY_PPP",   label: "Power Play Points",     short: "PPP",  dispersion: 1.00, components: ["HKY_PPP"], typicalMean: 0.2 },
 }
 
 export const MARKET_KEYS = Object.keys(MARKETS) as MarketKey[]
 
-export type Sport = "basketball" | "football"
+export type Sport = "basketball" | "football" | "hockey"
 
 const FOOTBALL_MARKETS = new Set<MarketKey>([
   "PASS_YDS", "PASS_TDS", "PASS_COMP", "PASS_ATT", "PASS_INT",
   "RUSH_YDS", "RUSH_ATT", "REC", "REC_YDS", "RUSH_REC_YDS",
 ])
 
+const HOCKEY_MARKETS = new Set<MarketKey>(["SOG", "SAVES", "HKY_PTS", "HKY_AST", "HKY_GOALS", "HKY_BLK", "HKY_PPP"])
+
 /** Which sport a market belongs to. A basketball market on an NFL game is a wasted credit. */
 export function marketSport(key: MarketKey): Sport {
-  return FOOTBALL_MARKETS.has(key) ? "football" : "basketball"
+  return FOOTBALL_MARKETS.has(key) ? "football" : HOCKEY_MARKETS.has(key) ? "hockey" : "basketball"
+}
+
+/**
+ * The same word means a different stat in a different sport. A PrizePicks NHL
+ * screen prints "Points", "Assists" and "Blocked Shots", which read as the
+ * basketball markets; on a hockey entry they are the hockey ones.
+ */
+const HOCKEY_EQUIVALENT: Partial<Record<MarketKey, MarketKey>> = { PTS: "HKY_PTS", AST: "HKY_AST", BLK: "HKY_BLK" }
+
+export function marketForSport(key: MarketKey, sport: Sport): MarketKey {
+  if (sport === "hockey") return HOCKEY_EQUIVALENT[key] ?? key
+  if (sport === "basketball") {
+    for (const [b, h] of Object.entries(HOCKEY_EQUIVALENT)) if (h === key) return b as MarketKey
+  }
+  return key
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +193,16 @@ alias("RUSH_YDS", "rushing yards", "rush yards", "rush yds", "rushing yds", "rus
 alias("RUSH_ATT", "rush attempts", "rushing attempts", "carries", "rush att", "rushes")
 alias("REC", "receptions", "catches", "rec", "recs", "total receptions")
 alias("REC_YDS", "receiving yards", "rec yards", "rec yds", "receiving yds", "rec yd")
+// NHL. "Points" and "Assists" alone stay basketball; marketForSport swaps them
+// on a hockey entry. "Field goals" is pinned to basketball so "goals" cannot claim it.
+alias("FGM", "field goals")
+alias("SOG", "shots on goal", "sog", "shots on goal sog", "player shots on goal")
+alias("SAVES", "goalie saves", "saves", "total saves", "goaltender saves")
+alias("HKY_PTS", "hockey points", "nhl points")
+alias("HKY_AST", "hockey assists", "nhl assists")
+alias("HKY_GOALS", "goals", "hockey goals", "nhl goals", "goals scored")
+alias("HKY_BLK", "hockey blocked shots", "nhl blocked shots")
+alias("HKY_PPP", "power play points", "pp points", "ppp", "powerplay points")
 alias("RUSH_REC_YDS", "rush+rec yds", "rush+rec yards", "rushing+receiving yards", "rush+rec", "scrimmage yards",
   "rushing receiving yards", "rush rec yds", "rush+rec yd")
 

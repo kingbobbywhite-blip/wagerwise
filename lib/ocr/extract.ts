@@ -95,6 +95,9 @@ const STAT_WORDS = [
   "pass attempts", "passing attempts", "interceptions", "interceptions thrown", "rush yards", "rushing yards",
   "rush yds", "rush attempts", "rushing attempts", "carries", "receptions", "receiving yards", "rec yards",
   "rec yds", "recs", "rec", "rush+rec yds", "rush + rec yds", "rush+rec yards", "rush + rec yards", "rushing+receiving yards",
+  // NHL. "Points", "Assists" and "Blocked Shots" are already here and read as
+  // basketball; an NHL entry swaps them (see marketForSport).
+  "shots on goal", "sog", "goalie saves", "saves", "goals", "power play points",
 ]
 
 /** Words that look like names to a regex but never are. */
@@ -357,8 +360,11 @@ const UNMODELLED_STATS: [RegExp, string][] = [
   [/^home runs$/, "Home Runs"],
   [/^stolen bases$/, "Stolen Bases"],
   [/^rb[il1]s$/, "RBIs"],
-  [/^shots on goal$/, "Shots On Goal"],
-  [/^goalie saves$/, "Goalie Saves"],
+  // NHL stats the app does not price.
+  [/^hits$/, "Hits"],
+  [/^faceoffs won$/, "Faceoffs Won"],
+  [/^time on ice$/, "Time On Ice"],
+  [/^goals allowed$/, "Goals Allowed"],
 ]
 
 const UNMODELLED_LABELS = new Set(UNMODELLED_STATS.map(([, label]) => label))

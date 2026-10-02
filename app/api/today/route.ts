@@ -179,7 +179,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const normalized = normalizeMany(payloads)
+    const normalized = normalizeMany(payloads, league.sport)
 
     return NextResponse.json({
       league: leagueId,

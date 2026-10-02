@@ -57,6 +57,16 @@ export interface DfsTarget {
   /** Lowest line at which taking the UNDER still clears the bar, or null. */
   underAt: number | null
   underProb: number | null
+  /**
+   * The line the books themselves hang, which is the line a pick'em app
+   * almost always copies, the side the market favours there, and how often
+   * that side hits. This is the number the targets are sorted by.
+   */
+  marketLine: number
+  marketSide: "OVER" | "UNDER"
+  marketProb: number
+  /** Over and under probability at each half-point line around the projection. */
+  ladder: { line: number; over: number; under: number }[]
   referenceBooks: string[]
   hasSharpBook: boolean
 }
@@ -139,7 +149,14 @@ export function dfsTargetsFor(
   mean: number,
   distribution: { pAtLeast(k: number): number; pmf(k: number): number; variance?: number },
   breakEven: number,
-): { fairLine: number; overAt: number | null; overProb: number | null; underAt: number | null; underProb: number | null } {
+): {
+  fairLine: number
+  overAt: number | null
+  overProb: number | null
+  underAt: number | null
+  underProb: number | null
+  ladder: { line: number; over: number; under: number }[]
+} {
   // Walk actual half-point lines. Pick'em apps post x.5 almost universally, and
   // a whole number would introduce a push the targets do not account for.
   // The window is 15 either side, widened to 1.5 standard deviations where
@@ -158,10 +175,12 @@ export function dfsTargetsFor(
   let overProb: number | null = null
   let underAt: number | null = null
   let underProb: number | null = null
+  const ladder: { line: number; over: number; under: number }[] = []
 
   for (let half = start; half <= end; half += 1) {
     if (half <= 0) continue
     const { over, under } = resolveLine(distribution as never, half)
+    ladder.push({ line: half, over, under })
 
     const gap = Math.abs(over - 0.5)
     if (gap < bestGap) {
@@ -180,7 +199,25 @@ export function dfsTargetsFor(
     }
   }
 
-  return { fairLine, overAt, overProb, underAt, underProb }
+  return { fairLine, overAt, overProb, underAt, underProb, ladder }
+}
+
+/**
+ * The line most of the books are hanging: the one a pick'em app copies. Ties
+ * go to the line nearest the projection.
+ */
+export function marketLineOf(lines: number[], mean: number): number {
+  const counts = new Map<number, number>()
+  for (const l of lines) counts.set(l, (counts.get(l) ?? 0) + 1)
+  let best = lines[0]
+  let bestCount = -1
+  for (const [line, n] of counts) {
+    if (n > bestCount || (n === bestCount && Math.abs(line - mean) < Math.abs(best - mean))) {
+      best = line
+      bestCount = n
+    }
+  }
+  return best
 }
 
 export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTarget[] {
@@ -195,6 +232,10 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
     // A prop where neither side clears is not a target, it is a pass.
     if (t.overAt == null && t.underAt == null) continue
 
+    const marketLine = marketLineOf(group.quotes.map((q) => q.line), ref.mean)
+    const atMarket = resolveLine(ref.distribution as never, marketLine)
+    const marketSide = atMarket.over >= atMarket.under ? "OVER" : "UNDER"
+
     out.push({
       key: group.key,
       player: group.player,
@@ -207,13 +248,21 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
       confidence: ref.confidence,
       referenceBooks: ref.books.map((b) => b.book),
       hasSharpBook: ref.hasSharpBook,
+      marketLine,
+      marketSide,
+      marketProb: Math.max(atMarket.over, atMarket.under),
       ...t,
     })
   }
 
-  // Widest usable window first: those are the props where the market disagrees
-  // most with the number a pick'em app is likely to be showing.
-  return out.sort((a, b) => (b.overProb ?? b.underProb ?? 0) - (a.overProb ?? a.underProb ?? 0))
+  // Most likely to hit first, at the line the app is most likely showing.
+  return out.sort((a, b) => b.marketProb - a.marketProb)
+}
+
+/** The chance a side hits at a given line, if the line is one the target priced. */
+export function probAt(t: Pick<DfsTarget, "ladder">, line: number, side: "OVER" | "UNDER"): number | null {
+  const step = t.ladder.find((r) => Math.abs(r.line - line) < 1e-9)
+  return step ? (side === "OVER" ? step.over : step.under) : null
 }
 
 /**
@@ -255,7 +304,9 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
   // References judge the price; only books you can use are offered as the bet.
   const bettable = opts.bettableBooks ? new Set(opts.bettableBooks) : null
   const allValue = bettable ? everyValue.filter((b) => bettable.has(b.book)) : everyValue
-  const valueBets = bestPerSelection(allValue)
+  // One decision per prop, then most likely to hit first. Edge is still on
+  // every row; probability is what the list is read by.
+  const valueBets = bestPerSelection(allValue).sort((a, b) => b.fairProb - a.fairProb)
 
   // Parlays are built only from legs that are individually +EV. Stacking legs
   // that are each a small loss into a parlay multiplies the loss; there is no

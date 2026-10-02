@@ -37,6 +37,8 @@ export interface FeedBookmaker {
 
 export interface FeedEventOdds {
   id: string
+  /** "icehockey_nhl" and the like. Present on real payloads; tests may omit it. */
+  sport_key?: string
   commence_time: string
   home_team: string
   away_team: string

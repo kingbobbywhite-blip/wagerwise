@@ -356,8 +356,10 @@ export default function TodayPage() {
                   Best single bets
                 </h2>
                 <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
-                  Each bet names the book to place it at. Prices are from {shortDate(daily!.fetchedAt)} and move; if a
-                  line is gone or different in the app, refresh before betting.
+                  Most likely to hit first, by win probability; every one also beats the fair price by your minimum
+                  edge. A likelier bet is not a bigger one: a short price pays less, which the stake column accounts
+                  for. Each bet names the book to place it at. Prices are from {shortDate(daily!.fetchedAt)} and move;
+                  if a line is gone or different in the app, refresh before betting.
                   {picks.stats.hiddenOffers > 0
                     ? ` ${picks.stats.hiddenOffers} more edge${picks.stats.hiddenOffers === 1 ? " was" : "s were"} at books you don't bet at, so ${picks.stats.hiddenOffers === 1 ? "it is" : "they are"} hidden. Change that in Settings.`
                     : ""}
@@ -411,8 +413,10 @@ export default function TodayPage() {
                   Pick'em targets
                 </h2>
                 <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
-                  Nothing here can see what PrizePicks or Underdog are offering. Type the line your app shows for a
-                  player and you get one answer: the over, the under, or pass. Never both: on a pick&apos;em app one
+                  Most likely to hit first. Chance is the side the books favour, at the line they hang, which is
+                  the line a pick&apos;em app almost always copies. Nothing here can see what PrizePicks or Underdog
+                  are offering, so if your app shows a different line, type it in and you get one answer: the over,
+                  the under, or pass. Never both: on a pick&apos;em app one
                   of the two always loses. The bar is a {pct(dfsBreakEven)} per-leg hit rate, from your default{" "}
                   {s.constraints.picks}-pick entry, for standard picks; a goblin or demon pays differently and needs
                   its own bar.
@@ -424,6 +428,7 @@ export default function TodayPage() {
                         <th className="px-3 py-2">Player</th>
                         <th className="px-3 py-2">Market</th>
                         <th className="px-3 py-2 text-right">Projection</th>
+                        <th className="px-3 py-2">Chance</th>
                         <th className="px-3 py-2">Your app&apos;s line</th>
                         <th className="px-3 py-2">Play</th>
                         <th className="px-3 py-2 text-right">Conf</th>
@@ -431,7 +436,7 @@ export default function TodayPage() {
                     </thead>
                     <tbody>
                       {picks.dfsTargets.slice(0, 30).map((t) => (
-                        <DfsTargetRow key={t.key} t={t} />
+                        <DfsTargetRow key={t.key} t={t} bar={dfsBreakEven} />
                       ))}
                     </tbody>
                   </table>

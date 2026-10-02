@@ -288,6 +288,23 @@ describe("record by pick type", () => {
   })
 })
 
+describe("typing NHL legs", () => {
+  it("reads shots on goal, goalie saves and goals as hockey stats", () => {
+    const legs = legsFromText("Auston Matthews over 2.5 Shots On Goal win\nJoseph Woll under 27.5 Goalie Saves loss\nWilliam Nylander over 0.5 Goals goblin")
+    expect(legs.map((l) => `${l.player} | ${l.marketKey} | ${l.side} | ${l.line} | ${l.result}`)).toEqual([
+      "Auston Matthews | SOG | OVER | 2.5 | WIN",
+      "Joseph Woll | SAVES | UNDER | 27.5 | LOSS",
+      "William Nylander | HKY_GOALS | OVER | 0.5 | PENDING",
+    ])
+  })
+
+  it("keeps hits and faceoffs as legs the app does not price", () => {
+    const [hits] = legsFromText("Ryan Reaves over 2.5 Hits")
+    expect(hits.marketKey).toBeNull()
+    expect(hits.note).toMatch(/Hits is not a stat this app models/)
+  })
+})
+
 describe("record by leg type", () => {
   it("groups settled legs by stat and side, and leaves out voids", () => {
     const s = [

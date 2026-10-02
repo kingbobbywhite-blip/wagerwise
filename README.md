@@ -4,7 +4,7 @@ A basketball and football tool for deciding which props and parlays are worth be
 apps in your rotation: PrizePicks, Underdog, Sleeper, Dabble, Chalkboard, Winible, Real,
 ProphetX and Polymarket.
 
-Three leagues: **NBA**, **WNBA** and **NFL**. Pick one with the tabs on
+Four leagues: **NBA**, **WNBA**, **NFL** and **NHL**. Pick one with the tabs on
 the Today screen. Each keeps its own cached pull, so switching leagues never throws away a
 slate you already paid feed credits for.
 
@@ -97,7 +97,7 @@ precedence. Without a working key the app has no prices, and it will say so rath
 invent an edge.
 
 ```bash
-npm test         # 416 unit tests over the probability engine and screenshot reading
+npm test         # 426 unit tests over the probability engine and screenshot reading
 npm run build
 ```
 
@@ -209,12 +209,12 @@ market profitable by itself.
 
 ## Leagues
 
-| | NBA | WNBA | NFL |
-|---|---|---|---|
-| Feed sport key | `basketball_nba` | `basketball_wnba` | `americanfootball_nfl` |
-| Default markets | pts, reb, ast, 3pm | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions |
-| Default game cap | 14 | 8 | 14 |
-| Volatility prior | baseline | +5% | its own markets |
+| | NBA | WNBA | NFL | NHL |
+|---|---|---|---|---|
+| Feed sport key | `basketball_nba` | `basketball_wnba` | `americanfootball_nfl` | `icehockey_nhl` |
+| Default markets | pts, reb, ast, 3pm | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions | shots on goal, points, saves, assists |
+| Default game cap | 14 | 8 | 14 | 12 |
+| Volatility prior | baseline | +5% | its own markets | its own markets |
 
 For the two basketball leagues, the **prior mean** is scaled for the WNBA's shorter, slower
 game, and it is used only when no book has priced the prop: a real market price always wins.
@@ -243,5 +243,21 @@ markets is about 56 credits, the same as a full NBA night.
 The feed does not say which team a player is on. A quarterback and his own receiver are
 therefore linked only as players in the same game, not as a stack, so the correlation between
 them is understated for same-team legs and overstated for opponents.
+
+### NHL notes
+
+Why the NHL was added: it is where a pick'em app's even-money payout is most often wrong.
+Hockey props are small counts on half-point lines. A skater averaging 2.9 shots goes over 2.5
+about 56% of the time; a depth forward's under 0.5 points is often priced near -250, a 70% leg.
+The books price one side well past a coin flip, and the pick'em app pays it as if it were one.
+Pinnacle prices the main NHL props, the season runs from October to April, and a normal night
+has about ten games. None of that guarantees a profit: it is the market where an edge shows up
+most often, not one where it always does.
+
+Hockey markets are their own (shots on goal, goalie saves, points, assists, goals, blocked shots,
+power-play points), modelled as near-Poisson counts, with saves wider. "Points" and "Assists" on
+a PrizePicks NHL screen are read as the hockey stats when the entry is an NHL one. Starting
+goalies are confirmed late, and a backup in net moves every save line and the other team's
+shots, so pull close to puck drop. Hits, faceoffs and time on ice are logged but not priced.
 
 College basketball was removed. A phone that still has it selected opens on the NBA.
