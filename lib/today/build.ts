@@ -319,6 +319,25 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
   }
 }
 
+/**
+ * The one thing to do with a target, given the line your pick'em app is
+ * showing: take the over, take the under, or pass.
+ *
+ * A target carries both thresholds, an over at or below one number and an
+ * under at or above a higher one. Printed side by side they read as two
+ * picks, and people played both. Against a real line only one can apply,
+ * and between the two thresholds neither does.
+ */
+export function dfsVerdict(t: Pick<DfsTarget, "overAt" | "underAt" | "fairLine">, appLine: number): "OVER" | "UNDER" | "PASS" {
+  if (!Number.isFinite(appLine)) return "PASS"
+  const over = t.overAt != null && appLine <= t.overAt
+  const under = t.underAt != null && appLine >= t.underAt
+  // Both can only hold if the bar sits below a coin flip, which no payout
+  // table does; if it ever happens, the side further from fair wins.
+  if (over && under) return appLine < t.fairLine ? "OVER" : "UNDER"
+  return over ? "OVER" : under ? "UNDER" : "PASS"
+}
+
 /** Fair price for a target line, for display beside the DFS numbers. */
 export function fairPriceAt(prob: number | null): number | null {
   return prob == null ? null : probToAmerican(prob)

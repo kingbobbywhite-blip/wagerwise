@@ -1,0 +1,367 @@
+{
+ "raw": [
+  {
+   "text": "9:09 = vllll sat) @D>",
+   "confidence": 36,
+   "bbox": {
+    "x0": 124,
+    "y0": 63,
+    "x1": 1093,
+    "y1": 131
+   }
+  },
+  {
+   "text": "$5 for $22.50 t",
+   "confidence": 76,
+   "bbox": {
+    "x0": 242,
+    "y0": 314,
+    "x1": 931,
+    "y1": 389
+   }
+  },
+  {
+   "text": "5-Pick Power Play (68 O",
+   "confidence": 67,
+   "bbox": {
+    "x0": 243,
+    "y0": 372,
+    "x1": 941,
+    "y1": 436
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 97,
+   "bbox": {
+    "x0": 223,
+    "y0": 501,
+    "x1": 996,
+    "y1": 534
+   }
+  },
+  {
+   "text": "WNBA IND 83 vsLVA94 Final",
+   "confidence": 49,
+   "bbox": {
+    "x0": 172,
+    "y0": 657,
+    "x1": 1046,
+    "y1": 680
+   }
+  },
+  {
+   "text": "@ Chelsea Gray @tr05",
+   "confidence": 80,
+   "bbox": {
+    "x0": 159,
+    "y0": 747,
+    "x1": 1018,
+    "y1": 879
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "LVA - Ge #12 3PTM",
+   "confidence": 66,
+   "bbox": {
+    "x0": 330,
+    "y0": 824,
+    "x1": 1017,
+    "y1": 850
+   }
+  },
+  {
+   "text": "3 1)",
+   "confidence": 37,
+   "bbox": {
+    "x0": 212,
+    "y0": 847,
+    "x1": 293,
+    "y1": 881
+   }
+  },
+  {
+   "text": "£ Jackie Young Or 15",
+   "confidence": 43,
+   "bbox": {
+    "x0": 206,
+    "y0": 1062,
+    "x1": 1018,
+    "y1": 1126
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "wO LVA+G-#0 3PTM",
+   "confidence": 37,
+   "bbox": {
+    "x0": 203,
+    "y0": 1121,
+    "x1": 1017,
+    "y1": 1178
+   }
+  },
+  {
+   "text": "= Jackie Young t 20.5",
+   "confidence": 65,
+   "bbox": {
+    "x0": 206,
+    "y0": 1359,
+    "x1": 1017,
+    "y1": 1423
+   },
+   "boost": null
+  },
+  {
+   "text": "wh ® LVA -G- #0 Points",
+   "confidence": 58,
+   "bbox": {
+    "x0": 199,
+    "y0": 1415,
+    "x1": 1018,
+    "y1": 1476
+   }
+  },
+  {
+   "text": "(§) Kelsey Mitchell OT 15",
+   "confidence": 52,
+   "bbox": {
+    "x0": 155,
+    "y0": 1634,
+    "x1": 1018,
+    "y1": 1774
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "Swit IND-G-#0 Assists",
+   "confidence": 78,
+   "bbox": {
+    "x0": 192,
+    "y0": 1715,
+    "x1": 1018,
+    "y1": 1743
+   }
+  },
+  {
+   "text": "SY)",
+   "confidence": 62,
+   "bbox": {
+    "x0": 243,
+    "y0": 1734,
+    "x1": 293,
+    "y1": 1776
+   }
+  },
+  {
+   "text": "Y Lexie Hull Ow Tt 05",
+   "confidence": 40,
+   "bbox": {
+    "x0": 159,
+    "y0": 1935,
+    "x1": 1018,
+    "y1": 2067
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "IND +> G- #10 Assists",
+   "confidence": 48,
+   "bbox": {
+    "x0": 330,
+    "y0": 2012,
+    "x1": 1018,
+    "y1": 2038
+   }
+  },
+  {
+   "text": ")",
+   "confidence": 27,
+   "bbox": {
+    "x0": 259,
+    "y0": 2035,
+    "x1": 293,
+    "y1": 2069
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "909 ae",
+   "confidence": 34,
+   "bbox": {
+    "x0": 242,
+    "y0": 122,
+    "x1": 2128,
+    "y1": 255
+   }
+  },
+  {
+   "text": ">) $5 for $22.50",
+   "confidence": 77,
+   "bbox": {
+    "x0": 243,
+    "y0": 613,
+    "x1": 1043,
+    "y1": 797
+   },
+   "boost": null
+  },
+  {
+   "text": ". i eee",
+   "confidence": 41,
+   "bbox": {
+    "x0": 624,
+    "y0": 680,
+    "x1": 2113,
+    "y1": 795
+   }
+  },
+  {
+   "text": "9-Pick Power Play Loss",
+   "confidence": 61,
+   "bbox": {
+    "x0": 473,
+    "y0": 764,
+    "x1": 1436,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "WNBA _ IND 83 vs LVA 94 Final",
+   "confidence": 68,
+   "bbox": {
+    "x0": 335,
+    "y0": 1280,
+    "x1": 2038,
+    "y1": 1324
+   }
+  },
+  {
+   "text": "Chelsea Gray ’.¥ 4 0.5",
+   "confidence": 66,
+   "bbox": {
+    "x0": 641,
+    "y0": 1494,
+    "x1": 1983,
+    "y1": 1583
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "LVA-Ge #12 3PTM",
+   "confidence": 91,
+   "bbox": {
+    "x0": 644,
+    "y0": 1606,
+    "x1": 1980,
+    "y1": 1656
+   }
+  },
+  {
+   "text": "Jackie Young @ 4 15",
+   "confidence": 76,
+   "bbox": {
+    "x0": 637,
+    "y0": 2077,
+    "x1": 1983,
+    "y1": 2158
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "LVA-Ge #0 3PTM",
+   "confidence": 75,
+   "bbox": {
+    "x0": 644,
+    "y0": 2185,
+    "x1": 1980,
+    "y1": 2235
+   }
+  },
+  {
+   "text": "Jackie Young t 20.5",
+   "confidence": 91,
+   "bbox": {
+    "x0": 637,
+    "y0": 2659,
+    "x1": 1981,
+    "y1": 2728
+   },
+   "boost": null
+  },
+  {
+   "text": "LVA-Ge #0 Points",
+   "confidence": 90,
+   "bbox": {
+    "x0": 644,
+    "y0": 2763,
+    "x1": 1983,
+    "y1": 2814
+   }
+  },
+  {
+   "text": "Kelsey Mitchell @ 15",
+   "confidence": 80,
+   "bbox": {
+    "x0": 644,
+    "y0": 3234,
+    "x1": 1983,
+    "y1": 3315
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "IND-Ge#0O Assists",
+   "confidence": 63,
+   "bbox": {
+    "x0": 644,
+    "y0": 3342,
+    "x1": 1983,
+    "y1": 3392
+   }
+  },
+  {
+   "text": "Lexie Hull @ tT 05",
+   "confidence": 74,
+   "bbox": {
+    "x0": 644,
+    "y0": 3813,
+    "x1": 1983,
+    "y1": 3893
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "IND -Ge #10 Assists",
+   "confidence": 81,
+   "bbox": {
+    "x0": 644,
+    "y0": 3920,
+    "x1": 1983,
+    "y1": 3971
+   }
+  },
+  {
+   "text": "Y",
+   "confidence": 89,
+   "bbox": {
+    "x0": 504,
+    "y0": 3964,
+    "x1": 571,
+    "y1": 4031
+   }
+  }
+ ]
+}

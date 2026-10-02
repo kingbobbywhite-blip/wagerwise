@@ -247,6 +247,15 @@ reboots and whatever table the app really used, so the entry is settled at it ev
 legs are filled in, and changing a leg afterwards only changes the record by stat. An entry
 still in play has no payment to read and settles from its legs against the captured table.
 
+### Goblins and demons
+
+PrizePicks marks a boosted pick with a small face beside the line, green for a goblin and red
+for a demon. Text recognition reads both as the same junk letters, so the face is found by
+colour instead: saturated green or red in the line box's band of the row, with pixel rows a
+progress bar crosses skipped. Each logged leg records its pick type, and the tracker keeps
+goblins, demons and standard picks in separate records, because each is priced to hit at a
+different rate.
+
 ### Overlap across entries
 
 The same leg in two entries is the same bet twice, and an over in one entry with an under at

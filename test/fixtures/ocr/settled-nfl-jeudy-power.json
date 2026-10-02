@@ -1,0 +1,337 @@
+{
+ "raw": [
+  {
+   "text": "9:09 = ill) atl ©",
+   "confidence": 47,
+   "bbox": {
+    "x0": 124,
+    "y0": 63,
+    "x1": 1093,
+    "y1": 131
+   }
+  },
+  {
+   "text": "$5 for $28.75 n",
+   "confidence": 82,
+   "bbox": {
+    "x0": 242,
+    "y0": 314,
+    "x1": 931,
+    "y1": 389
+   }
+  },
+  {
+   "text": "5-Pick Power Play (68 O",
+   "confidence": 67,
+   "bbox": {
+    "x0": 243,
+    "y0": 372,
+    "x1": 941,
+    "y1": 436
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 97,
+   "bbox": {
+    "x0": 223,
+    "y0": 501,
+    "x1": 996,
+    "y1": 534
+   }
+  },
+  {
+   "text": "NFL PIT 24vs CLE 27 Final",
+   "confidence": 83,
+   "bbox": {
+    "x0": 174,
+    "y0": 657,
+    "x1": 1046,
+    "y1": 680
+   }
+  },
+  {
+   "text": "a \\ Jerry Jeudy @wros5",
+   "confidence": 53,
+   "bbox": {
+    "x0": 204,
+    "y0": 769,
+    "x1": 1018,
+    "y1": 818
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "eo CLE -WR- #3 Recs",
+   "confidence": 73,
+   "bbox": {
+    "x0": 255,
+    "y0": 821,
+    "x1": 1018,
+    "y1": 885
+   }
+  },
+  {
+   "text": "4 DK Metcalf OT 25",
+   "confidence": 79,
+   "bbox": {
+    "x0": 203,
+    "y0": 1066,
+    "x1": 1017,
+    "y1": 1114
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "eo PIT > WR + #4 Recs",
+   "confidence": 70,
+   "bbox": {
+    "x0": 255,
+    "y0": 1118,
+    "x1": 1018,
+    "y1": 1182
+   }
+  },
+  {
+   "text": "30 Jaylen Warren Or 25",
+   "confidence": 80,
+   "bbox": {
+    "x0": 199,
+    "y0": 1360,
+    "x1": 1017,
+    "y1": 1415
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "eo PIT - RB « #30 Recs",
+   "confidence": 71,
+   "bbox": {
+    "x0": 255,
+    "y0": 1415,
+    "x1": 1018,
+    "y1": 1479
+   }
+  },
+  {
+   "text": "8 | Aaron Rodgers t 15",
+   "confidence": 59,
+   "bbox": {
+    "x0": 203,
+    "y0": 1660,
+    "x1": 1018,
+    "y1": 1749
+   },
+   "boost": null
+  },
+  {
+   "text": "PIT -QB- #8 Rush Yards",
+   "confidence": 90,
+   "bbox": {
+    "x0": 330,
+    "y0": 1715,
+    "x1": 1018,
+    "y1": 1747
+   }
+  },
+  {
+   "text": "©)",
+   "confidence": 93,
+   "bbox": {
+    "x0": 258,
+    "y0": 1737,
+    "x1": 294,
+    "y1": 1773
+   }
+  },
+  {
+   "text": "T Michael Pittman Jr. J 3.5",
+   "confidence": 89,
+   "bbox": {
+    "x0": 203,
+    "y0": 1958,
+    "x1": 1018,
+    "y1": 2005
+   },
+   "boost": null
+  },
+  {
+   "text": "o PIT - WR « #11 Recs",
+   "confidence": 73,
+   "bbox": {
+    "x0": 259,
+    "y0": 2013,
+    "x1": 1018,
+    "y1": 2069
+   }
+  }
+ ],
+ "cleaned": [
+  {
+   "text": "9:09 ae",
+   "confidence": 49,
+   "bbox": {
+    "x0": 242,
+    "y0": 122,
+    "x1": 2128,
+    "y1": 244
+   }
+  },
+  {
+   "text": "D $5 for $28.75",
+   "confidence": 92,
+   "bbox": {
+    "x0": 243,
+    "y0": 613,
+    "x1": 1034,
+    "y1": 793
+   },
+   "boost": null
+  },
+  {
+   "text": ". i eee",
+   "confidence": 44,
+   "bbox": {
+    "x0": 624,
+    "y0": 680,
+    "x1": 2113,
+    "y1": 795
+   }
+  },
+  {
+   "text": "9-Pick Power Play Loss",
+   "confidence": 61,
+   "bbox": {
+    "x0": 473,
+    "y0": 764,
+    "x1": 1436,
+    "y1": 850
+   }
+  },
+  {
+   "text": "Entry Pulse Details",
+   "confidence": 96,
+   "bbox": {
+    "x0": 435,
+    "y0": 975,
+    "x1": 1940,
+    "y1": 1040
+   }
+  },
+  {
+   "text": "NFL PIT 24 vs CLE 27 Final",
+   "confidence": 69,
+   "bbox": {
+    "x0": 339,
+    "y0": 1280,
+    "x1": 2038,
+    "y1": 1324
+   }
+  },
+  {
+   "text": "Jerry Jeudy @tT 05",
+   "confidence": 72,
+   "bbox": {
+    "x0": 637,
+    "y0": 1498,
+    "x1": 1983,
+    "y1": 1579
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "CLE «WR e #3 Recs",
+   "confidence": 62,
+   "bbox": {
+    "x0": 641,
+    "y0": 1606,
+    "x1": 1983,
+    "y1": 1656
+   }
+  },
+  {
+   "text": "DK Metcalf @ tT 25",
+   "confidence": 79,
+   "bbox": {
+    "x0": 644,
+    "y0": 2077,
+    "x1": 1981,
+    "y1": 2158
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "PIT> WR- #4 Recs",
+   "confidence": 77,
+   "bbox": {
+    "x0": 644,
+    "y0": 2185,
+    "x1": 1983,
+    "y1": 2235
+   }
+  },
+  {
+   "text": "Jaylen Warren @ tT 25",
+   "confidence": 81,
+   "bbox": {
+    "x0": 637,
+    "y0": 2656,
+    "x1": 1981,
+    "y1": 2736
+   },
+   "boost": "goblin"
+  },
+  {
+   "text": "PIT - RB - #30 Recs",
+   "confidence": 82,
+   "bbox": {
+    "x0": 644,
+    "y0": 2763,
+    "x1": 1983,
+    "y1": 2814
+   }
+  },
+  {
+   "text": "/ 8 Aaron Rodgers T 1.5",
+   "confidence": 70,
+   "bbox": {
+    "x0": 364,
+    "y0": 3234,
+    "x1": 1983,
+    "y1": 3328
+   },
+   "boost": null
+  },
+  {
+   "text": "PIT - QB - #8 Rush Yards",
+   "confidence": 86,
+   "bbox": {
+    "x0": 644,
+    "y0": 3342,
+    "x1": 1983,
+    "y1": 3403
+   }
+  },
+  {
+   "text": "Michael Pittman Jr. J 3.5",
+   "confidence": 84,
+   "bbox": {
+    "x0": 644,
+    "y0": 3816,
+    "x1": 1983,
+    "y1": 3887
+   },
+   "boost": null
+  },
+  {
+   "text": "PIT + WR- #11 Recs",
+   "confidence": 44,
+   "bbox": {
+    "x0": 644,
+    "y0": 3921,
+    "x1": 1983,
+    "y1": 3970
+   }
+  }
+ ]
+}

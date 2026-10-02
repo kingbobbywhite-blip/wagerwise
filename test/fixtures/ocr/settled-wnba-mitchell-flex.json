@@ -18,7 +18,8 @@
     "y0": 240,
     "x1": 358,
     "y1": 278
-   }
+   },
+   "boost": null
   },
   {
    "text": "6-Pick Flex Play",
@@ -58,7 +59,8 @@
     "y0": 517,
     "x1": 777,
     "y1": 548
-   }
+   },
+   "boost": "goblin"
   },
   {
    "text": "IND-G- #0 Rebounds",
@@ -78,7 +80,8 @@
     "y0": 722,
     "x1": 776,
     "y1": 831
-   }
+   },
+   "boost": "demon"
   },
   {
    "text": "IND +-G- #10 Rebounds",
@@ -118,7 +121,8 @@
     "y0": 1058,
     "x1": 776,
     "y1": 1116
-   }
+   },
+   "boost": "goblin"
   },
   {
    "text": "WO) NYL + C+ #35 Assists",
@@ -148,7 +152,8 @@
     "y0": 1271,
     "x1": 777,
     "y1": 1372
-   }
+   },
+   "boost": "demon"
   },
   {
    "text": "NYL+F + #13 Rebounds",
@@ -178,7 +183,8 @@
     "y0": 1514,
     "x1": 776,
     "y1": 1546
-   }
+   },
+   "boost": "demon"
   },
   {
    "text": "MIN - F + #24 Assists",
@@ -218,7 +224,8 @@
     "y0": 1741,
     "x1": 776,
     "y1": 1772
-   }
+   },
+   "boost": "goblin"
   },
   {
    "text": "MIN -G- #5 Assists",
@@ -270,7 +277,8 @@
     "y0": 612,
     "x1": 913,
     "y1": 710
-   }
+   },
+   "boost": null
   },
   {
    "text": "pp (Te",
@@ -310,7 +318,8 @@
     "y0": 1311,
     "x1": 1983,
     "y1": 1484
-   }
+   },
+   "boost": "goblin"
   },
   {
    "text": "aso IND-+Ge #0 Rebounds",
@@ -340,7 +349,8 @@
     "y0": 1900,
     "x1": 1981,
     "y1": 1972
-   }
+   },
+   "boost": "demon"
   },
   {
    "text": "ed",
@@ -400,7 +410,8 @@
     "y0": 2713,
     "x1": 1981,
     "y1": 2791
-   }
+   },
+   "boost": "goblin"
   },
   {
    "text": "NYL «C+ #35 Assists",
@@ -420,7 +431,8 @@
     "y0": 3291,
     "x1": 1983,
     "y1": 3373
-   }
+   },
+   "boost": "demon"
   },
   {
    "text": "1 NYL-F- #13 Rebounds",
@@ -450,7 +462,8 @@
     "y0": 3869,
     "x1": 1981,
     "y1": 3947
-   }
+   },
+   "boost": "demon"
   },
   {
    "text": "MIN - F «#24 Assists",
@@ -480,7 +493,8 @@
     "y0": 4448,
     "x1": 1981,
     "y1": 4526
-   }
+   },
+   "boost": "goblin"
   },
   {
    "text": "MIN «Ge #5 Assists",

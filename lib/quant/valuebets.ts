@@ -77,6 +77,11 @@ export interface ValueBet {
   consensusLine: number
   confidence: number
   warnings: string[]
+  /**
+   * The best opposite side that also priced positive and was dropped, because
+   * one prop gets one decision. Shown on the row so it is not silently hidden.
+   */
+  otherSide?: { side: ValueSide; line: number; bookName: string; edge: number }
 }
 
 export interface ValueBetSettings {
@@ -260,16 +265,35 @@ export function findValueBets(
 }
 
 /**
- * Collapse duplicate opinions on the same player, market and side down to the
- * single best-priced one, so a list of bets is a list of decisions rather than
- * the same decision at five books.
+ * Collapse every opinion on the same player and market down to one decision:
+ * the single best-priced side.
+ *
+ * Duplicates at five books are the same decision five times. And an over at
+ * one book beside an under at another is not two picks: offered both, people
+ * take both, and on a pick'em app, where every side pays the same, one of the
+ * two is a guaranteed miss. Both can price positive only when the books'
+ * lines differ enough to leave a middle, and a middle is a hedge, not an
+ * edge. The other side is named on the bet that is kept, so nothing is
+ * silently hidden.
  */
 export function bestPerSelection(bets: ValueBet[]): ValueBet[] {
   const best = new Map<string, ValueBet>()
+  const bestOther = new Map<string, ValueBet>()
   for (const b of bets) {
-    const key = `${b.player.toLowerCase()}|${b.market}|${b.side}`
+    const key = `${b.player.toLowerCase()}|${b.market}`
     const existing = best.get(key)
-    if (!existing || b.edge > existing.edge) best.set(key, b)
+    if (!existing || b.edge > existing.edge) {
+      if (existing && existing.side !== b.side) bestOther.set(key, existing)
+      best.set(key, b)
+    } else if (existing.side !== b.side) {
+      const o = bestOther.get(key)
+      if (!o || b.edge > o.edge) bestOther.set(key, b)
+    }
+  }
+  for (const [key, kept] of best) {
+    const other = bestOther.get(key)
+    if (!other || other.side === kept.side) continue
+    best.set(key, { ...kept, otherSide: { side: other.side, line: other.line, bookName: other.bookName, edge: other.edge } })
   }
   return Array.from(best.values()).sort((a, b) => b.edge - a.edge)
 }

@@ -5,6 +5,7 @@ import { summarise } from "@/lib/quant/calibration"
 import {
   entryExpectation,
   legClash,
+  legsFromText,
   nightReviews,
   openExposure,
   recordByType,
@@ -260,6 +261,33 @@ describe("checking a leg against entries already logged", () => {
   })
 })
 
+describe("record by pick type", () => {
+  it("keeps goblins, demons and standard picks apart, and leaves unmarked legs out", () => {
+    const typedLeg = (pickType: "standard" | "goblin" | "demon" | undefined, result: LegResult): TrackedLeg => ({
+      ...leg("X Y", "Receptions", 2.5, "OVER", result),
+      pickType,
+    })
+    const s = settle(slip("p", 5, 28.75, [
+      typedLeg("goblin", "WIN"), typedLeg("goblin", "WIN"), typedLeg("goblin", "WIN"),
+      typedLeg("standard", "LOSS"), typedLeg("standard", "WIN"), typedLeg("demon", "LOSS"), typedLeg(undefined, "WIN"),
+    ]))
+    expect(recordByType([s]).byPick).toEqual([
+      { label: "Standard picks", wins: 1, losses: 1 },
+      { label: "Goblins", wins: 3, losses: 0 },
+      { label: "Demons", wins: 0, losses: 1 },
+    ])
+  })
+
+  it("reads goblin and demon typed into a leg", () => {
+    const legs = legsFromText("Jerry Jeudy over 0.5 Recs goblin win\nMichael Pittman Jr. over 3.5 Recs demon loss\nAaron Rodgers over 1.5 Rush Yards loss")
+    expect(legs.map((l) => `${l.player} | ${l.pickType ?? "-"} | ${l.result}`)).toEqual([
+      "Jerry Jeudy | goblin | WIN",
+      "Michael Pittman Jr. | demon | LOSS",
+      "Aaron Rodgers | - | LOSS",
+    ])
+  })
+})
+
 describe("record by leg type", () => {
   it("groups settled legs by stat and side, and leaves out voids", () => {
     const s = [
@@ -274,7 +302,6 @@ describe("record by leg type", () => {
   })
 })
 
-import { legsFromText } from "@/lib/tracker/entries"
 
 describe("typing an entry's legs", () => {
   it("reads player, line, stat, side and result from each line", () => {

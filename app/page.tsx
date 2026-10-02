@@ -7,6 +7,7 @@ import { CalendarDays, KeyRound, Loader2, RefreshCw, TriangleAlert } from "lucid
 import { SlipCard } from "@/components/slip-card"
 import { StatTile } from "@/components/stat-tile"
 import { ValueBetRow } from "@/components/value-bet-row"
+import { DfsTargetRow } from "@/components/dfs-target-row"
 import { SideBadge } from "@/components/side-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -410,10 +411,11 @@ export default function TodayPage() {
                   Pick'em targets
                 </h2>
                 <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
-                  Nothing here can see what PrizePicks or Underdog are offering, so instead these are the numbers to
-                  look for. Open your app, find the player, and take the side only if their line is at or beyond the
-                  number below. The bar is a {pct(dfsBreakEven)} per-leg hit rate, from your default{" "}
-                  {s.constraints.picks}-pick entry.
+                  Nothing here can see what PrizePicks or Underdog are offering. Type the line your app shows for a
+                  player and you get one answer: the over, the under, or pass. Never both: on a pick&apos;em app one
+                  of the two always loses. The bar is a {pct(dfsBreakEven)} per-leg hit rate, from your default{" "}
+                  {s.constraints.picks}-pick entry, for standard picks; a goblin or demon pays differently and needs
+                  its own bar.
                 </p>
                 <div className="overflow-x-auto rounded-lg border border-border/60">
                   <table className="w-full min-w-[760px] border-collapse text-sm">
@@ -422,59 +424,14 @@ export default function TodayPage() {
                         <th className="px-3 py-2">Player</th>
                         <th className="px-3 py-2">Market</th>
                         <th className="px-3 py-2 text-right">Projection</th>
-                        <th className="px-3 py-2 text-right">Fair line</th>
-                        <th className="px-3 py-2">Take OVER at</th>
-                        <th className="px-3 py-2">Take UNDER at</th>
+                        <th className="px-3 py-2">Your app&apos;s line</th>
+                        <th className="px-3 py-2">Play</th>
                         <th className="px-3 py-2 text-right">Conf</th>
                       </tr>
                     </thead>
                     <tbody>
                       {picks.dfsTargets.slice(0, 30).map((t) => (
-                        <tr key={t.key} className="border-b border-border/40 last:border-0 hover:bg-card/40">
-                          <td className="px-3 py-2">
-                            <div className="font-medium leading-tight">{t.player}</div>
-                            <div className="font-mono text-[10px] text-muted-foreground">
-                              {t.gameId.replace("@", " at ")}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">{t.marketLabel}</td>
-                          <td className="px-3 py-2 text-right font-mono tabular-nums">
-                            {t.mean.toFixed(1)}
-                            <span className="ml-1 text-[10px] text-muted-foreground">±{t.sd.toFixed(1)}</span>
-                          </td>
-                          <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
-                            {t.fairLine}
-                          </td>
-                          <td className="px-3 py-2">
-                            {t.overAt != null ? (
-                              <span className="flex items-center gap-1.5">
-                                <SideBadge side="OVER" />
-                                <span className="font-mono tabular-nums">{t.overAt} or lower</span>
-                                <span className="font-mono text-[10px] text-muted-foreground">
-                                  {pct(t.overProb ?? 0, 0)}
-                                </span>
-                              </span>
-                            ) : (
-                              <span className="font-mono text-xs text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            {t.underAt != null ? (
-                              <span className="flex items-center gap-1.5">
-                                <SideBadge side="UNDER" />
-                                <span className="font-mono tabular-nums">{t.underAt} or higher</span>
-                                <span className="font-mono text-[10px] text-muted-foreground">
-                                  {pct(t.underProb ?? 0, 0)}
-                                </span>
-                              </span>
-                            ) : (
-                              <span className="font-mono text-xs text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
-                            {t.confidence}
-                          </td>
-                        </tr>
+                        <DfsTargetRow key={t.key} t={t} />
                       ))}
                     </tbody>
                   </table>

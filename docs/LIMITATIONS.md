@@ -33,7 +33,9 @@ break-even figure beside each expected value is the safety net, so look at it.
 
 Boosted picks (PrizePicks demons and goblins, Underdog boosts) change both the multiplier and
 the implied probability of the pick itself. The app models the multiplier if you type it in.
-It does not know the pick was boosted.
+An entry logged from a screenshot has its goblins and demons read off the screen by colour
+and recorded per leg, so the tracker can keep their records apart. The pick'em targets on
+the Today screen still assume a standard pick: a goblin or demon needs its own bar.
 
 They also move every flex tier, not just the top one, and the entry screen only ever shows the
 top. A settled flex entry is therefore scored at what the app says it paid ("$10 paid $5"),

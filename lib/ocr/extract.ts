@@ -1,4 +1,5 @@
 import { MARKETS, normalizeMarket, type MarketKey } from "@/lib/nba/markets"
+import type { Boost } from "./boost"
 
 /**
  * Turn OCR text from a DFS board screenshot into candidate props.
@@ -31,6 +32,8 @@ export interface OcrLine {
    * without it, to the nearest name in reading order.
    */
   bbox?: OcrBox
+  /** A goblin or demon face beside this line's value, found by colour (see boost.ts). */
+  boost?: Boost | null
 }
 
 export type Side = "OVER" | "UNDER"
@@ -54,6 +57,8 @@ export interface PropCandidate {
   side?: Side | null
   /** Marked "Reboot" on an entry screen: the player did not play. */
   dnp?: boolean
+  /** A goblin or demon on the entry screen. Absent where the screenshot was not read in colour. */
+  boost?: Boost | null
 }
 
 export interface ExtractResult {
@@ -156,9 +161,11 @@ function repairNumeric(raw: string): string {
 /**
  * The arrow PrizePicks prints before a line, as OCR renders it.
  *
- * Read from ten real settled-entry screenshots: up came out as "tT", "oT",
- * "St", "T", "t", "r", "*" and a quote mark; down as "J", "wv", "oY", "U", "v"
- * and a backslash.
+ * Read from fifteen real settled-entry screenshots: up came out as "tT",
+ * "oT", "St", "T", "t", "r", "*", a quote mark and, six times, a "4"; down as
+ * "J", "wv", "oY", "U", "v", a backslash and a "1". The digits only count as
+ * a token of their own right before the value ("Kelsey Mitchell 4 15"), or
+ * glued to its front when the stat rules the whole number out ("415").
  *
  * A goblin or demon icon sits just before the arrow and reads as letters too:
  * "OW", "Ow", "Oo", "OS", "w", "@". So the side comes from the arrow glyph
@@ -168,8 +175,8 @@ function repairNumeric(raw: string): string {
  * arrow glyph, the side is unknown: reported when the glyph says so, never
  * guessed.
  */
-const UP_GLYPH = /[tTr*^"'\u2191\u201c\u201d]/
-const DOWN_GLYPH = /[JjvVyYU\\\u2193]/
+const UP_GLYPH = /[tTr4*^"'\u2191\u201c\u201d]/
+const DOWN_GLYPH = /[JjvVyYU1\\\u2193]/
 
 function glyphSide(glyphs: string): Side | null {
   for (let i = glyphs.length - 1; i >= 0; i--) {
@@ -216,6 +223,8 @@ interface TrailingValue {
    * Which one is right depends on the stat, so the choice waits for it.
    */
   alt?: number
+  /** The side the digit read as an arrow points, when `alt` is taken. */
+  altSide?: Side
   repaired: boolean
   side: Side | null
   /** Tokens left before the value and its arrow: a name, or nothing. */
@@ -246,6 +255,11 @@ function trailingValue(tokens: string[]): TrailingValue | null {
   if (attached) {
     glyphs = attached[1]
     digits = attached[2]
+    // The 1 of a 1.5 read as an i or l and swallowed into the arrow: "vi5".
+    if (/[ilI|]$/.test(glyphs) && digits.length === 1 && glyphs.length > 1) {
+      glyphs = glyphs.slice(0, -1)
+      digits = `1${digits}`
+    }
   } else if (plain) {
     digits = plain[1]
   } else {
@@ -253,6 +267,12 @@ function trailingValue(tokens: string[]): TrailingValue | null {
   }
 
   let i = tokens.length - 1
+  // A lone 4 or 1 right before the value is the arrow, not a number: nothing
+  // else sits between a name and its line on these screens.
+  if (i > 0 && /^[41]$/.test(tokens[i - 1])) {
+    glyphs = tokens[i - 1] + glyphs
+    i--
+  }
   while (i > 0 && tokens.length - 1 - i < 3 && isGlyphToken(tokens[i - 1])) {
     glyphs = tokens[i - 1] + glyphs
     i--
@@ -262,10 +282,21 @@ function trailingValue(tokens: string[]): TrailingValue | null {
 
   if (!hasArrow) {
     const strict = digits.match(LINE_VALUE)
-    if (!strict) return null
-    const seven = digits.match(/^7(\d{1,2}(?:[.,]\d)?)$/)
-    const alt = seven ? restoreDecimal(seven[1])?.value : undefined
-    return { value: Number.parseFloat(strict[1]), alt, repaired: false, side: null, before, raw: last }
+    if (strict) {
+      const seven = digits.match(/^7(\d{1,2}(?:[.,]\d)?)$/)
+      const alt = seven ? restoreDecimal(seven[1])?.value : undefined
+      return { value: Number.parseFloat(strict[1]), alt, altSide: alt != null ? "OVER" : undefined, repaired: false, side: null, before, raw: last }
+    }
+    // An arrow read as a digit and glued on: "415" is an up arrow and 1.5,
+    // "125" a down arrow and 2.5, "715" an up arrow again. Or a 41.5 that lost
+    // its point. The whole number is the value and the arrow reading the
+    // alternative; the stat picks between them, as it does for a 71.5.
+    const glued = digits.match(/^([741])(\d{2})$/)
+    if (!glued) return null
+    const whole = restoreDecimal(digits)
+    const alt = restoreDecimal(glued[2])
+    if (!whole || !alt) return null
+    return { value: whole.value, alt: alt.value, altSide: glued[1] === "1" ? "UNDER" : "OVER", repaired: true, side: null, before, raw: last }
   }
   const v = restoreDecimal(digits)
   if (!v) return null
@@ -384,13 +415,16 @@ function looksLikeName(text: string, opts: { lenient?: boolean } = {}): boolean 
   if (/\d/.test(t)) return false
   const words = t.split(/\s+/).filter(Boolean)
   if (words.length < (opts.lenient ? 1 : 2) || words.length > 4) return false
-  for (const w of words) {
+  for (const [idx, w] of words.entries()) {
     const bare = w.replace(/[^A-Za-z.'-]/g, "")
     if (bare.length === 0) return false
     const lower = bare.toLowerCase().replace(/[.'-]/g, "")
     if (lower.length === 0) return false
     if (NOT_NAMES.has(lower)) return false
-    if (TEAM_CODES.has(lower)) return false
+    // Two capitals opening a name of three or more words are initials, even
+    // when they spell a team: "KC Concepcion Jr.", not the Chiefs.
+    const initials = idx === 0 && words.length >= 3 && /^[A-Z]{2}$/.test(bare)
+    if (TEAM_CODES.has(lower) && !initials) return false
     if (POSITIONS.has(lower)) return false
     if (SIDE_WORDS.has(lower)) return false
     // Names are capitalised on these boards; typed input may not be.
@@ -492,14 +526,14 @@ function trimTrailingJunk(tokens: string[]): string[] {
  */
 function findNameValue(
   text: string,
-): { name: string; value: number; alt?: number; repaired: boolean; raw: string; side: Side | null } | null {
+): { name: string; value: number; alt?: number; altSide?: Side; repaired: boolean; raw: string; side: Side | null } | null {
   // The arrow read as its own token ("Cade Otton J 65.5") or as letters stuck
   // to the value ("Jordan Addison U55"). Checked first: a plain "25" after an
   // arrow is 2.5 with its decimal swallowed, not twenty-five.
   const tv = trailingValue(text.trim().split(/\s+/).filter(Boolean))
   if (tv && tv.before.length > 0) {
     const name = nameFromPrefix(trimNoise(trimTrailingJunk(tv.before).join(" ")))
-    if (name) return { name: tidyName(name), value: tv.value, alt: tv.alt, repaired: tv.repaired, raw: tv.raw, side: tv.side }
+    if (name) return { name: tidyName(name), value: tv.value, alt: tv.alt, altSide: tv.altSide, repaired: tv.repaired, raw: tv.raw, side: tv.side }
   }
   // The arrow read as a 7 stuck to the value: "Jonquel Jones 715".
   const tokens = trimNoise(text).split(/\s+/).filter(Boolean)
@@ -601,7 +635,7 @@ interface Classified {
   kind: "prop" | "name" | "stat" | "number" | "namevalue" | "noise"
   stat?: { label: string; key: MarketKey | null }
   statText?: string
-  number?: { value: number; repaired: boolean; alt?: number }
+  number?: { value: number; repaired: boolean; alt?: number; altSide?: Side }
   name?: string
   bbox?: OcrBox
   /** Raw token a repaired line value was read from, for the review note. */
@@ -642,7 +676,7 @@ function classify(lines: OcrLine[]): Classified[] {
     if (lone && lone.before.length === 0) {
       return {
         index, text, confidence, bbox, kind: "number" as const,
-        number: { value: lone.value, repaired: lone.repaired }, rawValue: lone.raw, side: lone.side,
+        number: { value: lone.value, repaired: lone.repaired, alt: lone.alt, altSide: lone.altSide }, rawValue: lone.raw, side: lone.side,
       }
     }
     const num = parseLineValue(text)
@@ -651,7 +685,7 @@ function classify(lines: OcrLine[]): Classified[] {
     if (nv) {
       return {
         index, text, confidence, bbox, kind: "namevalue" as const,
-        name: nv.name, number: { value: nv.value, repaired: nv.repaired, alt: nv.alt }, rawValue: nv.raw, side: nv.side,
+        name: nv.name, number: { value: nv.value, repaired: nv.repaired, alt: nv.alt, altSide: nv.altSide }, rawValue: nv.raw, side: nv.side,
       }
     }
     if (isNameLine(text)) return { index, text, confidence, bbox, kind: "name" as const, name: tidyName(text) }
@@ -757,6 +791,7 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
       sourceLines: [item.index],
       issues,
       side: item.side ?? null,
+      boost: lines[item.index]?.boost,
     })
   }
 
@@ -834,8 +869,11 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
     // Receiving Yards, 71.5 is just 71.5. The stat decides.
     if (number.alt != null && item.stat.key && !plausibleLine(item.stat.key, number.value)) {
       const read = number.value
+      side = number.altSide ?? side
       number = { value: number.alt, repaired: true }
-      issues.push(`Line read as "${read}" and taken as ${number.value}, reading the 7 as the arrow. Check it against the app.`)
+      // One note about the value, not a read-as-41.5 then a read-as-1.5.
+      for (let k = issues.length - 1; k >= 0; k--) if (issues[k].startsWith("Line read as")) issues.splice(k, 1)
+      issues.push(`Line read as "${read}" and taken as ${number.value}, reading its first digit as the arrow. Check it against the app.`)
     }
     if (number.repaired && !name && !issues.some((m) => m.startsWith("Line read as"))) {
       issues.push("Line value needed character repair; check it.")
@@ -896,6 +934,7 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
       issues,
       side,
       dnp,
+      boost: boostOf(sourceLines.map((i) => lines[i]?.boost)),
     })
   }
 
@@ -914,6 +953,12 @@ export function extractProps(lines: OcrLine[]): ExtractResult {
   )
 
   return { candidates: dedupe(candidates), leftover, unpairedNames }
+}
+
+/** A face on any of a candidate's lines; null if they were checked and had none; undefined if never checked. */
+function boostOf(tags: (Boost | null | undefined)[]): Boost | null | undefined {
+  const checked = tags.filter((t) => t !== undefined)
+  return checked.find((t) => t) ?? (checked.length > 0 ? null : undefined)
 }
 
 /** Why a leg has no modelled stat: one the app does not model, or one it could not read. */
@@ -1071,6 +1116,7 @@ export function mergeReads(primary: PropCandidate[], secondary: PropCandidate[])
     }
     if (existing.side == null) existing.side = c.side ?? null
     else if (c.side && c.side !== existing.side) existing.side = null
+    if (existing.boost === undefined || (existing.boost === null && c.boost)) existing.boost = c.boost
     if (c.dnp && !existing.dnp) {
       existing.dnp = true
       existing.issues.push("Marked Reboot on the screenshot: the player did not play.")

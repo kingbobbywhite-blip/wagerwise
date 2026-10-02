@@ -199,4 +199,20 @@ describe("bestPerSelection", () => {
     expect(overs).toHaveLength(1)
     expect(overs[0].book).toBe("fanduel")
   })
+
+  it("never offers both sides of one prop, and names the side it dropped", () => {
+    // Over 12.5 cheap at one book, under 15.5 cheap at another: both price
+    // positive against a consensus near 14, and showing both is how a player
+    // ends up taking both.
+    const bets = findValueBets([
+      q("pinnacle", 14.5, -110, -110),
+      q("lowvig", 14.5, -110, -110),
+      q("draftkings", 12.5, 105, -135),
+      q("fanduel", 15.5, -135, 105),
+    ])
+    expect(new Set(bets.map((b) => b.side)).size).toBe(2)
+    const best = bestPerSelection(bets)
+    expect(best).toHaveLength(1)
+    expect(best[0].otherSide?.side).toBe(best[0].side === "OVER" ? "UNDER" : "OVER")
+  })
 })

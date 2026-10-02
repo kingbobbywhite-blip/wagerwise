@@ -5,7 +5,7 @@ import { resolveLine } from "@/lib/quant/distributions"
 import { dfsPayout } from "@/lib/quant/evaluate"
 import { breakEvenLegProb, capturedToMode, findApp, findMode, type BookApp, type CapturedPayout, type PayoutMode } from "@/lib/quant/payouts"
 import { groupQuotes, referenceProjection, type FeedQuote, type ValueBetSettings } from "@/lib/quant/valuebets"
-import type { LegResult, TrackedLeg, TrackedSlip } from "@/lib/store/schema"
+import type { LegResult, PickType, TrackedLeg, TrackedSlip } from "@/lib/store/schema"
 
 /**
  * Settling, pricing and reading back entries in the tracker.
@@ -297,6 +297,8 @@ export function nightReviews(slips: TrackedSlip[], dayOf: (iso: string) => strin
     .sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0))
 }
 
+const PICK_LABEL: Record<PickType, string> = { standard: "Standard picks", goblin: "Goblins", demon: "Demons" }
+
 export interface LegRecord {
   label: string
   wins: number
@@ -309,8 +311,15 @@ export interface LegRecord {
  * about what to stop doing than an overall record does. Voids and pushes are
  * left out; they decided nothing.
  */
-export function recordByType(slips: TrackedSlip[]): { byType: LegRecord[]; priced: LegRecord; unpriced: LegRecord } {
+export function recordByType(slips: TrackedSlip[]): {
+  byType: LegRecord[]
+  /** Goblins, demons and standard picks apart; empty until some legs carry a pick type. */
+  byPick: LegRecord[]
+  priced: LegRecord
+  unpriced: LegRecord
+} {
   const map = new Map<string, LegRecord>()
+  const picks = new Map<PickType, LegRecord>()
   const priced: LegRecord = { label: "Legs the app priced", wins: 0, losses: 0 }
   const unpriced: LegRecord = { label: "Legs the app never priced", wins: 0, losses: 0 }
   for (const s of slips) {
@@ -327,10 +336,17 @@ export function recordByType(slips: TrackedSlip[]): { byType: LegRecord[]; price
         bucket.losses++
       }
       map.set(label, r)
+      if (l.pickType) {
+        const p = picks.get(l.pickType) ?? { label: PICK_LABEL[l.pickType], wins: 0, losses: 0 }
+        if (l.result === "WIN") p.wins++
+        else p.losses++
+        picks.set(l.pickType, p)
+      }
     }
   }
   return {
     byType: Array.from(map.values()).sort((a, b) => b.wins + b.losses - (a.wins + a.losses)),
+    byPick: (["standard", "goblin", "demon"] as const).flatMap((k) => (picks.has(k) ? [picks.get(k)!] : [])),
     priced,
     unpriced,
   }
@@ -343,6 +359,8 @@ export interface DraftLeg {
   line: number
   side: "OVER" | "UNDER" | null
   result: LegResult
+  /** Read off the screenshot's colours or typed; unknown when neither said. */
+  pickType?: PickType
   /** Why this row needs a look before it is saved. */
   note: string | null
 }
@@ -371,6 +389,15 @@ export function legsFromText(text: string): DraftLeg[] {
     if (!line) continue
     const tokens = line.split(/\s+/)
     let result: LegResult = "PENDING"
+    let pickType: PickType | undefined
+    // "goblin" or "demon" anywhere in the line: "Jerry Jeudy over 0.5 Recs goblin win".
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const w = tokens[i].toLowerCase().replace(/[^a-z]/g, "")
+      if (w === "goblin" || w === "demon") {
+        pickType = w
+        tokens.splice(i, 1)
+      }
+    }
     const last = tokens[tokens.length - 1].replace(/[^A-Za-z]/g, "")
     const hit = RESULT_WORDS.find(([re]) => re.test(last))
     if (hit && tokens.length > 1) {
@@ -379,10 +406,11 @@ export function legsFromText(text: string): DraftLeg[] {
     }
     const c = extractProps(linesFromText(tokens.join(" "))).candidates[0]
     if (!c) {
-      out.push({ player: line, marketKey: null, marketLabel: "", line: Number.NaN, side: null, result, note: "Could not read a player, line and stat from this line." })
+      out.push({ player: line, marketKey: null, marketLabel: "", line: Number.NaN, side: null, result, pickType, note: "Could not read a player, line and stat from this line." })
       continue
     }
-    out.push(draftFromCandidate(c, result))
+    const d = draftFromCandidate(c, result)
+    out.push(pickType ? { ...d, pickType } : d)
   }
   return out
 }
@@ -397,6 +425,9 @@ export function draftFromCandidate(c: PropCandidate, result: LegResult = "PENDIN
     line: c.line,
     side: c.side ?? null,
     result: c.dnp ? "VOID" : result,
+    // Read in colour: a face means a goblin or demon, none a standard pick.
+    // Not read in colour (typed text): unknown.
+    pickType: c.boost === undefined ? undefined : (c.boost ?? "standard"),
     note: notes.length ? notes.join(" ") : null,
   }
 }

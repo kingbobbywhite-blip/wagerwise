@@ -15,6 +15,11 @@ import nightLoyd from "./fixtures/ocr/settled-wnba-loyd-flex.json"
 import nightWilliams from "./fixtures/ocr/settled-wnba-williams-power.json"
 import nightMitchell from "./fixtures/ocr/settled-wnba-mitchell-flex.json"
 import nightMeidroth from "./fixtures/ocr/settled-mixed-meidroth-power.json"
+import nflJudkins from "./fixtures/ocr/settled-mixed-judkins-power.json"
+import nflJeudy from "./fixtures/ocr/settled-nfl-jeudy-power.json"
+import nflRodgers from "./fixtures/ocr/settled-nfl-rodgers-power.json"
+import wnbaGray from "./fixtures/ocr/settled-wnba-gray-power.json"
+import wnbaLoydPaid from "./fixtures/ocr/settled-wnba-loyd-paid.json"
 
 /**
  * Capture-a-slate regression tests.
@@ -241,8 +246,8 @@ describe("a night of settled entries", () => {
   it("keeps baseball legs in a mixed entry, unpriced, instead of dropping them", () => {
     const c = both(nightMeidroth as Read)
     expect(c.map((x) => `${x.player} | ${x.line} | ${x.marketKey ?? x.marketLabel} | ${x.side ?? "?"}`).sort()).toEqual([
-      // No arrow survived on Wilson's row in either read: left blank, not guessed.
-      "A'ja Wilson | 42.5 | PRA | ?",
+      // The arrow on Wilson's row read as a "4": "A'ja Wilson 4 42.5".
+      "A'ja Wilson | 42.5 | PRA | OVER",
       "Breanna Stewart | 33 | PR | OVER",
       "Chase Meidroth | 4.5 | Hitter Fantasy Score | OVER",
       "Christian Walker | 1.5 | Hits + Runs + RBIs | OVER",
@@ -271,6 +276,90 @@ describe("a night of settled entries", () => {
     // The old reads still hold: "wv" is a down arrow, "tT" an up one.
     expect(one("Cade Otton wv 655", "TB-TE- #88 Rec Yards").side).toBe("UNDER")
     expect(one("Olivia Miles @ tT 05", "MIN-G- #5 3PTM").side).toBe("OVER")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A second night: five power plays, NFL and WNBA, the fixtures tagged with the
+// goblin and demon faces the engine finds by colour. New here:
+//
+//   - The up arrow reads as a "4", alone ("Kelsey Mitchell 4 15") or glued
+//     on ("415"); the down arrow sometimes as a "1", or swallows the 1 of a
+//     1.5 ("vi5").
+//   - "KC" opens a name and is also a team code.
+//   - A promo line struck through to 0.5 ("A'ja Wilson 42.5 0.5"): the new
+//     line is the one that counts.
+// ---------------------------------------------------------------------------
+
+const typed = (r: Read) =>
+  both(r)
+    .map((c) => `${c.player} | ${c.line} | ${c.marketKey ?? c.marketLabel} | ${c.side ?? "?"} | ${c.boost ?? "standard"}`)
+    .sort()
+
+describe("a second night, with goblins and demons", () => {
+  it("reads an NFL and WNBA 4-pick, a demon and a promo line among them", () => {
+    expect(typed(nflJudkins as Read)).toEqual([
+      // A 0.5 promo line, struck through from 42.5; no arrow survived either read.
+      "A'ja Wilson | 0.5 | PRA | ? | standard",
+      "Cheyenne Parker-Tyus | 3.5 | REB | UNDER | standard",
+      // A demon over; its arrow read as nothing at all.
+      "Michael Pittman Jr. | 3.5 | REC | ? | demon",
+      "Quinshon Judkins | 12.5 | REC_YDS | UNDER | standard",
+    ])
+  })
+
+  it("reads three goblins and two standard picks, Rodgers' over among them", () => {
+    expect(typed(nflJeudy as Read)).toEqual([
+      "Aaron Rodgers | 1.5 | RUSH_YDS | OVER | standard",
+      "DK Metcalf | 2.5 | REC | OVER | goblin",
+      "Jaylen Warren | 2.5 | REC | OVER | goblin",
+      "Jerry Jeudy | 0.5 | REC | OVER | goblin",
+      "Michael Pittman Jr. | 3.5 | REC | UNDER | standard",
+    ])
+  })
+
+  it("keeps initials that spell a team: KC Concepcion Jr.", () => {
+    expect(typed(nflRodgers as Read)).toEqual([
+      "Aaron Rodgers | 1.5 | RUSH_YDS | UNDER | standard",
+      "Deshaun Watson | 33.5 | RUSH_YDS | UNDER | goblin",
+      "KC Concepcion Jr. | 38.5 | REC_YDS | UNDER | goblin",
+    ])
+  })
+
+  it("reads the up arrow when it comes out as a 4", () => {
+    expect(typed(wnbaGray as Read)).toEqual([
+      "Chelsea Gray | 0.5 | 3PM | OVER | goblin",
+      "Jackie Young | 1.5 | 3PM | OVER | goblin",
+      "Jackie Young | 20.5 | PTS | OVER | standard",
+      "Kelsey Mitchell | 1.5 | AST | OVER | goblin",
+      "Lexie Hull | 0.5 | AST | OVER | goblin",
+    ])
+  })
+
+  it("reads 415 rebounds as an up arrow and 1.5, and vi5 as a down arrow and 1.5", () => {
+    expect(typed(wnbaLoydPaid as Read)).toEqual([
+      "Jewell Loyd | 0.5 | 3PM | OVER | goblin",
+      "Kelsey Mitchell | 1.5 | REB | OVER | standard",
+      "Sophie Cunningham | 1.5 | 3PM | UNDER | goblin",
+    ])
+    expect(readEntryHeader((wnbaLoydPaid as Read).raw, (wnbaLoydPaid as Read).cleaned)).toEqual({
+      stake: 3, payout: null, paid: 9, picks: 3, mode: "power",
+    })
+  })
+
+  it("finds the faces on the first night too", () => {
+    expect(typed(nightMitchell as Read).map((s) => s.split(" | ").slice(0, 1).concat(s.split(" | ").slice(4)).join(" "))).toEqual([
+      "Jonquel Jones goblin",
+      "Kelsey Mitchell goblin",
+      "Leonie Fiebich demon",
+      "Lexie Hull demon",
+      "Napheesa Collier demon",
+      "Olivia Miles goblin",
+    ])
+  })
+
+  it("leaves the pick type unknown on a read with no colour", () => {
+    expect(both(settledAddison as Read).every((c) => c.boost === undefined)).toBe(true)
   })
 })
 
