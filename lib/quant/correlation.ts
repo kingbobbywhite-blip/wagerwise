@@ -98,6 +98,19 @@ const STAT_CORR: Partial<Record<string, number>> = {
   "PASS_YDS|REC": 0.30,
   "PASS_COMP|REC": 0.30,
   "PASS_YDS|RUSH_YDS": -0.10,
+  // NHL, same player. Shots drive goals; power-play time drives both scoring
+  // and shots. Goals and assists on one player barely move together.
+  "SOG|HKY_GOALS": 0.30,
+  "SOG|HKY_AST": 0.10,
+  "SOG|HKY_PPP": 0.20,
+  "HKY_GOALS|HKY_AST": 0.02,
+  "HKY_GOALS|HKY_PPP": 0.35,
+  "HKY_AST|HKY_PPP": 0.40,
+  "SOG|HKY_BLK": -0.05,
+  // NHL, across players in the same game, team unknown: a goalie's saves rise
+  // with the other team's shots and are unrelated to his own team's, so the
+  // blend is mildly positive.
+  "SAVES|SOG": 0.12,
 }
 
 function statCorr(a: MarketKey, b: MarketKey): number {

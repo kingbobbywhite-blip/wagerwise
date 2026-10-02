@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { LEAGUES, LEAGUE_IDS, type LeagueId } from "@/lib/leagues"
-import { MARKETS, MARKET_KEYS, marketSport, type MarketKey } from "@/lib/nba/markets"
+import { MARKETS, MARKET_KEYS, marketForSport, marketSport, type MarketKey } from "@/lib/nba/markets"
 import { extractProps, isUnmodelledStat, mergeReads, readEntryHeader } from "@/lib/ocr/extract"
 import { normalizeName } from "@/lib/quant/correlation"
 import { breakEvenLegProb, findApp, type CapturedPayout } from "@/lib/quant/payouts"
@@ -34,6 +34,16 @@ const OTHER = "__other"
 
 /** A leg being edited. `other` is set once the stat is confirmed as one the app does not model. */
 type Row = DraftLeg & { other?: boolean }
+
+/** Point each leg's stat at the league's sport: points, assists and blocked shots differ by sport. */
+function inSport(rows: Row[], league: LeagueId): Row[] {
+  const sport = LEAGUES[league].sport
+  return rows.map((l) => {
+    if (!l.marketKey) return l
+    const key = marketForSport(l.marketKey, sport)
+    return key === l.marketKey ? l : { ...l, marketKey: key, marketLabel: MARKETS[key].label }
+  })
+}
 
 const toRow = (d: DraftLeg): Row => ({ ...d, other: !d.marketKey && isUnmodelledStat(d.marketLabel) })
 const emptyRow = (): Row => ({ player: "", marketKey: null, marketLabel: "", line: Number.NaN, side: null, result: "PENDING", note: null })
@@ -160,9 +170,11 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       // NYL 87". Failing that, a football stat means an NFL entry.
       const screen = [...out.lines, ...out.cleanedLines].map((l) => l.text).join(" ")
       const named = LEAGUE_IDS.find((id) => new RegExp(`\\b${id}\\b`, "i").test(screen))
-      if (named) setLeague(named)
-      else if (found.some((l) => l.marketKey && marketSport(l.marketKey) === "football")) setLeague("nfl")
-      setLegs(found)
+      const sportSeen = (sport: string) => found.some((l) => l.marketKey && marketSport(l.marketKey) === sport)
+      const leagueRead = named ?? (sportSeen("football") ? "nfl" : sportSeen("hockey") ? "nhl" : null)
+      if (leagueRead) setLeague(leagueRead)
+      // "Points" on an NHL screen is hockey points, not basketball's.
+      setLegs(leagueRead ? inSport(found, leagueRead) : found)
       if (found.length === 0) toast.error("No legs read from that screenshot", { description: "Type them in instead." })
       else toast.success(`Read ${found.length} legs`, { description: "Check each one and set what happened." })
     } catch (err) {
@@ -274,7 +286,13 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
         </div>
         <div>
           <Label className={labelCls}>League</Label>
-          <Select value={league} onValueChange={(v) => setLeague(v as LeagueId)}>
+          <Select
+            value={league}
+            onValueChange={(v) => {
+              setLeague(v as LeagueId)
+              setLegs((prev) => inSport(prev, v as LeagueId))
+            }}
+          >
             <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               {LEAGUE_IDS.map((id) => <SelectItem key={id} value={id}>{LEAGUES[id].short}</SelectItem>)}

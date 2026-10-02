@@ -138,7 +138,13 @@ legal everywhere. Nothing here is financial advice.
 
 ## League coverage
 
-Three leagues are supported: NBA, WNBA and NFL. What is NOT modelled per league:
+Four leagues are supported: NBA, WNBA, NFL and NHL. What is NOT modelled per league:
+
+**NHL goalies and line combinations are not known.** Saves depend on who starts in net and on
+the other team's shot volume, and points depend on power-play units. The feed knows neither, so
+a late goalie change makes every save line, and the other side's shots, stale until re-pulled.
+The hockey dispersion values are reasoned from typical game logs, not fitted, like every other
+league's.
 
 **College basketball was removed.** It was replaced by the NFL. Re-adding it is a data entry in
 `lib/leagues`, but its tests and notes went with it.

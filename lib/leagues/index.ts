@@ -23,13 +23,17 @@ import type { MarketKey, Sport } from "@/lib/nba/markets"
  *   own spreads (see lib/nba/markets), so the NFL needs no scaling of the
  *   basketball numbers: its scales are 1 and its markets are its own.
  *
+ *   A third sport (NHL). Low counts on half-point lines: shots, points, saves.
+ *   Its markets are its own, like the NFL's, and so are its feed keys, even
+ *   where they share a name with basketball ("player_points").
+ *
  *   Market depth. The NBA has props on every book at every game. The WNBA has
  *   props on most books for most games. The NFL is the deepest prop market
  *   there is, but posts a week ahead and moves hard on injury news.
  *   Asking for markets a league does not post burns feed credits for nothing.
  */
 
-export type LeagueId = "nba" | "wnba" | "nfl"
+export type LeagueId = "nba" | "wnba" | "nfl" | "nhl"
 
 export interface LeagueConfig {
   id: LeagueId
@@ -138,6 +142,29 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
       RUSH_YDS: 300, RUSH_ATT: 40, REC: 18, REC_YDS: 300, RUSH_REC_YDS: 350,
     },
     note: "Games are mostly Sunday, plus Thursday and Monday nights, so most days have nothing to pull. Props post days ahead and move hard on injury news: refresh on game day. The feed does not say which team a player is on, so a quarterback and his own receiver are only linked as same-game, not as a stack.",
+  },
+  nhl: {
+    id: "nhl",
+    label: "NHL",
+    short: "NHL",
+    sportKey: "icehockey_nhl",
+    sport: "hockey",
+    gameMinutes: 60,
+    // Hockey markets carry their own means and spreads; nothing is scaled across.
+    meanScale: 1,
+    dispersionScale: 1,
+    // Shots on goal and saves first: the deepest-priced NHL props and the ones
+    // where a half-point line leaves one side furthest from a coin flip. Goals,
+    // blocked shots and power-play points are mapped too; add their feed keys
+    // under Settings to pull them.
+    markets: ["player_shots_on_goal", "player_points", "player_total_saves", "player_assists"],
+    books: NBA_BOOKS,
+    // A busy night is 12 to 15 games. Four markets across 12 is 48 credits.
+    maxGames: 12,
+    typicalSlate: 9,
+    season: [10, 11, 12, 1, 2, 3, 4, 5, 6],
+    caps: { SOG: 12, SAVES: 60, HKY_PTS: 6, HKY_AST: 5, HKY_GOALS: 4, HKY_BLK: 10, HKY_PPP: 4 },
+    note: "Low counts on half-point lines, so one side of a standard line is often far from a coin flip: shots on goal 2.5 and points 0.5 are where pick'em lines most often lag the books. Starting goalies are confirmed late and a backup in net moves every save line and the other team's shots, so refresh close to puck drop. The feed does not say which team a player is on, so a goalie's saves and the other team's shots are linked only as same-game.",
   },
 }
 

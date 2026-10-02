@@ -76,5 +76,5 @@
     "typescript": "5.7.3",
     "vitest": "^3.2.7"
   },
-  "description": "Correlation-aware NBA, WNBA and college basketball prop and parlay analysis for DFS pick'em apps"
+  "description": "Correlation-aware NBA, WNBA, NFL and NHL prop and parlay analysis for DFS pick'em apps"
 }

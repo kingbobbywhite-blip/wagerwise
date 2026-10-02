@@ -1,4 +1,4 @@
-import { marketSport, type MarketKey } from "@/lib/nba/markets"
+import { marketSport, type MarketKey, type Sport } from "@/lib/nba/markets"
 import { DEFAULT_LEAGUE, leagueFor, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 import type { BookQuote } from "@/lib/quant/projection"
@@ -22,7 +22,8 @@ export const NBA_SPORT_KEY = "basketball_nba"
 /**
  * Feed market keys the API exposes per league.
  *
- * The map below covers every basketball and NFL market we model. Which of these a given league
+ * The map below covers every basketball and NFL market we model; the NHL has
+ * its own further down. Which of these a given league
  * actually posts is a league question, answered in lib/leagues, because asking
  * for a market a league never posts costs a credit and returns nothing.
  */
@@ -60,6 +61,37 @@ export const FEED_MARKET_MAP: Record<string, MarketKey> = {
 export const DEFAULT_FEED_MARKETS = Object.keys(FEED_MARKET_MAP)
 
 /**
+ * NHL feed markets. Several share a key with basketball ("player_points",
+ * "player_assists", "player_blocked_shots") but mean a different stat with a
+ * different spread, so hockey has its own map rather than entries in the one
+ * above.
+ */
+export const HOCKEY_FEED_MARKET_MAP: Record<string, MarketKey> = {
+  player_shots_on_goal: "SOG",
+  player_total_saves: "SAVES",
+  player_points: "HKY_PTS",
+  player_assists: "HKY_AST",
+  player_goals: "HKY_GOALS",
+  player_blocked_shots: "HKY_BLK",
+  player_power_play_points: "HKY_PPP",
+}
+
+/** Our market for a feed key, in a sport. Unknown keys come back null. */
+export function feedMarketFor(key: string, sport?: Sport): MarketKey | null {
+  if (sport === "hockey") return HOCKEY_FEED_MARKET_MAP[key] ?? null
+  return FEED_MARKET_MAP[key] ?? null
+}
+
+/** The sport of a feed sport key: "icehockey_nhl" is hockey. */
+export function sportOfFeedKey(sportKey: string | undefined): Sport | undefined {
+  if (!sportKey) return undefined
+  if (sportKey.startsWith("icehockey")) return "hockey"
+  if (sportKey.startsWith("americanfootball")) return "football"
+  if (sportKey.startsWith("basketball")) return "basketball"
+  return undefined
+}
+
+/**
  * The feed markets to request for a league.
  *
  * A requested list is kept only where it belongs to the league's sport, so a
@@ -70,7 +102,7 @@ export const DEFAULT_FEED_MARKETS = Object.keys(FEED_MARKET_MAP)
 export function marketsForLeague(league: LeagueId, requested?: string[] | null): string[] {
   const sport = leagueFor(league).sport
   const kept = (requested ?? []).filter((k) => {
-    const m = FEED_MARKET_MAP[k]
+    const m = feedMarketFor(k, sport)
     return !!m && marketSport(m) === sport
   })
   return kept.length > 0 ? kept : leagueFor(league).markets
@@ -79,6 +111,7 @@ export function marketsForLeague(league: LeagueId, requested?: string[] | null):
 /** Reverse lookup, used when requesting only the markets on your board. */
 export function feedKeyFor(market: MarketKey): string | null {
   for (const [k, v] of Object.entries(FEED_MARKET_MAP)) if (v === market) return k
+  for (const [k, v] of Object.entries(HOCKEY_FEED_MARKET_MAP)) if (v === market) return k
   return null
 }
 
@@ -108,7 +141,9 @@ export interface NormalizeResult {
  * price is worth something, but the projection layer marks it as having an
  * assumed rather than measured margin.
  */
-export function normalizeEventOdds(event: FeedEventOdds): NormalizeResult {
+export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport): NormalizeResult {
+  // The league asked for decides what "player_points" means; failing that, the payload's own sport.
+  const inSport = sport ?? sportOfFeedKey(event.sport_key)
   const quotes: NormalizedQuote[] = []
   const unknownMarkets = new Set<string>()
   const dropped: NormalizeResult["dropped"] = []
@@ -117,7 +152,7 @@ export function normalizeEventOdds(event: FeedEventOdds): NormalizeResult {
 
   for (const book of event.bookmakers ?? []) {
     for (const market of book.markets ?? []) {
-      const mapped = FEED_MARKET_MAP[market.key]
+      const mapped = feedMarketFor(market.key, inSport)
       if (!mapped) {
         unknownMarkets.add(market.key)
         continue
@@ -174,11 +209,11 @@ export function normalizeEventOdds(event: FeedEventOdds): NormalizeResult {
   return { quotes, unknownMarkets: Array.from(unknownMarkets), dropped }
 }
 
-export function normalizeMany(events: FeedEventOdds[]): NormalizeResult {
+export function normalizeMany(events: FeedEventOdds[], sport?: Sport): NormalizeResult {
   const all: NormalizeResult = { quotes: [], unknownMarkets: [], dropped: [] }
   const unknown = new Set<string>()
   for (const e of events) {
-    const r = normalizeEventOdds(e)
+    const r = normalizeEventOdds(e, sport)
     all.quotes.push(...r.quotes)
     all.dropped.push(...r.dropped)
     for (const m of r.unknownMarkets) unknown.add(m)

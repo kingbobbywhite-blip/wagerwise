@@ -246,3 +246,41 @@ describe("one verdict per pick'em target", () => {
     expect(dfsVerdict({ overAt: null, underAt: 16.5, fairLine: 12.5 }, 8.5)).toBe("PASS")
   })
 })
+
+import { marketLineOf, probAt } from "@/lib/today/build"
+
+describe("sorting picks by probability", () => {
+  // Sharp prices from a coin flip to a heavy favourite, each with a soft book
+  // beside it, so both lists have several rows at different probabilities.
+  const slateForSort = (): FeedQuote[] => [
+    q("Coin Flip", "PTS", "pinnacle", 20.5, -110, -110),
+    q("Coin Flip", "PTS", "draftkings", 20.5, 135, -155),
+    q("Lean Under", "REB", "pinnacle", 8.5, 115, -135),
+    q("Lean Under", "REB", "lowvig", 8.5, 112, -132),
+    q("Lean Under", "REB", "fanduel", 8.5, 140, -105),
+    q("Big Under", "AST", "pinnacle", 6.5, 140, -165, "NYK@BOS"),
+    q("Big Under", "AST", "lowvig", 6.5, 135, -160, "NYK@BOS"),
+    q("Big Under", "AST", "draftkings", 6.5, 155, -120, "NYK@BOS"),
+    q("Slight Over", "PTS", "pinnacle", 18.5, -125, 105, "NYK@BOS"),
+    q("Slight Over", "PTS", "betmgm", 18.5, 110, -135, "NYK@BOS"),
+  ]
+
+  it("lists value bets and pick'em targets most likely to hit first", () => {
+    const picks = buildDailyPicks(slateForSort(), OPTS)
+    const probs = picks.valueBets.map((b) => b.fairProb)
+    expect(probs.length).toBeGreaterThan(1)
+    expect(probs).toEqual([...probs].sort((a, b) => b - a))
+    const chances = picks.dfsTargets.map((t) => t.marketProb)
+    expect(chances.length).toBeGreaterThan(1)
+    expect(chances).toEqual([...chances].sort((a, b) => b - a))
+    for (const t of picks.dfsTargets) expect(t.marketProb).toBeGreaterThanOrEqual(0.5)
+  })
+
+  it("takes the line most books hang, and prices any half-point line on the ladder", () => {
+    expect(marketLineOf([24.5, 24.5, 25.5, 23.5], 24.9)).toBe(24.5)
+    expect(marketLineOf([24.5, 25.5], 25.4)).toBe(25.5)
+    const t = { ladder: [{ line: 2.5, over: 0.42, under: 0.58 }] }
+    expect(probAt(t, 2.5, "UNDER")).toBe(0.58)
+    expect(probAt(t, 3, "UNDER")).toBeNull()
+  })
+})

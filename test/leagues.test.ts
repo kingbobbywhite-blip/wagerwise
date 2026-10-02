@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   DEFAULT_LEAGUE,
   LEAGUES,
+  type LeagueId,
   LEAGUE_IDS,
   creditWarning,
   inSeason,
@@ -17,10 +18,12 @@ import { migrate } from "@/lib/store/schema"
 import { resolveLine } from "@/lib/quant/distributions"
 
 describe("league config", () => {
-  it("covers the NBA, the WNBA and the NFL with distinct sport keys", () => {
-    expect(LEAGUE_IDS).toEqual(["nba", "wnba", "nfl"])
+  it("covers the NBA, the WNBA, the NFL and the NHL with distinct sport keys", () => {
+    expect(LEAGUE_IDS).toEqual(["nba", "wnba", "nfl", "nhl"])
     const keys = LEAGUE_IDS.map((id) => LEAGUES[id].sportKey)
-    expect(new Set(keys).size).toBe(3)
+    expect(new Set(keys).size).toBe(4)
+    expect(sportKeyFor("nhl")).toBe("icehockey_nhl")
+    expect(LEAGUES.nhl.sport).toBe("hockey")
     expect(sportKeyFor("nba")).toBe("basketball_nba")
     expect(sportKeyFor("wnba")).toBe("basketball_wnba")
     expect(sportKeyFor("nfl")).toBe("americanfootball_nfl")
@@ -248,7 +251,7 @@ function quote(
   }
 }
 
-function optsFor(league: "nba" | "wnba" | "nfl") {
+function optsFor(league: LeagueId) {
   return {
     value: { ...DEFAULT_VALUE_SETTINGS, projection: { ...DEFAULT_PROJECTION_SETTINGS, league } },
     correlation: DEFAULT_CORRELATION,
@@ -418,5 +421,122 @@ describe("NFL markets", () => {
     const d = distributionFor("PASS_TDS", 1.6)
     expect(d.family).toBe("binomial")
     expect(d.variance).toBeLessThan(1.6)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// NHL
+// ---------------------------------------------------------------------------
+
+import { marketForSport } from "@/lib/nba/markets"
+import { normalizeEventOdds } from "@/lib/odds-feed/theoddsapi"
+import type { FeedEventOdds } from "@/lib/odds-feed/types"
+
+describe("NHL markets", () => {
+  it("reads hockey labels as hockey markets, and keeps basketball's own", () => {
+    expect(normalizeMarket("Shots On Goal").key).toBe("SOG")
+    expect(normalizeMarket("Goalie Saves").key).toBe("SAVES")
+    expect(normalizeMarket("Hockey Points").key).toBe("HKY_PTS")
+    expect(normalizeMarket("Power Play Points").key).toBe("HKY_PPP")
+    expect(normalizeMarket("Goals").key).toBe("HKY_GOALS")
+    // Unchanged for basketball: the bare words stay basketball, and
+    // "field goals" never becomes hockey goals.
+    expect(normalizeMarket("Points").key).toBe("PTS")
+    expect(normalizeMarket("Field Goals").key).toBe("FGM")
+    expect(normalizeMarket("Field Goals Made").key).toBe("FGM")
+  })
+
+  it("swaps points, assists and blocked shots between the sports", () => {
+    expect(marketForSport("PTS", "hockey")).toBe("HKY_PTS")
+    expect(marketForSport("AST", "hockey")).toBe("HKY_AST")
+    expect(marketForSport("BLK", "hockey")).toBe("HKY_BLK")
+    expect(marketForSport("SOG", "hockey")).toBe("SOG")
+    expect(marketForSport("HKY_PTS", "basketball")).toBe("PTS")
+    expect(marketForSport("REB", "hockey")).toBe("REB")
+  })
+
+  it("maps the feed's player_points to hockey points on an NHL game, and basketball points otherwise", () => {
+    const event = (sport_key?: string): FeedEventOdds => ({
+      id: "e1",
+      sport_key,
+      commence_time: "2026-10-08T23:00:00Z",
+      home_team: "Toronto Maple Leafs",
+      away_team: "Montreal Canadiens",
+      bookmakers: [
+        {
+          key: "pinnacle",
+          title: "Pinnacle",
+          markets: [
+            { key: "player_points", outcomes: [
+              { name: "Over", description: "Auston Matthews", price: 105, point: 0.5 },
+              { name: "Under", description: "Auston Matthews", price: -125, point: 0.5 },
+            ] },
+            { key: "player_shots_on_goal", outcomes: [
+              { name: "Over", description: "Auston Matthews", price: -160, point: 3.5 },
+              { name: "Under", description: "Auston Matthews", price: 130, point: 3.5 },
+            ] },
+          ],
+        },
+      ],
+    })
+    const asked = normalizeEventOdds(event(), "hockey").quotes.map((q) => q.market).sort()
+    expect(asked).toEqual(["HKY_PTS", "SOG"])
+    const fromPayload = normalizeEventOdds(event("icehockey_nhl")).quotes.map((q) => q.market).sort()
+    expect(fromPayload).toEqual(["HKY_PTS", "SOG"])
+    // A basketball payload: player_points is basketball, and shots on goal is not a market there.
+    const nba = normalizeEventOdds(event("basketball_nba"))
+    expect(nba.quotes.map((q) => q.market)).toEqual(["PTS"])
+    expect(nba.unknownMarkets).toEqual(["player_shots_on_goal"])
+  })
+
+  it("keeps only hockey markets on an NHL pull, and hockey markets off a basketball one", () => {
+    expect(marketsForLeague("nhl", ["player_points", "player_rebounds"])).toEqual(["player_points"])
+    expect(marketsForLeague("nhl", null)).toEqual(LEAGUES.nhl.markets)
+    expect(marketsForLeague("nba", ["player_shots_on_goal"])).toEqual(LEAGUES.nba.markets)
+  })
+})
+
+const NHL_QUOTES: FeedQuote[] = [
+  // A shooter the books make a clear over at 2.5.
+  quote("Auston Matthews", "SOG", "pinnacle", 3.5, -150, 122, "MTL@TOR"),
+  quote("Auston Matthews", "SOG", "lowvig", 3.5, -148, 120, "MTL@TOR"),
+  quote("Auston Matthews", "SOG", "draftkings", 3.5, -140, 110, "MTL@TOR"),
+  // A depth player the books make a clear under at 0.5 points.
+  quote("Jake Evans", "HKY_PTS", "pinnacle", 0.5, 210, -270, "MTL@TOR"),
+  quote("Jake Evans", "HKY_PTS", "lowvig", 0.5, 205, -265, "MTL@TOR"),
+  quote("Jake Evans", "HKY_PTS", "fanduel", 0.5, 220, -290, "MTL@TOR"),
+  // A goalie near a coin flip.
+  quote("Joseph Woll", "SAVES", "pinnacle", 26.5, -112, -108, "MTL@TOR"),
+  quote("Joseph Woll", "SAVES", "draftkings", 26.5, -110, -110, "MTL@TOR"),
+]
+
+describe("the NHL through the daily pipeline", () => {
+  const picks = buildDailyPicks(NHL_QUOTES, optsFor("nhl"))
+
+  it("prices every prop at hockey-sized numbers", () => {
+    expect(picks.stats.pricedProps).toBe(3)
+    const matthews = picks.dfsTargets.find((t) => t.player === "Auston Matthews")!
+    const woll = picks.dfsTargets.find((t) => t.player === "Joseph Woll")!
+    // Over 3.5 shots at -150: a mean near 4, spread close to Poisson.
+    expect(matthews.mean).toBeGreaterThan(3.5)
+    expect(matthews.mean).toBeLessThan(4.6)
+    expect(matthews.marketSide).toBe("OVER")
+    expect(matthews.marketProb).toBeGreaterThan(0.55)
+    expect(matthews.marketProb).toBeLessThan(0.6)
+    // Saves at a coin flip: a 27-save goalie with a spread of about six and a half.
+    expect(woll.mean).toBeGreaterThan(26)
+    expect(woll.mean).toBeLessThan(28)
+    expect(woll.sd).toBeGreaterThan(5)
+    expect(woll.sd).toBeLessThan(8)
+    expect(woll.marketProb).toBeLessThan(0.53)
+  })
+
+  it("puts the most lopsided half-point line first: a depth player's under 0.5 points", () => {
+    const evans = picks.dfsTargets.find((t) => t.player === "Jake Evans")!
+    expect(evans).toBeDefined()
+    expect(evans.marketLine).toBe(0.5)
+    expect(evans.marketSide).toBe("UNDER")
+    expect(evans.marketProb).toBeGreaterThan(0.68)
+    expect(picks.dfsTargets[0].player).toBe("Jake Evans")
   })
 })
