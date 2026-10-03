@@ -4,6 +4,7 @@ import { DEFAULT_APPS, type BookApp, type CapturedPayout } from "@/lib/quant/pay
 import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow } from "@/lib/quant/projection"
 import type { MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
+import type { PickemLine } from "@/lib/odds-feed/propline"
 import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId } from "@/lib/leagues"
 
 export const STATE_VERSION = 1
@@ -27,9 +28,29 @@ export const DEFAULT_BANKROLL: BankrollSettings = {
   minEvPct: 0,
 }
 
+/**
+ * Which feed prices the slate. The Odds API carries Pinnacle's player props;
+ * PropLine bills per request rather than per market, and carries the pick'em
+ * apps' own lines in the same payload.
+ */
+export type OddsProvider = "theoddsapi" | "propline"
+
+export const ODDS_PROVIDERS: OddsProvider[] = ["theoddsapi", "propline"]
+
 export interface OddsFeedSettings {
+  /** Which feed prices the slate. */
+  provider: OddsProvider
   /** The Odds API key. Stored in this browser only and sent only to that API. */
   apiKey: string
+  /** PropLine key. Stored in this browser only and sent only to PropLine. */
+  proplineKey: string
+  /**
+   * Pull the pick'em apps' own lines from PropLine alongside the prices. With
+   * PropLine as the provider they come in the same requests for free; with The
+   * Odds API pricing the slate it costs one PropLine request per game, against
+   * a daily allowance rather than the monthly credit quota.
+   */
+  pickemLines: boolean
   /** Books to request, in preference order. */
   books: string[]
   /**
@@ -46,7 +67,10 @@ export interface OddsFeedSettings {
 }
 
 export const DEFAULT_ODDS_FEED: OddsFeedSettings = {
+  provider: "theoddsapi",
   apiKey: "",
+  proplineKey: "",
+  pickemLines: true,
   books: ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel"],
   // FanDuel is the only sportsbook in the rotation. The rest of the list
   // above prices the market; nothing is ever recommended there.
@@ -218,6 +242,12 @@ export interface DailyCache {
    * it lists none at all. Tells "no game today" apart from "season over".
    */
   nextEvent?: { commence_time: string; home_team: string; away_team: string } | null
+  /** The feed that priced this pull. Absent on pulls from before there was a choice. */
+  provider?: OddsProvider
+  /** Lines the pick'em apps were posting at pull time, from PropLine. Absent when not pulled. */
+  pickemLines?: PickemLine[]
+  /** Why the pick'em lines are missing or partial, when they are. */
+  pickemNote?: string | null
 }
 
 export interface AppState {
@@ -276,7 +306,8 @@ export function migrate(raw: unknown): AppState {
  * moves to the new one. A list someone edited is theirs and is kept.
  */
 function migrateOddsFeed(stored: Partial<OddsFeedSettings> | undefined): OddsFeedSettings {
-  const merged = { ...DEFAULT_ODDS_FEED, ...(stored ?? {}) }
+  const base = { ...DEFAULT_ODDS_FEED, ...(stored ?? {}) }
+  const merged = { ...base, provider: ODDS_PROVIDERS.includes(base.provider) ? base.provider : DEFAULT_ODDS_FEED.provider }
   const b = stored?.bettable
   const untouched =
     Array.isArray(b) && b.length === OLD_DEFAULT_BETTABLE.length && OLD_DEFAULT_BETTABLE.every((id) => b.includes(id))

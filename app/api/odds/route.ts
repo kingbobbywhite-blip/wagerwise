@@ -6,8 +6,9 @@ import {
   eventsUrl,
   normalizeMany,
 } from "@/lib/odds-feed/theoddsapi"
+import { normalizeProplineMany, pullPropline, resolveProplineKey } from "@/lib/odds-feed/propline"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
-import { DEFAULT_LEAGUE, isLeagueId, leagueFor } from "@/lib/leagues"
+import { DEFAULT_LEAGUE, LEAGUE_IDS, isLeagueId, leagueFor } from "@/lib/leagues"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -20,10 +21,17 @@ export const dynamic = "force-dynamic"
  * given away. The key is read from ODDS_API_KEY when set, otherwise taken from
  * the request body, which is how the settings screen supplies it on a local
  * install. It is never logged and never returned.
+ *
+ * With PropLine as the provider the same request goes to PropLine instead
+ * (PROPLINE_API_KEY, or the key from Settings), and its pick'em rows are
+ * dropped here: this route only attaches prices.
  */
 
 interface RequestBody {
   apiKey?: string
+  /** "theoddsapi" (default) or "propline". */
+  provider?: string
+  proplineKey?: string
   markets?: string[]
   regions?: string
   bookmakers?: string[]
@@ -71,17 +79,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Request body was not valid JSON." }, { status: 400 })
   }
 
-  const apiKey = resolveKey(body)
-  if (!apiKey) {
+  if (body.league != null && !isLeagueId(body.league)) {
     return NextResponse.json(
-      { error: "No odds API key. Add one in Settings, or set ODDS_API_KEY in the environment." },
+      { error: `Unsupported league "${body.league}". Supported: ${LEAGUE_IDS.join(", ")}.` },
       { status: 400 },
     )
   }
 
-  if (body.league != null && !isLeagueId(body.league)) {
+  const usePropline = body.provider === "propline"
+  const proplineKey = usePropline ? resolveProplineKey(body.proplineKey) : null
+  const apiKey = usePropline ? null : resolveKey(body)
+  if (usePropline && !proplineKey) {
     return NextResponse.json(
-      { error: `Unsupported league "${body.league}". Supported: nba, wnba, nfl.` },
+      { error: "No PropLine key. Add one in Settings, or set PROPLINE_API_KEY in the environment." },
+      { status: 400 },
+    )
+  }
+  if (!usePropline && !apiKey) {
+    return NextResponse.json(
+      { error: "No odds API key. Add one in Settings, or set ODDS_API_KEY in the environment." },
       { status: 400 },
     )
   }
@@ -98,8 +114,52 @@ export async function POST(request: Request) {
   const fromMs = body.from ? Date.parse(body.from) : Date.now()
   const toMs = body.to ? Date.parse(body.to) : fromMs + 30 * 3600 * 1000
 
+  if (usePropline) {
+    try {
+      const pull = await pullPropline({
+        apiKey: proplineKey!,
+        league: leagueId,
+        fromMs,
+        toMs,
+        markets,
+        maxGames,
+        eventIds: body.eventIds,
+        eventsOnly: body.eventsOnly,
+      })
+      const cappedOut = Math.max(0, pull.inWindow.length - pull.selected.length)
+      if (body.eventsOnly) {
+        return NextResponse.json({
+          league: leagueId,
+          cappedOut,
+          events: pull.selected,
+          estimatedCredits: 0,
+          requestsRemaining: pull.quota?.remaining ?? null,
+          requestsUsed: pull.quota?.used ?? null,
+        })
+      }
+      const normalized = normalizeProplineMany(pull.payloads, league.sport)
+      return NextResponse.json({
+        league: leagueId,
+        cappedOut,
+        events: pull.selected,
+        quotes: normalized.quotes,
+        unknownMarkets: normalized.unknownMarkets,
+        dropped: normalized.dropped.slice(0, 50),
+        droppedCount: normalized.dropped.length,
+        failures: pull.failures,
+        requestsRemaining: pull.quota?.remaining ?? null,
+        requestsUsed: pull.quota?.used ?? null,
+      })
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Could not reach PropLine." },
+        { status: 502 },
+      )
+    }
+  }
+
   try {
-    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey, leagueId))
+    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey!, leagueId))
     const inWindow = events.data
       .filter((e) => {
         const t = Date.parse(e.commence_time)
@@ -132,7 +192,7 @@ export async function POST(request: Request) {
     for (const e of wanted) {
       try {
         const r = await fetchJson<FeedEventOdds>(
-          eventOddsUrl(apiKey, e.id, { markets, regions, bookmakers: body.bookmakers, league: leagueId }),
+          eventOddsUrl(apiKey!, e.id, { markets, regions, bookmakers: body.bookmakers, league: leagueId }),
         )
         payloads.push(r.data)
         if (r.remaining != null) remaining = r.remaining

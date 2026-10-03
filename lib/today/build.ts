@@ -2,7 +2,9 @@ import { MARKETS, type MarketKey } from "@/lib/nba/markets"
 import { resolveLine } from "@/lib/quant/distributions"
 import { probToAmerican } from "@/lib/quant/odds"
 import { optimizeSlips, type BuiltSlip, type CandidateLeg, type OptimizerConstraints } from "@/lib/quant/optimizer"
-import type { CorrelationSettings } from "@/lib/quant/correlation"
+import { normalizeName, type CorrelationSettings } from "@/lib/quant/correlation"
+import type { PickemLine } from "@/lib/odds-feed/propline"
+import type { PickType } from "@/lib/store/schema"
 import {
   bestPerSelection,
   findValueBets,
@@ -25,10 +27,32 @@ import {
  *     cannot be read from here.
  *
  * The third is the honest answer to "just tell me what to play on PrizePicks".
- * Nothing in this codebase knows what PrizePicks is offering, so instead it
+ * Without a pick'em feed nothing here knows what PrizePicks is offering, so it
  * gives you the number at which each side becomes worth taking, and you check
- * that against your screen in a few seconds.
+ * that against your screen in a few seconds. With PropLine's pick'em lines
+ * attached, each target also carries the apps' actual lines, priced off the
+ * same distribution, and the entry is built at the line the app really posts.
  */
+
+/**
+ * A line a pick'em app is posting for a target, with the chance of each side
+ * at that exact line. The probabilities come from the sportsbook consensus,
+ * never from the app: the app's line says what is on offer, not what it is worth.
+ */
+export interface AppLine {
+  app: string
+  line: number
+  pickType: PickType
+  over: number
+  under: number
+  /** Chance of landing exactly on a whole-number line, which voids the pick. */
+  push: number
+  /** Null when the app does not offer that side at this line. */
+  overMultiplier: number | null | undefined
+  underMultiplier: number | null | undefined
+  overOffered: boolean
+  underOffered: boolean
+}
 
 export interface GameSummary {
   gameId: string
@@ -69,6 +93,8 @@ export interface DfsTarget {
   ladder: { line: number; over: number; under: number }[]
   referenceBooks: string[]
   hasSharpBook: boolean
+  /** Lines the pick'em apps are posting for this prop, when a pick'em feed was pulled. */
+  appLines?: AppLine[]
 }
 
 export interface DailyPicks {
@@ -115,6 +141,8 @@ export interface BuildOptions {
    * any book.
    */
   bettableBooks?: string[]
+  /** Lines the pick'em apps are posting, matched onto targets by player and market. */
+  pickemLines?: PickemLine[]
   now?: number
 }
 
@@ -220,9 +248,49 @@ export function marketLineOf(lines: number[], mean: number): number {
   return best
 }
 
+/**
+ * Index pick'em lines by player and market. The game is left out on purpose:
+ * a player has one game a day, and two feeds rarely spell a team the same way.
+ */
+function indexPickemLines(lines: PickemLine[] | undefined): Map<string, PickemLine[]> {
+  const map = new Map<string, PickemLine[]>()
+  for (const l of lines ?? []) {
+    const k = `${l.playerKey || normalizeName(l.player)}|${l.market}`
+    const arr = map.get(k)
+    if (arr) arr.push(l)
+    else map.set(k, [l])
+  }
+  return map
+}
+
+/** Price each app line off the target's own distribution. */
+export function priceAppLines(
+  lines: PickemLine[],
+  distribution: { pAtLeast(k: number): number; pmf(k: number): number },
+): AppLine[] {
+  return lines
+    .map((l) => {
+      const p = resolveLine(distribution as never, l.line)
+      return {
+        app: l.app,
+        line: l.line,
+        pickType: l.pickType,
+        over: p.over,
+        under: p.under,
+        push: p.push,
+        overMultiplier: l.over?.multiplier,
+        underMultiplier: l.under?.multiplier,
+        overOffered: l.over != null,
+        underOffered: l.under != null,
+      }
+    })
+    .sort((a, b) => a.app.localeCompare(b.app) || a.line - b.line)
+}
+
 export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTarget[] {
   const now = opts.now ?? Date.now()
   const out: DfsTarget[] = []
+  const appIndex = indexPickemLines(opts.pickemLines)
 
   for (const group of groupQuotes(quotes)) {
     const ref = referenceProjection(group, group.quotes, opts.value, now)
@@ -251,6 +319,7 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
       marketLine,
       marketSide,
       marketProb: Math.max(atMarket.over, atMarket.under),
+      appLines: priceAppLines(appIndex.get(`${normalizeName(group.player)}|${group.market}`) ?? [], ref.distribution),
       ...t,
     })
   }
@@ -264,6 +333,37 @@ export interface PickemLeg {
   side: "OVER" | "UNDER"
   line: number
   prob: number
+  /** "app" when the line is the one the app is actually posting; "books" when it is the sportsbooks' line. */
+  source: "app" | "books"
+}
+
+/**
+ * The standard pick to make on a given app for a target: the side with the
+ * better chance at the app's own line, among the sides the app offers at a
+ * plain 1.0 payout. Goblins, demons and Underdog's boosted or discounted sides
+ * pay differently and need their own bar, so they are never the entry's pick.
+ * Null when the app has no standard line for this prop.
+ */
+export function appPlay(
+  t: Pick<DfsTarget, "appLines">,
+  app: string,
+): { line: number; side: "OVER" | "UNDER"; prob: number } | null {
+  let best: { line: number; side: "OVER" | "UNDER"; prob: number } | null = null
+  for (const l of t.appLines ?? []) {
+    if (l.app !== app || l.pickType !== "standard") continue
+    if (l.overOffered && l.overMultiplier == null && (!best || l.over > best.prob)) {
+      best = { line: l.line, side: "OVER", prob: l.over }
+    }
+    if (l.underOffered && l.underMultiplier == null && (!best || l.under > best.prob)) {
+      best = { line: l.line, side: "UNDER", prob: l.under }
+    }
+  }
+  return best
+}
+
+/** True when the pull carried any lines from this app, so a missing line means "not offered". */
+export function hasAppLines(targets: Pick<DfsTarget, "appLines">[], app: string | null | undefined): boolean {
+  return !!app && targets.some((t) => (t.appLines ?? []).some((l) => l.app === app))
 }
 
 /**
@@ -275,19 +375,41 @@ export interface PickemLeg {
  * two per game, so one blowout cannot sink the whole entry. Null when fewer
  * targets clear the bar than the entry needs: a short entry padded with
  * coin flips is the bet the bar exists to stop.
+ *
+ * Given an app whose lines were pulled, every leg is at that app's real line
+ * and a prop the app is not offering is left out, because it cannot be played
+ * there. Without them, legs are at the books' line, as before.
  */
-export function buildPickemEntry(targets: DfsTarget[], size: number, bar: number, maxPerGame = 2): PickemLeg[] | null {
+export function buildPickemEntry(
+  targets: DfsTarget[],
+  size: number,
+  bar: number,
+  maxPerGame = 2,
+  app?: string | null,
+): PickemLeg[] | null {
+  const live = hasAppLines(targets, app)
+  const plays: PickemLeg[] = []
+  for (const t of targets) {
+    if (live) {
+      const p = appPlay(t, app!)
+      if (p) plays.push({ target: t, ...p, source: "app" })
+    } else {
+      plays.push({ target: t, side: t.marketSide, line: t.marketLine, prob: t.marketProb, source: "books" })
+    }
+  }
+
   const legs: PickemLeg[] = []
   const players = new Set<string>()
   const games = new Map<string, number>()
-  for (const t of [...targets].sort((a, b) => b.marketProb - a.marketProb)) {
+  for (const play of plays.sort((a, b) => b.prob - a.prob)) {
     if (legs.length >= size) break
-    if (t.marketProb < bar) break
+    if (play.prob < bar) break
+    const t = play.target
     const who = t.player.toLowerCase()
     if (players.has(who) || (games.get(t.gameId) ?? 0) >= maxPerGame) continue
     players.add(who)
     games.set(t.gameId, (games.get(t.gameId) ?? 0) + 1)
-    legs.push({ target: t, side: t.marketSide, line: t.marketLine, prob: t.marketProb })
+    legs.push(play)
   }
   return legs.length === size ? legs : null
 }

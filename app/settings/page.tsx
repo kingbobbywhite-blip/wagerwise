@@ -17,8 +17,8 @@ import { exportState, importState } from "@/lib/store/local"
 import { useStore } from "@/lib/store/provider"
 import { leagueFor } from "@/lib/leagues"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
-import { DEFAULT_SETTINGS } from "@/lib/store/schema"
-import { money, pct } from "@/lib/format"
+import { DEFAULT_SETTINGS, type OddsProvider } from "@/lib/store/schema"
+import { money } from "@/lib/format"
 
 export default function SettingsPage() {
   const { state, setSettings, replaceAll, saveError, ready } = useStore()
@@ -233,8 +233,8 @@ export default function SettingsPage() {
               </table>
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              The combined retail weight is capped at {RETAIL_WEIGHT_CAP.toFixed(2)} regardless of how many retail books
-              are present.
+              The combined weight of retail books, exchanges and unrecognised books is capped at{" "}
+              {RETAIL_WEIGHT_CAP.toFixed(2)} regardless of how many are present.
             </p>
           </div>
         </TabsContent>
@@ -243,7 +243,79 @@ export default function SettingsPage() {
           <div className="space-y-4 rounded-lg border border-border/60 bg-card/40 p-4">
             <div>
               <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Odds API key
+                Prices come from
+              </Label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {PROVIDER_CHOICES.map((p) => {
+                  const on = s.oddsFeed.provider === p.id
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setSettings((prev) => ({ ...prev, oddsFeed: { ...prev.oddsFeed, provider: p.id } }))}
+                      className={
+                        on
+                          ? "rounded-md bg-primary/15 px-3 py-1.5 font-mono text-[11px] text-primary ring-1 ring-primary/30"
+                          : "rounded-md px-3 py-1.5 font-mono text-[11px] text-muted-foreground ring-1 ring-border/60 hover:text-foreground"
+                      }
+                    >
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                {s.oddsFeed.provider === "propline"
+                  ? "PropLine: billed per request, 1,000 a day free, so a full slate is about one request per game whatever the markets. Carries FanDuel, DraftKings, Bovada, BetOnline, LowVig and exchanges, plus PrizePicks and Underdog lines. Its Pinnacle feed has no basketball or football player props (NHL goalie saves only), so BetOnline and LowVig are the sharp references; a prop neither of them posts is left unpriced while \"require a sharp book\" is on."
+                  : "The Odds API: carries Pinnacle's player props, the strongest reference there is, but bills per market per game against 500 credits a month."}
+              </p>
+            </div>
+
+            <div>
+              <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                PropLine key
+              </Label>
+              <Input
+                type="password"
+                value={s.oddsFeed.proplineKey}
+                onChange={(e) =>
+                  setSettings((p) => ({ ...p, oddsFeed: { ...p.oddsFeed, proplineKey: e.target.value } }))
+                }
+                placeholder="prop-line.com key"
+                className="mt-1.5 font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Free at{" "}
+                <a href="https://prop-line.com" target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+                  prop-line.com
+                </a>
+                . Stored in this browser and sent only to PropLine, through this app&apos;s server. PROPLINE_API_KEY in the
+                environment takes precedence.
+              </p>
+            </div>
+
+            <div className="flex items-start justify-between gap-3 rounded-lg border border-border/50 p-3">
+              <div>
+                <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Pick&apos;em apps&apos; own lines
+                </Label>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  Read the lines PrizePicks and Underdog are actually posting, through PropLine, so the pick&apos;em entry is
+                  built at the line your app shows instead of the books&apos; line. Needs a PropLine key. With PropLine
+                  pricing the slate they come free in the same requests; with The Odds API they cost one PropLine request
+                  per game, never an Odds API credit. Lines only: what a pick is worth always comes from the sportsbooks.
+                </p>
+              </div>
+              <Switch
+                checked={s.oddsFeed.pickemLines}
+                onCheckedChange={(v) => setSettings((p) => ({ ...p, oddsFeed: { ...p.oddsFeed, pickemLines: v } }))}
+              />
+            </div>
+
+            <div>
+              <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                The Odds API key
               </Label>
               <Input
                 type="password"
@@ -312,8 +384,9 @@ export default function SettingsPage() {
                 className="mt-1.5 font-mono text-xs"
               />
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                Put Pinnacle first. Player props are billed per market per event, so a narrow book list and a short
-                market list is the difference between a usable quota and an exhausted one.
+                The Odds API only; PropLine always returns every book it carries. Put Pinnacle first. Player props are
+                billed per market per event, so a narrow book list and a short market list is the difference between a
+                usable quota and an exhausted one.
               </p>
             </div>
 
@@ -364,7 +437,11 @@ export default function SettingsPage() {
                 step={1}
                 format={(v) => `${v} games`}
                 onChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, maxGames: v } }))}
-                hint={`Caps the credits one refresh can spend. At ${dailyMarkets.length} markets that is up to ${s.daily.maxGames * dailyMarkets.length} credits.`}
+                hint={
+                  s.oddsFeed.provider === "propline"
+                    ? `Caps the PropLine requests one refresh can spend: up to ${s.daily.maxGames + 1} of the daily 1,000, whatever the markets.`
+                    : `Caps the credits one refresh can spend. At ${dailyMarkets.length} markets that is up to ${s.daily.maxGames * dailyMarkets.length} credits.`
+                }
               />
               <div>
                 <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -539,8 +616,16 @@ function SliderRow({
 }
 
 /** US retail books a bet can be recommended at. Ids are the odds feed's. */
+const PROVIDER_CHOICES: { id: OddsProvider; label: string }[] = [
+  { id: "theoddsapi", label: "The Odds API" },
+  { id: "propline", label: "PropLine" },
+]
+
 const BETTABLE_CHOICES = [
   { id: "fanduel", label: "FanDuel" },
+  // Exchanges in the rotation. Only PropLine pulls carry their prices.
+  { id: "prophetx", label: "ProphetX" },
+  { id: "polymarket", label: "Polymarket" },
   { id: "draftkings", label: "DraftKings" },
   { id: "betmgm", label: "BetMGM" },
   { id: "williamhill_us", label: "Caesars" },

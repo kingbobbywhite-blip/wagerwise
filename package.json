@@ -66,14 +66,18 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@next/eslint-plugin-next": "^16.3.4",
     "@tailwindcss/postcss": "^4.2.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "1.3.3",
     "typescript": "5.7.3",
+    "typescript-eslint": "^8.71.0",
     "vitest": "^3.2.7"
   },
   "description": "Correlation-aware NBA, WNBA, NFL and NHL prop and parlay analysis for DFS pick'em apps"

@@ -15,7 +15,7 @@ import { clamp } from "./math"
  * it gives you one opinion counted five times.
  */
 
-export type BookTier = "market-making" | "sharp" | "retail" | "unknown"
+export type BookTier = "market-making" | "sharp" | "retail" | "exchange" | "unknown"
 
 export interface BookProfile {
   id: string
@@ -107,6 +107,27 @@ export const BOOK_PROFILES: BookProfile[] = [
   { id: "betrivers", name: "BetRivers", tier: "retail", weight: 0.1, note: "Retail." },
   { id: "fanatics", name: "Fanatics", tier: "retail", weight: 0.1, note: "Retail." },
   { id: "hardrockbet", name: "Hard Rock", tier: "retail", weight: 0.1, note: "Retail." },
+  { id: "bovada", name: "Bovada", tier: "retail", weight: 0.1, note: "Retail, offshore. Deep prop menu on PropLine, slow to move." },
+  // Exchanges, as PropLine carries them. A price there is whatever the last
+  // participant posted, often a thin offer with a few dollars behind it, so
+  // they sit in the capped bloc with the retail books and never anchor the
+  // consensus. Offers below the liquidity floor are dropped before they get here.
+  {
+    id: "prophetx",
+    name: "ProphetX",
+    tier: "exchange",
+    weight: 0.1,
+    note: "Peer-to-peer exchange. Best price is often a thin offer; thin ones are dropped.",
+  },
+  {
+    id: "polymarket",
+    name: "Polymarket",
+    tier: "exchange",
+    weight: 0.1,
+    note: "Prediction-market contract. Liquid on headline markets, thin on most props.",
+  },
+  { id: "kalshi", name: "Kalshi", tier: "exchange", weight: 0.1, note: "Regulated event contracts. Prop depth varies." },
+  { id: "novig", name: "Novig", tier: "exchange", weight: 0.1, note: "No-vig exchange. Prices are only as good as the resting size." },
 ]
 
 const BY_ID = new Map(BOOK_PROFILES.map((b) => [b.id, b]))
@@ -132,6 +153,7 @@ export function isSharp(id: string): boolean {
  * Retail books largely copy the same source, so a room full of them is close to
  * one opinion repeated. Their combined weight is capped rather than summed, to
  * stop five correlated copies from outvoting the book that set the number.
+ * Exchanges and unrecognised books count toward the same cap.
  */
 export const RETAIL_WEIGHT_CAP = 0.45
 
