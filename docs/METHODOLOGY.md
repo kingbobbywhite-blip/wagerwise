@@ -338,3 +338,15 @@ with the better chance at that line, among the sides offered as a standard 1.0 p
 re-checks the bar there. A line two points harder than the books' can drop a prop below
 the bar, and a prop the app is not offering is left out because it cannot be played. When
 the pull carried nothing from that app, the entry falls back to the books' line.
+
+"Not offering" is decided per game. If the app posted lines for anyone in a game but not
+for this prop, the prop is not on offer. If no line from the app arrived for the game at
+all (a request failed, or PropLine did not list it), the prop is unknown rather than absent:
+it stays in at the books' line and is marked so. With The Odds API pricing the slate, the
+pick'em pull asks PropLine for exactly the games that were priced, matched on the teams'
+nicknames and start time, so the two feeds cover the same slate.
+
+A pick'em line is dropped once its game has started, when PropLine marks the app frozen on
+a live game, or when the app has pulled the market. An app stops taking picks at the start,
+and the pregame line it leaves behind, judged against live sportsbook prices, would read as
+a near-certain hit.

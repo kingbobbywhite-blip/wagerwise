@@ -389,13 +389,20 @@ describe("pick'em lines from the apps", () => {
     })
   })
 
-  const target = (player: string, gameId: string, marketProb: number, appLines?: AppLine[]): DfsTarget =>
-    ({ key: player, player, gameId, marketProb, marketSide: "OVER", marketLine: 24.5, marketLabel: "Points", appLines }) as DfsTarget
+  const target = (
+    player: string,
+    gameId: string,
+    marketProb: number,
+    appLines?: AppLine[],
+    appCoverage: string[] = appLines?.length ? ["prizepicks"] : [],
+  ): DfsTarget =>
+    ({ key: player, player, gameId, marketProb, marketSide: "OVER", marketLine: 24.5, marketLabel: "Points", appLines, appCoverage }) as DfsTarget
 
   it("builds the entry at the app's real lines and leaves out props it is not offering", () => {
     const targets = [
       target("A", "g1", 0.7, [line(0.58, { line: 26.5 })]),
-      target("B", "g2", 0.68),
+      // PrizePicks posted lines for B's game, but none for B.
+      target("B", "g2", 0.68, undefined, ["prizepicks"]),
       target("C", "g3", 0.6, [line(0.64, { line: 22.5 })]),
     ]
     expect(hasAppLines(targets, "prizepicks")).toBe(true)
@@ -409,6 +416,29 @@ describe("pick'em lines from the apps", () => {
   it("re-checks the bar at the app's line, which can be harder than the books'", () => {
     const targets = [target("A", "g1", 0.7, [line(0.52)]), target("C", "g3", 0.66, [line(0.6)])]
     expect(buildPickemEntry(targets, 2, 0.55, 2, "prizepicks")).toBeNull()
+  })
+
+  it("keeps a prop from a game the app's lines never arrived for, at the books' line", () => {
+    const targets = [
+      target("A", "g1", 0.7, [line(0.58, { line: 26.5 })]),
+      // No PrizePicks line came through for g2 at all: unknown, not absent.
+      target("B", "g2", 0.68),
+    ]
+    const entry = buildPickemEntry(targets, 2, 0.55, 2, "prizepicks")!
+    expect(entry.map((l) => [l.target.player, l.line, l.source])).toEqual([
+      ["B", 24.5, "books"],
+      ["A", 26.5, "app"],
+    ])
+  })
+
+  it("marks a game covered when the app posted any player in it", () => {
+    const targets = buildDfsTargets(
+      [...quotes, q("Rudy Gobert", "PTS", "pinnacle", 12.5, -135, 115), q("Rudy Gobert", "PTS", "betonlineag", 12.5, -140, 118)],
+      { ...OPTS, pickemLines: [pp("Anthony Edwards", 24.5)] },
+    )
+    const gobert = targets.find((t) => t.player === "Rudy Gobert")!
+    expect(gobert.appLines).toEqual([])
+    expect(gobert.appCoverage).toEqual(["prizepicks"])
   })
 
   it("falls back to the books' line when the pull had nothing from that app", () => {

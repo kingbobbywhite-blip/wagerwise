@@ -145,8 +145,11 @@ describe("cleanPlayerName", () => {
   })
 })
 
+// Before the fixture's tip-off, so its pick'em lines are still open.
+const BEFORE = { now: Date.parse("2026-01-15T18:00:00Z") }
+
 describe("normalizeProplineEvent", () => {
-  const r = normalizeProplineEvent(event, "basketball")
+  const r = normalizeProplineEvent(event, "basketball", BEFORE)
 
   it("never lets a pick'em app into the prices", () => {
     const books = new Set(r.quotes.map((q) => q.book))
@@ -198,6 +201,7 @@ describe("normalizeProplineEvent", () => {
     const frozen = normalizeProplineEvent(
       { ...event, bookmakers: [{ ...event.bookmakers[1], pregame_only: true }] },
       "basketball",
+      BEFORE,
     )
     expect(frozen.quotes).toHaveLength(0)
     expect(frozen.dropped[0].reason).toBe("book frozen on a live game")
@@ -221,9 +225,30 @@ describe("normalizeProplineEvent", () => {
         ],
       },
       "basketball",
+      BEFORE,
     )
     expect(r2.quotes).toHaveLength(0)
     expect(r2.pickemLines).toHaveLength(1)
+  })
+
+  it("closes every pick'em line once the game has started, and keeps the prices", () => {
+    const live = normalizeProplineEvent(event, "basketball", { now: Date.parse("2026-01-16T01:00:00Z") })
+    expect(live.pickemLines).toHaveLength(0)
+    expect(live.quotes.length).toBe(r.quotes.length)
+    expect(live.dropped.filter((d) => d.reason === "pick'em lines closed: the game has started")).toHaveLength(2)
+  })
+
+  it("drops a pick'em app frozen on a live game and a pick'em line the app pulled", () => {
+    const pp = event.bookmakers[3]
+    const frozen = normalizeProplineEvent({ ...event, bookmakers: [{ ...pp, pregame_only: true }] }, "basketball", BEFORE)
+    expect(frozen.pickemLines).toHaveLength(0)
+    const pulled = normalizeProplineEvent(
+      { ...event, bookmakers: [{ ...pp, markets: [{ ...pp.markets[0], suspended_at: "2026-01-15T17:00:00Z" }, pp.markets[1]] }] },
+      "basketball",
+      BEFORE,
+    )
+    expect(pulled.pickemLines.map((l) => l.pickType)).toEqual(["demon"])
+    expect(pulled.dropped.some((d) => d.reason === "pick'em line pulled by the app")).toBe(true)
   })
 
   it("maps PropLine's goalie saves key in hockey", () => {
@@ -320,5 +345,82 @@ describe("pullPropline", () => {
     })
     expect(calls).toBe(1)
     expect(pull.selected).toHaveLength(2)
+  })
+})
+
+import { pickemNoteFor } from "@/lib/odds-feed/propline"
+
+describe("pickemNoteFor", () => {
+  it("names a failed request before blaming the apps for not posting", () => {
+    const limit = { error: "PropLine's daily request limit is used up." }
+    expect(pickemNoteFor(0, [limit, limit])).toBe(
+      "Pick'em lines for 2 games could not be read: PropLine's daily request limit is used up.",
+    )
+    expect(pickemNoteFor(12, [limit])).toContain("1 game could not be read")
+  })
+
+  it("says the apps have not posted only when every request succeeded", () => {
+    expect(pickemNoteFor(0, [])).toContain("no pick'em lines for these games yet")
+    expect(pickemNoteFor(5, [])).toBeNull()
+  })
+})
+
+describe("pullPropline cap accounting", () => {
+  const listing = [1, 2, 3, 4].map((id) => ({
+    id,
+    commence_time: `2026-01-16T0${id}:00:00Z`,
+    home_team: `Home ${id}`,
+    away_team: `Away ${id}`,
+  }))
+  const fetcher = async () => new Response(JSON.stringify(listing), { status: 200 })
+  const window = { fromMs: Date.parse("2026-01-15T00:00:00Z"), toMs: Date.parse("2026-01-17T00:00:00Z") }
+
+  it("counts only games asked for when an event list narrows the pull", async () => {
+    const pull = await pullPropline({ apiKey: "k", league: "nba", ...window, markets: [], maxGames: 10, eventIds: ["2", "3"], eventsOnly: true, fetcher })
+    expect(pull.selected.map((e) => e.id)).toEqual(["2", "3"])
+    expect(pull.cappedOut).toBe(0)
+  })
+
+  it("counts the games the cap left out", async () => {
+    const pull = await pullPropline({ apiKey: "k", league: "nba", ...window, markets: [], maxGames: 3, eventsOnly: true, fetcher })
+    expect(pull.cappedOut).toBe(1)
+  })
+})
+
+import { sameGame, teamNickname } from "@/lib/odds-feed/propline"
+
+describe("matching games across feeds", () => {
+  it("reads the nickname, which survives LA against Los Angeles", () => {
+    expect(teamNickname("LA Clippers")).toBe(teamNickname("Los Angeles Clippers"))
+    expect(teamNickname("Portland Trail Blazers")).toBe("blazers")
+    expect(teamNickname("Philadelphia 76ers")).toBe(teamNickname("Philadelphia 76ers"))
+  })
+
+  const odds = { home_team: "Los Angeles Clippers", away_team: "Denver Nuggets", commence_time: "2026-01-16T03:30:00Z" }
+
+  it("matches the same game and refuses a swapped home team or a later rematch", () => {
+    expect(sameGame({ ...odds, home_team: "LA Clippers", commence_time: "2026-01-16T03:40:00Z" }, odds)).toBe(true)
+    expect(sameGame({ ...odds, home_team: "Denver Nuggets", away_team: "LA Clippers" }, odds)).toBe(false)
+    expect(sameGame({ ...odds, commence_time: "2026-01-18T03:30:00Z" }, odds)).toBe(false)
+  })
+
+  it("pulls exactly the games another feed priced, whatever the cap and window", async () => {
+    const listing = [
+      { id: 7, commence_time: "2026-01-16T03:40:00Z", home_team: "LA Clippers", away_team: "Denver Nuggets" },
+      { id: 8, commence_time: "2026-01-16T00:10:00Z", home_team: "Boston Celtics", away_team: "New York Knicks" },
+    ]
+    const fetcher = async () => new Response(JSON.stringify(listing), { status: 200 })
+    const pull = await pullPropline({
+      apiKey: "k",
+      league: "nba",
+      fromMs: Date.parse("2026-01-16T04:00:00Z"),
+      toMs: Date.parse("2026-01-16T05:00:00Z"),
+      markets: [],
+      maxGames: 1,
+      games: [odds],
+      eventsOnly: true,
+      fetcher,
+    })
+    expect(pull.selected.map((e) => e.id)).toEqual(["7"])
   })
 })
