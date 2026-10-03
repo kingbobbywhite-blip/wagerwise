@@ -11,18 +11,17 @@ import { DfsTargetRow } from "@/components/dfs-target-row"
 import { SideBadge } from "@/components/side-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipProvider } from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
-import { formatAmerican } from "@/lib/quant/odds"
-import { breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
+import { breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import { buildDailyPicks, buildPickemEntry } from "@/lib/today/build"
 import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { useStore } from "@/lib/store/provider"
 import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
-import { money, pct, shortDate, signedPct } from "@/lib/format"
+import { pct, shortDate, signedPct } from "@/lib/format"
 
 /** "Minnesota Lynx at New York Liberty, Tue, Sep 29, 8:00 PM" in the viewer's own timezone. */
 function nextGameText(e: { commence_time: string; home_team: string; away_team: string }): string {
@@ -89,7 +88,7 @@ export default function TodayPage() {
       parlayCount: 4,
       bettableBooks: s.oddsFeed.bettable,
     })
-  }, [daily, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven])
+  }, [daily, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)
@@ -460,7 +459,7 @@ export default function TodayPage() {
             {picks.dfsTargets.length > 0 ? (
               <section className="space-y-3">
                 <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                  Pick'em targets
+                  Pick&apos;em targets
                 </h2>
                 <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
                   Most likely to hit first. Chance is the side the books favour, at the line they hang, which is

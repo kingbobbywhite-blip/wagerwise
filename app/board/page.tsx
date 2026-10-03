@@ -25,7 +25,7 @@ type SortKey = "prob" | "edge" | "shop" | "confidence" | "player"
 
 export default function BoardPage() {
   const { state, ready } = useStore()
-  const { rows, unpriceable } = useDerivedSlate()
+  const { rows } = useDerivedSlate()
 
   const [query, setQuery] = React.useState("")
   const [market, setMarket] = React.useState("ALL")
@@ -344,7 +344,7 @@ export default function BoardPage() {
         <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
           <Info className="mt-0.5 size-3 shrink-0" />
           <span>
-            Win probability is the model's own number, not the app's. The vertical marker on each bar is the per-leg rate
+            Win probability is the model&apos;s own number, not the app&apos;s. The vertical marker on each bar is the per-leg rate
             you need just to break even on a {state.settings.constraints.picks}-pick entry. A leg above 50% is not
             automatically a bet, and an edge that looks large is far more often a stale price or a bad input than a real
             opportunity.
@@ -353,11 +353,4 @@ export default function BoardPage() {
       </div>
     </TooltipProvider>
   )
-}
-
-function median(xs: number[]): number {
-  if (xs.length === 0) return 0
-  const s = [...xs].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return Math.round(s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2)
 }

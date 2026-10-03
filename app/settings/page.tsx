@@ -18,7 +18,7 @@ import { useStore } from "@/lib/store/provider"
 import { leagueFor } from "@/lib/leagues"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { DEFAULT_SETTINGS } from "@/lib/store/schema"
-import { money, pct } from "@/lib/format"
+import { money } from "@/lib/format"
 
 export default function SettingsPage() {
   const { state, setSettings, replaceAll, saveError, ready } = useStore()
@@ -253,7 +253,7 @@ export default function SettingsPage() {
                 className="mt-1.5 font-mono text-xs"
               />
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                Stored in this browser and sent only to the odds feed, through this app's own server so it never appears
+                Stored in this browser and sent only to the odds feed, through this app&apos;s own server so it never appears
                 in page JavaScript. You can also set ODDS_API_KEY in the environment instead, which takes precedence.
               </p>
             </div>

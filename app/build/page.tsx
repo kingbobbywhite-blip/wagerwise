@@ -45,9 +45,14 @@ export default function BuildPage() {
     mode ? capturedFromMode(mode, c.picks) : { picks: c.picks, tiers: {}, confirmed: false, capturedAt: new Date().toISOString() },
   )
 
-  React.useEffect(() => {
+  // Re-seed the form when the app, mode or entry size changes. This happens
+  // during render rather than in an effect so the old table never paints.
+  const seedKey = `${state.settings.defaultAppId}/${mode?.id}/${c.picks}`
+  const [seededFor, setSeededFor] = React.useState(seedKey)
+  if (seededFor !== seedKey) {
+    setSeededFor(seedKey)
     if (mode) setCaptured(capturedFromMode(mode, c.picks))
-  }, [mode?.id, state.settings.defaultAppId, c.picks])
+  }
 
   const captureValid = validateCapture(captured).length === 0
   const captureReady = captureValid && captured.confirmed
@@ -85,9 +90,14 @@ export default function BuildPage() {
     }, 16)
   }, [candidates, capturedMode, captureReady, c, state.settings.correlation, objective])
 
-  React.useEffect(() => {
+  // Built entries only hold for the inputs they were built from, so drop them
+  // as soon as any of those change.
+  const slipInputs = [candidates, objective, c.picks, state.settings.defaultAppId, state.settings.defaultModeId, captured]
+  const [slipsFor, setSlipsFor] = React.useState(slipInputs)
+  if (slipInputs.some((v, i) => v !== slipsFor[i])) {
+    setSlipsFor(slipInputs)
     setSlips(null)
-  }, [candidates, objective, c.picks, state.settings.defaultAppId, state.settings.defaultModeId, captured])
+  }
 
   if (!ready) {
     return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading…</p>
@@ -124,7 +134,7 @@ export default function BuildPage() {
       <header>
         <h1 className="font-mono text-lg font-semibold tracking-tight">Build entries</h1>
         <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
-          Searches for the entry that maximises your chosen objective under the app's real payout table, scoring every
+          Searches for the entry that maximises your chosen objective under the app&apos;s real payout table, scoring every
           candidate with a correlation-aware simulation rather than multiplying leg probabilities together.
         </p>
       </header>

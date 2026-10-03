@@ -102,6 +102,7 @@ invent an edge.
 
 ```bash
 npm test         # 431 unit tests over the probability engine and screenshot reading
+npm run lint
 npm run build
 ```
 
