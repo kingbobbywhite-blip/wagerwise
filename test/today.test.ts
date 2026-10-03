@@ -284,3 +284,24 @@ describe("sorting picks by probability", () => {
     expect(probAt(t, 3, "UNDER")).toBeNull()
   })
 })
+
+import { buildPickemEntry, type DfsTarget } from "@/lib/today/build"
+
+describe("a pick'em entry to play", () => {
+  const t = (player: string, gameId: string, marketProb: number, marketSide: "OVER" | "UNDER" = "UNDER"): DfsTarget =>
+    ({ key: `${player}|${gameId}`, player, gameId, marketProb, marketSide, marketLine: 1.5, marketLabel: "Shots On Goal" }) as DfsTarget
+
+  it("takes the likeliest legs that clear the bar, one per player, two per game", () => {
+    const entry = buildPickemEntry(
+      [t("A", "g1", 0.7), t("B", "g1", 0.68), t("C", "g1", 0.66), t("D", "g2", 0.6), t("A", "g2", 0.65, "OVER"), t("E", "g3", 0.5)],
+      3,
+      0.55,
+    )!
+    // C is a third leg in g1; A's second prop would be the same player twice; E is below the bar.
+    expect(entry.map((l) => l.target.player)).toEqual(["A", "B", "D"])
+  })
+
+  it("refuses to pad an entry with legs below the bar", () => {
+    expect(buildPickemEntry([t("A", "g1", 0.7), t("B", "g2", 0.52)], 2, 0.577)).toBeNull()
+  })
+})

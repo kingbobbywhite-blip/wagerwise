@@ -259,6 +259,39 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
   return out.sort((a, b) => b.marketProb - a.marketProb)
 }
 
+export interface PickemLeg {
+  target: DfsTarget
+  side: "OVER" | "UNDER"
+  line: number
+  prob: number
+}
+
+/**
+ * A pick'em entry to play: the likeliest targets that clear the bar, at the
+ * books' line, which is the line PrizePicks, Underdog, Sleeper and the rest
+ * almost always post.
+ *
+ * One leg per player, so it never holds both sides of anything, and at most
+ * two per game, so one blowout cannot sink the whole entry. Null when fewer
+ * targets clear the bar than the entry needs: a short entry padded with
+ * coin flips is the bet the bar exists to stop.
+ */
+export function buildPickemEntry(targets: DfsTarget[], size: number, bar: number, maxPerGame = 2): PickemLeg[] | null {
+  const legs: PickemLeg[] = []
+  const players = new Set<string>()
+  const games = new Map<string, number>()
+  for (const t of [...targets].sort((a, b) => b.marketProb - a.marketProb)) {
+    if (legs.length >= size) break
+    if (t.marketProb < bar) break
+    const who = t.player.toLowerCase()
+    if (players.has(who) || (games.get(t.gameId) ?? 0) >= maxPerGame) continue
+    players.add(who)
+    games.set(t.gameId, (games.get(t.gameId) ?? 0) + 1)
+    legs.push({ target: t, side: t.marketSide, line: t.marketLine, prob: t.marketProb })
+  }
+  return legs.length === size ? legs : null
+}
+
 /** The chance a side hits at a given line, if the line is one the target priced. */
 export function probAt(t: Pick<DfsTarget, "ladder">, line: number, side: "OVER" | "UNDER"): number | null {
   const step = t.ladder.find((r) => Math.abs(r.line - line) < 1e-9)

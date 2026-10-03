@@ -17,7 +17,8 @@ import { bookProfile, isSharp } from "@/lib/quant/books"
 import { formatAmerican } from "@/lib/quant/odds"
 import { breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import { buildDailyPicks } from "@/lib/today/build"
+import { buildDailyPicks, buildPickemEntry } from "@/lib/today/build"
+import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { useStore } from "@/lib/store/provider"
 import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
@@ -89,6 +90,15 @@ export default function TodayPage() {
       bettableBooks: s.oddsFeed.bettable,
     })
   }, [daily, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven])
+
+  // A ready-to-play pick'em entry at the default app's size and table.
+  const entryApp = findApp(s.apps, s.defaultAppId)
+  const entryMode = findMode(entryApp, s.defaultModeId)
+  const entry = React.useMemo(
+    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, dfsBreakEven) : null),
+    [picks, s.constraints.picks, dfsBreakEven],
+  )
+  const entryExp = entry && entryMode ? entryExpectation(entry.map((l) => l.prob), entryMode) : null
 
   // Books you bet at that the cached pull has no prices from, usually because
   // the pull predates adding them. Refreshing brings them in.
@@ -406,6 +416,46 @@ export default function TodayPage() {
                 </p>
               </section>
             )}
+
+            {picks.dfsTargets.length > 0 ? (
+              <section className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+                <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-primary">
+                  Pick&apos;em entry · {entryApp?.name ?? "your app"} {s.constraints.picks}-pick {entryMode?.label ?? ""}
+                </h2>
+                {entry ? (
+                  <>
+                    <ul className="divide-y divide-border/40 text-sm">
+                      {entry.map((l) => (
+                        <li key={l.target.key} className="flex items-center justify-between gap-2 py-1.5">
+                          <span className="min-w-0">
+                            <span className="font-medium">{l.target.player}</span>{" "}
+                            <span className="font-mono text-[10px] text-muted-foreground">{l.target.marketLabel}</span>
+                          </span>
+                          <span className="flex items-center gap-1.5 font-mono text-xs">
+                            <SideBadge side={l.side} /> {l.line} · {pct(l.prob, 0)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {entryExp
+                        ? `All ${entry.length} hit ${pct(entryExp.pAllHit, 1)} of the time; at ${entryApp?.name ?? "the app"}'s stored ${entryMode?.label ?? ""} table that is ${signedPct(entryExp.ev)} expected per entry. `
+                        : ""}
+                      One leg per player and at most two per game, so it never holds both sides of a prop. Lines are the
+                      books&apos; own, which PrizePicks, Underdog, Sleeper and Real almost always post: if a line in your
+                      app differs, check it in the table below before playing it. Standard picks only; a goblin or demon
+                      changes the payout. Legs are treated as independent.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Fewer than {s.constraints.picks} props clear the {pct(dfsBreakEven)} bar on this slate, one per
+                    player. Padding the entry with coin flips is the bet the bar exists to stop: play a smaller entry,
+                    or pass.
+                  </p>
+                )}
+              </section>
+            ) : null}
 
             {picks.dfsTargets.length > 0 ? (
               <section className="space-y-3">
