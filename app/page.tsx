@@ -485,6 +485,9 @@ export default function TodayPage() {
                           </span>
                           <span className="flex items-center gap-1.5 font-mono text-xs">
                             <SideBadge side={l.side} /> {l.line} · {pct(l.prob, 0)}
+                            {appLinesLive && l.source === "books" ? (
+                              <span className="text-[10px] text-muted-foreground">books&apos; line</span>
+                            ) : null}
                           </span>
                         </li>
                       ))}
@@ -495,7 +498,7 @@ export default function TodayPage() {
                         : ""}
                       One leg per player and at most two per game, so it never holds both sides of a prop.{" "}
                       {appLinesLive
-                        ? `Lines are ${possessive(entryApp?.name ?? "the app")} own, read through PropLine at ${shortDate(daily!.fetchedAt)}, and each chance is the books' consensus at that exact line. Props ${entryApp?.name ?? "the app"} was not offering are left out. Lines move: if one on your screen differs, check it in the table below.`
+                        ? `Lines are ${possessive(entryApp?.name ?? "the app")} own, read through PropLine at ${shortDate(daily!.fetchedAt)}, and each chance is the books' consensus at that exact line. Props ${entryApp?.name ?? "the app"} was not offering are left out.${entry.some((l) => l.source === "books") ? ` A leg marked "books' line" is from a game ${possessive(entryApp?.name ?? "the app")} lines did not come through for: check its line on your screen before playing it.` : ""} Lines move: if one on your screen differs, check it in the table below.`
                         : `Lines are the books' own, which PrizePicks, Underdog, Sleeper and Real almost always post: if a line in your app differs, check it in the table below before playing it.`}{" "}
                       Standard picks only; a goblin or demon changes the payout. Legs are treated as independent.
                     </p>

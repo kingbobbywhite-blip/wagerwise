@@ -197,10 +197,14 @@ function multiplierOf(o: ProplineOutcome): number | null {
 export function normalizeProplineEvent(
   event: ProplineEventOdds,
   sport?: Sport,
-  opts: { minLiquidity?: number } = {},
+  opts: { minLiquidity?: number; now?: number } = {},
 ): ProplineNormalizeResult {
   const inSport = sport ?? sportOfFeedKey(event.sport_key)
   const minLiquidity = opts.minLiquidity ?? MIN_EXCHANGE_LIQUIDITY
+  // A pick'em app stops taking picks on a game once it starts, and what it
+  // leaves behind is the pregame line. Built into an entry against live
+  // sportsbook prices, that stale number reads as a near-certain hit.
+  const started = Date.parse(event.commence_time) <= (opts.now ?? Date.now())
   const gameId = `${event.away_team}@${event.home_team}`
   const dropped: NormalizeResult["dropped"] = []
   const books: FeedBookmaker[] = []
@@ -208,9 +212,17 @@ export function normalizeProplineEvent(
 
   for (const book of event.bookmakers ?? []) {
     if (isPickemBook(book)) {
+      if (started || book.pregame_only) {
+        dropped.push({ reason: "pick'em lines closed: the game has started", detail: book.key })
+        continue
+      }
       for (const market of book.markets ?? []) {
         const mapped = marketFor(market.key, inSport)
         if (!mapped) continue
+        if (market.suspended_at) {
+          dropped.push({ reason: "pick'em line pulled by the app", detail: `${book.key} ${market.key}` })
+          continue
+        }
         for (const o of market.outcomes ?? []) {
           const player = cleanPlayerName(o.description)
           const side = PICKEM_SIDES[(o.name ?? "").trim().toLowerCase()]
@@ -284,7 +296,7 @@ export function normalizeProplineEvent(
 export function normalizeProplineMany(
   events: ProplineEventOdds[],
   sport?: Sport,
-  opts?: { minLiquidity?: number },
+  opts?: { minLiquidity?: number; now?: number },
 ): ProplineNormalizeResult {
   const all: ProplineNormalizeResult = { quotes: [], unknownMarkets: [], dropped: [], pickemLines: [] }
   const unknown = new Set<string>()
@@ -297,6 +309,35 @@ export function normalizeProplineMany(
   }
   all.unknownMarkets = Array.from(unknown)
   return all
+}
+
+// ---------------------------------------------------------------------------
+// Matching games across feeds
+// ---------------------------------------------------------------------------
+
+/**
+ * "Minnesota Timberwolves" to "timberwolves". The nickname is unique within a
+ * league and survives the differences between feeds ("LA Clippers" against
+ * "Los Angeles Clippers"), where the full name does not.
+ */
+export function teamNickname(name: string): string {
+  const words = normalizeName(name).split(" ").filter(Boolean)
+  return words[words.length - 1] ?? ""
+}
+
+type GameRef = { home_team: string; away_team: string; commence_time: string }
+
+/**
+ * The same game in two feeds: the same two teams, home and away, starting
+ * within twelve hours of each other, which tells tonight's game apart from a
+ * rematch later in the week.
+ */
+export function sameGame(a: GameRef, b: GameRef): boolean {
+  if (teamNickname(a.home_team) !== teamNickname(b.home_team)) return false
+  if (teamNickname(a.away_team) !== teamNickname(b.away_team)) return false
+  const ta = Date.parse(a.commence_time)
+  const tb = Date.parse(b.commence_time)
+  return Number.isFinite(ta) && Number.isFinite(tb) && Math.abs(ta - tb) <= 12 * 3600 * 1000
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +407,21 @@ export async function proplineErrorText(res: Response): Promise<string> {
   return `PropLine returned ${res.status}. ${detail}`.trim()
 }
 
+/**
+ * What to tell the user about the pick'em lines of a pull. A failed request is
+ * named before anything else: when the daily limit runs out mid-pull, "the apps
+ * have not posted yet" would send someone to wait for lines that are coming.
+ */
+export function pickemNoteFor(lineCount: number, failures: { error: string }[]): string | null {
+  if (failures.length > 0) {
+    return `Pick'em lines for ${failures.length} game${failures.length === 1 ? "" : "s"} could not be read: ${failures[0].error}`
+  }
+  if (lineCount === 0) {
+    return "PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start."
+  }
+  return null
+}
+
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 
 export interface ProplinePull {
@@ -373,6 +429,8 @@ export interface ProplinePull {
   inWindow: FeedEvent[]
   /** The games actually priced, after the cap. */
   selected: FeedEvent[]
+  /** Games wanted (in the window, and in eventIds when given) but left out by the cap. */
+  cappedOut: number
   /** Earliest game after the window, for "next game is Tuesday". */
   nextEvent: FeedEvent | null
   payloads: ProplineEventOdds[]
@@ -397,6 +455,12 @@ export async function pullPropline(opts: {
   maxGames: number
   /** Only these games, by PropLine event id. */
   eventIds?: string[]
+  /**
+   * Only these games, as another feed listed them, matched on teams and start
+   * time. Used when The Odds API priced the slate, so the pick'em lines cover
+   * exactly the games that were priced rather than PropLine's own pick of them.
+   */
+  games?: GameRef[]
   /** Return after the listing, without pulling odds. */
   eventsOnly?: boolean
   fetcher?: Fetcher
@@ -426,7 +490,13 @@ export async function pullPropline(opts: {
     events
       .filter((e) => Date.parse(e.commence_time) > opts.toMs)
       .sort((a, b) => a.commence_time.localeCompare(b.commence_time))[0] ?? null
-  const chosen = opts.eventIds?.length ? inWindow.filter((e) => opts.eventIds!.includes(e.id)) : inWindow
+  const chosen = opts.games
+    ? events
+        .filter((e) => opts.games!.some((g) => sameGame(e, g)))
+        .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
+    : opts.eventIds?.length
+      ? inWindow.filter((e) => opts.eventIds!.includes(e.id))
+      : inWindow
   const selected = chosen.slice(0, Math.max(1, opts.maxGames))
 
   const payloads: ProplineEventOdds[] = []
@@ -456,5 +526,5 @@ export async function pullPropline(opts: {
     }
   }
 
-  return { inWindow, selected, nextEvent, payloads, failures, quota, requests }
+  return { inWindow, selected, cappedOut: chosen.length - selected.length, nextEvent, payloads, failures, quota, requests }
 }
