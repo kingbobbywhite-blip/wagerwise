@@ -3,6 +3,7 @@ import { estimateCredits, eventOddsUrl, eventsUrl, marketsForLeague, normalizeMa
 import {
   PICKEM_BOOKS,
   normalizeProplineMany,
+  pickemNoteFor,
   pullPropline,
   resolveProplineKey,
   type PickemLine,
@@ -221,7 +222,7 @@ export async function POST(request: Request) {
     // and never costs the prices already pulled.
     const pickem =
       body.pickemLines && proplineKey
-        ? await pickemFromPropline({ apiKey: proplineKey, leagueId, markets, maxGames, fromMs, toMs })
+        ? await pickemFromPropline({ apiKey: proplineKey, leagueId, markets, maxGames, fromMs, toMs, games: selected })
         : { lines: [] as PickemLine[], note: null, remaining: null }
 
     return NextResponse.json({
@@ -268,7 +269,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
     // Every book: PropLine bills per request, not per book, so narrowing the
     // list saves nothing and loses prices.
     const pull = await pullPropline({ ...args, league: args.leagueId })
-    const cappedOut = Math.max(0, pull.inWindow.length - pull.selected.length)
+    const cappedOut = pull.cappedOut
     const base = {
       league: args.leagueId,
       provider: "propline" as const,
@@ -306,10 +307,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       events: pull.selected,
       quotes: normalized.quotes,
       pickemLines: normalized.pickemLines,
-      pickemNote:
-        normalized.pickemLines.length === 0
-          ? "PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start."
-          : null,
+      pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures),
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures: pull.failures,
@@ -324,20 +322,23 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
   }
 }
 
-/** Only the pick'em apps' lines, from PropLine, to sit beside The Odds API's prices. */
+/**
+ * Only the pick'em apps' lines, from PropLine, to sit beside The Odds API's
+ * prices, for exactly the games The Odds API priced.
+ */
 async function pickemFromPropline(
-  args: PullArgs,
+  args: PullArgs & { games: FeedEvent[] },
 ): Promise<{ lines: PickemLine[]; note: string | null; remaining: number | null }> {
   const league = leagueFor(args.leagueId)
   try {
     const pull = await pullPropline({ ...args, league: args.leagueId, bookmakers: PICKEM_BOOKS })
     const lines = normalizeProplineMany(pull.payloads, league.sport).pickemLines
+    const unlisted = args.games.length - pull.selected.length
     const note =
-      lines.length === 0
-        ? "PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start."
-        : pull.failures.length > 0
-          ? `Pick'em lines for ${pull.failures.length} game${pull.failures.length === 1 ? "" : "s"} could not be read: ${pull.failures[0].error}`
-          : null
+      pickemNoteFor(lines.length, pull.failures) ??
+      (unlisted > 0
+        ? `PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`
+        : null)
     return { lines, note, remaining: pull.quota?.remaining ?? null }
   } catch (err) {
     return {
