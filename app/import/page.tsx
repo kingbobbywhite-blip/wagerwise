@@ -197,6 +197,8 @@ export default function ImportPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           apiKey: state.settings.oddsFeed.apiKey || undefined,
+          provider: state.settings.oddsFeed.provider,
+          proplineKey: state.settings.oddsFeed.proplineKey || undefined,
           league,
           from: startOfToday().toISOString(),
           to: endOfSlate().toISOString(),

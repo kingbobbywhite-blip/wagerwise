@@ -305,3 +305,115 @@ describe("a pick'em entry to play", () => {
     expect(buildPickemEntry([t("A", "g1", 0.7), t("B", "g2", 0.52)], 2, 0.577)).toBeNull()
   })
 })
+
+import { appPlay, hasAppLines, type AppLine } from "@/lib/today/build"
+import type { PickemLine } from "@/lib/odds-feed/propline"
+
+describe("pick'em lines from the apps", () => {
+  const pp = (player: string, line: number, extra: Partial<PickemLine> = {}): PickemLine => ({
+    app: "prizepicks",
+    player,
+    playerKey: player.toLowerCase(),
+    market: "PTS",
+    gameId: "MIN@OKC",
+    line,
+    pickType: "standard",
+    over: { multiplier: null },
+    under: { multiplier: null },
+    fetchedAt: null,
+    ...extra,
+  })
+
+  // Pinnacle and BetOnline both hang 25.5 with the over juiced: a projection above 25.5.
+  const quotes = [
+    q("Anthony Edwards", "PTS", "pinnacle", 25.5, -135, 115),
+    q("Anthony Edwards", "PTS", "betonlineag", 25.5, -140, 118),
+  ]
+
+  it("prices each app line off the books' distribution, not the app", () => {
+    const [t] = buildDfsTargets(quotes, {
+      ...OPTS,
+      pickemLines: [pp("Anthony Edwards", 23.5), pp("Anthony Edwards", 29.5, { pickType: "demon", under: null })],
+    })
+    expect(t.appLines).toHaveLength(2)
+    const standard = t.appLines!.find((l) => l.pickType === "standard")!
+    const demon = t.appLines!.find((l) => l.pickType === "demon")!
+    // Two points below the books' line, the over is likelier than at the books' line.
+    const atBooks = t.ladder.find((r) => r.line === 25.5)!.over
+    expect(standard.over).toBeGreaterThan(atBooks)
+    expect(standard.over + standard.under).toBeCloseTo(1, 9)
+    expect(demon.over).toBeLessThan(atBooks)
+    expect(demon.underOffered).toBe(false)
+  })
+
+  it("matches lines on player and market even when the game is spelled differently", () => {
+    const [t] = buildDfsTargets(quotes, { ...OPTS, pickemLines: [pp("Anthony Edwards", 24.5, { gameId: "Wolves@Thunder" })] })
+    expect(t.appLines).toHaveLength(1)
+  })
+
+  it("never matches another market or player", () => {
+    const [t] = buildDfsTargets(quotes, {
+      ...OPTS,
+      pickemLines: [pp("Anthony Edwards", 6.5, { market: "REB" }), pp("Rudy Gobert", 12.5)],
+    })
+    expect(t.appLines).toEqual([])
+  })
+
+  const line = (over: number, extra: Partial<AppLine> = {}): AppLine => ({
+    app: "prizepicks",
+    line: 24.5,
+    pickType: "standard",
+    over,
+    under: 1 - over,
+    push: 0,
+    overMultiplier: null,
+    underMultiplier: null,
+    overOffered: true,
+    underOffered: true,
+    ...extra,
+  })
+
+  it("plays the likelier side of the app's standard line", () => {
+    expect(appPlay({ appLines: [line(0.62)] }, "prizepicks")).toEqual({ line: 24.5, side: "OVER", prob: 0.62 })
+    expect(appPlay({ appLines: [line(0.3)] }, "prizepicks")).toEqual({ line: 24.5, side: "UNDER", prob: 0.7 })
+  })
+
+  it("never plays a goblin, a demon, a boosted side, or another app's line", () => {
+    expect(appPlay({ appLines: [line(0.8, { pickType: "goblin" })] }, "prizepicks")).toBeNull()
+    expect(appPlay({ appLines: [line(0.8, { app: "underdog" })] }, "prizepicks")).toBeNull()
+    // Underdog discounts the over: only the under is a standard pick.
+    expect(appPlay({ appLines: [line(0.8, { app: "underdog", overMultiplier: 0.85 })] }, "underdog")).toEqual({
+      line: 24.5,
+      side: "UNDER",
+      prob: expect.closeTo(0.2, 9),
+    })
+  })
+
+  const target = (player: string, gameId: string, marketProb: number, appLines?: AppLine[]): DfsTarget =>
+    ({ key: player, player, gameId, marketProb, marketSide: "OVER", marketLine: 24.5, marketLabel: "Points", appLines }) as DfsTarget
+
+  it("builds the entry at the app's real lines and leaves out props it is not offering", () => {
+    const targets = [
+      target("A", "g1", 0.7, [line(0.58, { line: 26.5 })]),
+      target("B", "g2", 0.68),
+      target("C", "g3", 0.6, [line(0.64, { line: 22.5 })]),
+    ]
+    expect(hasAppLines(targets, "prizepicks")).toBe(true)
+    const entry = buildPickemEntry(targets, 2, 0.55, 2, "prizepicks")!
+    expect(entry.map((l) => [l.target.player, l.line, l.source])).toEqual([
+      ["C", 22.5, "app"],
+      ["A", 26.5, "app"],
+    ])
+  })
+
+  it("re-checks the bar at the app's line, which can be harder than the books'", () => {
+    const targets = [target("A", "g1", 0.7, [line(0.52)]), target("C", "g3", 0.66, [line(0.6)])]
+    expect(buildPickemEntry(targets, 2, 0.55, 2, "prizepicks")).toBeNull()
+  })
+
+  it("falls back to the books' line when the pull had nothing from that app", () => {
+    const entry = buildPickemEntry([target("A", "g1", 0.7), target("B", "g2", 0.68)], 2, 0.55, 2, "prizepicks")!
+    expect(entry.every((l) => l.source === "books" && l.line === 24.5)).toBe(true)
+    expect(hasAppLines([target("A", "g1", 0.7)], "prizepicks")).toBe(false)
+  })
+})

@@ -24,3 +24,8 @@ export function shortDate(iso: string): string {
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
 }
+
+/** "PrizePicks'" and "Underdog Fantasy's": names ending in s take a bare apostrophe. */
+export function possessive(name: string): string {
+  return /s$/i.test(name) ? `${name}'` : `${name}'s`
+}

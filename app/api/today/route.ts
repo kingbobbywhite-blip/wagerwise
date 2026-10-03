@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server"
 import { estimateCredits, eventOddsUrl, eventsUrl, marketsForLeague, normalizeMany } from "@/lib/odds-feed/theoddsapi"
+import {
+  PICKEM_BOOKS,
+  normalizeProplineMany,
+  pullPropline,
+  resolveProplineKey,
+  type PickemLine,
+} from "@/lib/odds-feed/propline"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
-import { DEFAULT_LEAGUE, creditWarning, inSeason, isLeagueId, leagueFor } from "@/lib/leagues"
+import { DEFAULT_LEAGUE, LEAGUE_IDS, creditWarning, inSeason, isLeagueId, leagueFor, type LeagueId } from "@/lib/leagues"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -18,10 +25,20 @@ export const dynamic = "force-dynamic"
  * every game will empty a monthly quota in a handful of refreshes. The defaults
  * are four markets, and the response reports what the call cost and what is
  * left.
+ *
+ * Two feeds can price the slate. The Odds API bills per market per game against
+ * a monthly quota. PropLine bills per request against a daily one, and its
+ * payload also carries the pick'em apps' own lines, which are split out and
+ * returned separately: they say what the apps offer, never what a pick is worth.
  */
 
 interface RequestBody {
   apiKey?: string
+  /** "theoddsapi" (default) or "propline": which feed prices the slate. */
+  provider?: string
+  proplineKey?: string
+  /** Also pull the pick'em apps' lines from PropLine when The Odds API prices the slate. */
+  pickemLines?: boolean
   /** Which league to pull. Defaults to the NBA. */
   league?: string
   /** ISO instant for the start of the caller's local day. */
@@ -67,21 +84,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Request body was not valid JSON." }, { status: 400 })
   }
 
+  if (body.league != null && !isLeagueId(body.league)) {
+    return NextResponse.json(
+      { error: `Unsupported league "${body.league}". Supported: ${LEAGUE_IDS.join(", ")}.` },
+      { status: 400 },
+    )
+  }
+
+  const provider = body.provider === "propline" ? "propline" : "theoddsapi"
+  const proplineKey = resolveProplineKey(body.proplineKey)
   const apiKey = resolveKey(body)
-  if (!apiKey) {
+
+  if (provider === "propline" && !proplineKey) {
+    return NextResponse.json(
+      {
+        error:
+          "No PropLine key. Add one in Settings, or set PROPLINE_API_KEY in a .env.local file, or switch the provider back to The Odds API.",
+        needsKey: true,
+      },
+      { status: 400 },
+    )
+  }
+  if (provider === "theoddsapi" && !apiKey) {
     return NextResponse.json(
       {
         error:
           "No odds API key. Add one in Settings, or set ODDS_API_KEY in a .env.local file. Without a sportsbook price there is nothing to compare a line against, so the app will not guess.",
         needsKey: true,
       },
-      { status: 400 },
-    )
-  }
-
-  if (body.league != null && !isLeagueId(body.league)) {
-    return NextResponse.json(
-      { error: `Unsupported league "${body.league}". Supported: nba, wnba, nfl.` },
       { status: 400 },
     )
   }
@@ -101,9 +131,13 @@ export async function POST(request: Request) {
   const fromMs = body.from ? Date.parse(body.from) : Date.now()
   const toMs = body.to ? Date.parse(body.to) : fromMs + 30 * 3600 * 1000
 
+  if (provider === "propline") {
+    return fromPropline({ apiKey: proplineKey!, leagueId, markets, maxGames, fromMs, toMs, eventsOnly: !!body.eventsOnly })
+  }
+
   try {
     // The events listing is free, so the game list never costs a credit.
-    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey, leagueId))
+    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey!, leagueId))
     const todays = events.data
       .filter((e) => {
         const t = Date.parse(e.commence_time)
@@ -121,6 +155,7 @@ export async function POST(request: Request) {
     if (body.eventsOnly) {
       return NextResponse.json({
         league: leagueId,
+        provider,
         events: todays,
         selected: selected.length,
         cappedOut,
@@ -146,6 +181,7 @@ export async function POST(request: Request) {
         .sort((a, b) => a.commence_time.localeCompare(b.commence_time))[0]
       return NextResponse.json({
         league: leagueId,
+        provider,
         events: [],
         quotes: [],
         estimatedCredits: 0,
@@ -166,7 +202,7 @@ export async function POST(request: Request) {
 
     for (const e of selected) {
       try {
-        const r = await fetchJson<FeedEventOdds>(eventOddsUrl(apiKey, e.id, { markets, regions, bookmakers, league: leagueId }))
+        const r = await fetchJson<FeedEventOdds>(eventOddsUrl(apiKey!, e.id, { markets, regions, bookmakers, league: leagueId }))
         payloads.push(r.data)
         if (r.remaining != null) remaining = r.remaining
         if (r.used != null) used = r.used
@@ -181,10 +217,21 @@ export async function POST(request: Request) {
 
     const normalized = normalizeMany(payloads, league.sport)
 
+    // The pick'em lines are a bonus on this path: a failure there is reported
+    // and never costs the prices already pulled.
+    const pickem =
+      body.pickemLines && proplineKey
+        ? await pickemFromPropline({ apiKey: proplineKey, leagueId, markets, maxGames, fromMs, toMs })
+        : { lines: [] as PickemLine[], note: null, remaining: null }
+
     return NextResponse.json({
       league: leagueId,
+      provider,
       events: selected,
       quotes: normalized.quotes,
+      pickemLines: pickem.lines,
+      pickemNote: pickem.note,
+      proplineRemaining: pickem.remaining,
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures,
@@ -202,5 +249,101 @@ export async function POST(request: Request) {
       { error: err instanceof Error ? err.message : "Could not reach the odds feed." },
       { status: 502 },
     )
+  }
+}
+
+interface PullArgs {
+  apiKey: string
+  leagueId: LeagueId
+  markets: string[]
+  maxGames: number
+  fromMs: number
+  toMs: number
+}
+
+/** The whole slate from PropLine: prices and pick'em lines in the same requests. */
+async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
+  const league = leagueFor(args.leagueId)
+  try {
+    // Every book: PropLine bills per request, not per book, so narrowing the
+    // list saves nothing and loses prices.
+    const pull = await pullPropline({ ...args, league: args.leagueId })
+    const cappedOut = Math.max(0, pull.inWindow.length - pull.selected.length)
+    const base = {
+      league: args.leagueId,
+      provider: "propline" as const,
+      // The Odds API's monthly credits are untouched; PropLine counts requests per day.
+      estimatedCredits: 0,
+      proplineRequests: pull.requests,
+      requestsRemaining: pull.quota?.remaining ?? null,
+      requestsUsed: pull.quota?.used ?? null,
+      quotaPeriod: "day" as const,
+      inSeason: inSeason(args.leagueId),
+    }
+
+    if (args.eventsOnly) {
+      return NextResponse.json({ ...base, events: pull.inWindow, selected: pull.selected.length, cappedOut })
+    }
+
+    if (pull.selected.length === 0) {
+      const note = inSeason(args.leagueId)
+        ? `No ${league.label} games tip in this window.`
+        : `No ${league.label} games tip in this window, and ${league.label} is out of season right now, so an empty slate is expected rather than a fault.`
+      const next = pull.nextEvent
+      return NextResponse.json({
+        ...base,
+        events: [],
+        quotes: [],
+        pickemLines: [],
+        nextEvent: next ? { commence_time: next.commence_time, home_team: next.home_team, away_team: next.away_team } : null,
+        note,
+      })
+    }
+
+    const normalized = normalizeProplineMany(pull.payloads, league.sport)
+    return NextResponse.json({
+      ...base,
+      events: pull.selected,
+      quotes: normalized.quotes,
+      pickemLines: normalized.pickemLines,
+      pickemNote:
+        normalized.pickemLines.length === 0
+          ? "PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start."
+          : null,
+      unknownMarkets: normalized.unknownMarkets,
+      droppedCount: normalized.dropped.length,
+      failures: pull.failures,
+      cappedOut,
+      fetchedAt: new Date().toISOString(),
+    })
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Could not reach PropLine." },
+      { status: 502 },
+    )
+  }
+}
+
+/** Only the pick'em apps' lines, from PropLine, to sit beside The Odds API's prices. */
+async function pickemFromPropline(
+  args: PullArgs,
+): Promise<{ lines: PickemLine[]; note: string | null; remaining: number | null }> {
+  const league = leagueFor(args.leagueId)
+  try {
+    const pull = await pullPropline({ ...args, league: args.leagueId, bookmakers: PICKEM_BOOKS })
+    const lines = normalizeProplineMany(pull.payloads, league.sport).pickemLines
+    const note =
+      lines.length === 0
+        ? "PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start."
+        : pull.failures.length > 0
+          ? `Pick'em lines for ${pull.failures.length} game${pull.failures.length === 1 ? "" : "s"} could not be read: ${pull.failures[0].error}`
+          : null
+    return { lines, note, remaining: pull.quota?.remaining ?? null }
+  } catch (err) {
+    return {
+      lines: [],
+      note: `Pick'em lines unavailable: ${err instanceof Error ? err.message : String(err)}`,
+      remaining: null,
+    }
   }
 }

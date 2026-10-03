@@ -36,6 +36,13 @@ Five things:
 
 Everything runs in your browser. No account, no database, no telemetry.
 
+**Two feeds can price the slate.** [The Odds API](https://the-odds-api.com) carries Pinnacle's
+player props and bills per market per game against 500 credits a month.
+[PropLine](https://prop-line.com) bills per request against 1,000 a day and also carries the
+lines **PrizePicks and Underdog are actually posting**. Pick the provider under Settings → Odds
+feed. A PropLine key also works alongside The Odds API: Pinnacle prices the props, PropLine
+supplies the pick'em apps' lines, and the pick'em entry is built at the line your app shows.
+
 ## Running it
 
 ```bash
@@ -100,8 +107,18 @@ You can paste it into Settings instead if you prefer; the environment variable t
 precedence. Without a working key the app has no prices, and it will say so rather than
 invent an edge.
 
+Optionally add a [PropLine](https://prop-line.com) key (free, 1,000 requests a day) to read the
+pick'em apps' own lines, or to price the whole slate from PropLine instead:
+
 ```bash
-npm test         # 431 unit tests over the probability engine and screenshot reading
+echo "PROPLINE_API_KEY=paste_your_propline_key_here" >> .env.local
+```
+
+The same caution about public deployments applies: leave `PROPLINE_API_KEY` unset on an
+unprotected URL and enter the key in Settings instead.
+
+```bash
+npm test         # 464 unit tests over the probability engine, the feeds and screenshot reading
 npm run lint
 npm run build
 ```
@@ -121,14 +138,18 @@ stake sized by fractional Kelly.
 and only within a single book, because a leg at DraftKings cannot be combined with a leg
 at FanDuel onto one ticket. Correlation between legs is priced rather than ignored.
 
-**Pick'em entry.** The likeliest targets that clear the bar, at the books' own line, which the
-pick'em apps almost always post: one leg per player, at most two per game, with the chance
-they all hit and the expected return at your default app's payout table. If too few clear,
-it says so rather than padding the entry with coin flips.
+**Pick'em entry.** The likeliest targets that clear the bar: one leg per player, at most two
+per game, with the chance they all hit and the expected return at your default app's payout
+table. With a PropLine key the legs are at the line your default app is actually posting, and
+a prop it is not offering is left out; without one they are at the books' own line, which the
+pick'em apps almost always copy. If too few clear, it says so rather than padding the entry
+with coin flips.
 
-**Pick'em targets.** Nothing here can see what PrizePicks or Underdog are offering, so
-type in the line your app shows for a player and you get one answer: the over, the under,
-or pass. Never both. Value bets likewise show one side per player and stat: an over at one
+**Pick'em targets.** With a PropLine key, the lines PrizePicks and Underdog are posting are
+listed under each player with the chance of each side, priced off the sportsbooks, and your
+default app's line is filled in. Without one, nothing here can see what the apps are offering,
+so type in the line your app shows. Either way you get one answer: the over, the under, or
+pass. Never both. Value bets likewise show one side per player and stat: an over at one
 book and an under at another is a middle, not two picks, and on a pick'em app one of the
 two always loses.
 

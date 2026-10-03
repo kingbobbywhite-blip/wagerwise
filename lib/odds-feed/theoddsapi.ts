@@ -69,6 +69,9 @@ export const DEFAULT_FEED_MARKETS = Object.keys(FEED_MARKET_MAP)
 export const HOCKEY_FEED_MARKET_MAP: Record<string, MarketKey> = {
   player_shots_on_goal: "SOG",
   player_total_saves: "SAVES",
+  // PropLine's key for the same market. Listed after the Odds API key so
+  // feedKeyFor("SAVES") still answers with the one that feed understands.
+  goalie_saves: "SAVES",
   player_points: "HKY_PTS",
   player_assists: "HKY_AST",
   player_goals: "HKY_GOALS",
