@@ -124,34 +124,6 @@ export const DEFAULT_APPS: BookApp[] = [
     ],
   },
   {
-    id: "dabble",
-    name: "Dabble",
-    kind: "dfs",
-    verifiedOn: "unverified",
-    notes: "Structure mirrors the standard pick'em template. Verify the live table before sizing anything.",
-    modes: [
-      { id: "power", label: "Power", blurb: "Every pick must hit.", table: allOrNothing([[2, 3], [3, 5], [4, 10], [5, 20]]) },
-      {
-        id: "flex", label: "Flex", blurb: "Partial hits pay.",
-        table: { 3: { 3: 2.25, 2: 1.25 }, 4: { 4: 5, 3: 1.5 }, 5: { 5: 10, 4: 2, 3: 0.4 } },
-      },
-    ],
-  },
-  {
-    id: "chalkboard",
-    name: "Chalkboard",
-    kind: "dfs",
-    verifiedOn: "unverified",
-    notes: "Structure mirrors the standard pick'em template. Verify the live table before sizing anything.",
-    modes: [
-      { id: "power", label: "Power", blurb: "Every pick must hit.", table: allOrNothing([[2, 3], [3, 5], [4, 10], [5, 20], [6, 35]]) },
-      {
-        id: "flex", label: "Flex", blurb: "Partial hits pay.",
-        table: { 3: { 3: 2.25, 2: 1.25 }, 4: { 4: 5, 3: 1.5 }, 5: { 5: 10, 4: 2, 3: 0.4 } },
-      },
-    ],
-  },
-  {
     id: "winible",
     name: "Winible",
     kind: "dfs",

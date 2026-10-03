@@ -48,9 +48,17 @@ export interface OddsFeedSettings {
 export const DEFAULT_ODDS_FEED: OddsFeedSettings = {
   apiKey: "",
   books: ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel"],
-  bettable: ["fanduel", "draftkings", "betmgm", "williamhill_us", "espnbet"],
+  // FanDuel is the only sportsbook in the rotation. The rest of the list
+  // above prices the market; nothing is ever recommended there.
+  bettable: ["fanduel"],
   regions: "us,us2,eu",
 }
+
+/** The bettable list every phone stored before it was narrowed to FanDuel. */
+const OLD_DEFAULT_BETTABLE = ["fanduel", "draftkings", "betmgm", "williamhill_us", "espnbet"]
+
+/** Apps once shipped by default and never used, dropped from stored settings. */
+const RETIRED_APPS = new Set(["dabble", "chalkboard"])
 
 export interface DailySettings {
   /** Which league the Today screen is showing. */
@@ -243,7 +251,7 @@ export function migrate(raw: unknown): AppState {
     settings: {
       bankroll: { ...DEFAULT_BANKROLL, ...(s.bankroll ?? {}) },
       daily: { ...DEFAULT_DAILY, ...(s.daily ?? {}), league: isLeagueId(s.daily?.league) ? s.daily.league : DEFAULT_LEAGUE },
-      oddsFeed: { ...DEFAULT_ODDS_FEED, ...(s.oddsFeed ?? {}) },
+      oddsFeed: migrateOddsFeed(s.oddsFeed),
       projection: {
         ...DEFAULT_PROJECTION_SETTINGS,
         ...(s.projection ?? {}),
@@ -253,7 +261,7 @@ export function migrate(raw: unknown): AppState {
       },
       correlation: { ...DEFAULT_CORRELATION, ...(s.correlation ?? {}) },
       constraints: { ...DEFAULT_CONSTRAINTS, ...(s.constraints ?? {}) },
-      apps: Array.isArray(s.apps) && s.apps.length > 0 ? s.apps : DEFAULT_APPS,
+      apps: Array.isArray(s.apps) && s.apps.length > 0 ? s.apps.filter((a) => !RETIRED_APPS.has(a.id)) : DEFAULT_APPS,
       defaultAppId: s.defaultAppId ?? DEFAULT_SETTINGS.defaultAppId,
       defaultModeId: s.defaultModeId ?? DEFAULT_SETTINGS.defaultModeId,
     },
@@ -261,6 +269,18 @@ export function migrate(raw: unknown): AppState {
     slips: Array.isArray(o.slips) ? o.slips : [],
     daily: migrateDaily(o.daily),
   }
+}
+
+/**
+ * A bettable list still at the old five-book default was never chosen, so it
+ * moves to the new one. A list someone edited is theirs and is kept.
+ */
+function migrateOddsFeed(stored: Partial<OddsFeedSettings> | undefined): OddsFeedSettings {
+  const merged = { ...DEFAULT_ODDS_FEED, ...(stored ?? {}) }
+  const b = stored?.bettable
+  const untouched =
+    Array.isArray(b) && b.length === OLD_DEFAULT_BETTABLE.length && OLD_DEFAULT_BETTABLE.every((id) => b.includes(id))
+  return untouched ? { ...merged, bettable: DEFAULT_ODDS_FEED.bettable } : merged
 }
 
 /**

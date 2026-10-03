@@ -72,3 +72,25 @@ describe("bettable books", () => {
     expect(DEFAULT_SETTINGS.oddsFeed.bettable.some((b) => offshore.includes(b))).toBe(false)
   })
 })
+
+import { migrate } from "@/lib/store/schema"
+
+describe("the books in the rotation", () => {
+  it("recommends bets at FanDuel only by default; the sharp books stay references", () => {
+    expect(DEFAULT_SETTINGS.oddsFeed.bettable).toEqual(["fanduel"])
+    expect(DEFAULT_SETTINGS.oddsFeed.books).toContain("pinnacle")
+  })
+
+  it("moves a phone still on the old five-book default to FanDuel, and keeps a list someone chose", () => {
+    const old = migrate({ settings: { oddsFeed: { bettable: ["fanduel", "draftkings", "betmgm", "williamhill_us", "espnbet"] } } })
+    expect(old.settings.oddsFeed.bettable).toEqual(["fanduel"])
+    const chosen = migrate({ settings: { oddsFeed: { bettable: ["fanduel", "draftkings"] } } })
+    expect(chosen.settings.oddsFeed.bettable).toEqual(["fanduel", "draftkings"])
+  })
+
+  it("drops Dabble and Chalkboard, which are not in the rotation", () => {
+    expect(DEFAULT_SETTINGS.apps.map((a) => a.id)).toEqual(["prizepicks", "underdog", "sleeper", "winible", "real", "prophetx", "polymarket"])
+    const stored = migrate({ settings: { apps: [...DEFAULT_SETTINGS.apps, { ...DEFAULT_SETTINGS.apps[0], id: "dabble" }] } })
+    expect(stored.settings.apps.some((a) => a.id === "dabble")).toBe(false)
+  })
+})

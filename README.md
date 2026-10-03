@@ -1,8 +1,12 @@
 # WagerWise
 
-A basketball and football tool for deciding which props and parlays are worth betting, built around the
-apps in your rotation: PrizePicks, Underdog, Sleeper, Dabble, Chalkboard, Winible, Real,
-ProphetX and Polymarket.
+A basketball, football and hockey tool for deciding which props and parlays are worth betting, built
+around the apps in your rotation: PrizePicks, Underdog, Sleeper, Real and Winible for pick'em, FanDuel
+as the one sportsbook, and ProphetX and Polymarket.
+
+Sportsbook bets and parlays are only ever recommended at FanDuel. Pinnacle, BetOnline, LowVig,
+DraftKings and the rest are pulled to price the market and never shown as the place to bet.
+Add a book under Settings if you open an account there.
 
 Four leagues: **NBA**, **WNBA**, **NFL** and **NHL**. Pick one with the tabs on
 the Today screen. Each keeps its own cached pull, so switching leagues never throws away a
@@ -97,7 +101,7 @@ precedence. Without a working key the app has no prices, and it will say so rath
 invent an edge.
 
 ```bash
-npm test         # 426 unit tests over the probability engine and screenshot reading
+npm test         # 431 unit tests over the probability engine and screenshot reading
 npm run build
 ```
 
@@ -115,6 +119,11 @@ stake sized by fractional Kelly.
 **Best parlays.** Built only from legs that are individually positive expected value,
 and only within a single book, because a leg at DraftKings cannot be combined with a leg
 at FanDuel onto one ticket. Correlation between legs is priced rather than ignored.
+
+**Pick'em entry.** The likeliest targets that clear the bar, at the books' own line, which the
+pick'em apps almost always post: one leg per player, at most two per game, with the chance
+they all hit and the expected return at your default app's payout table. If too few clear,
+it says so rather than padding the entry with coin flips.
 
 **Pick'em targets.** Nothing here can see what PrizePicks or Underdog are offering, so
 type in the line your app shows for a player and you get one answer: the over, the under,
