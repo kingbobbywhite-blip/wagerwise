@@ -25,7 +25,7 @@ type SortKey = "prob" | "edge" | "shop" | "confidence" | "player"
 
 export default function BoardPage() {
   const { state, ready } = useStore()
-  const { rows, unpriceable } = useDerivedSlate()
+  const { rows } = useDerivedSlate()
 
   const [query, setQuery] = React.useState("")
   const [market, setMarket] = React.useState("ALL")
@@ -353,11 +353,4 @@ export default function BoardPage() {
       </div>
     </TooltipProvider>
   )
-}
-
-function median(xs: number[]): number {
-  if (xs.length === 0) return 0
-  const s = [...xs].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return Math.round(s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2)
 }

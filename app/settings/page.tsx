@@ -18,7 +18,7 @@ import { useStore } from "@/lib/store/provider"
 import { leagueFor } from "@/lib/leagues"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { DEFAULT_SETTINGS } from "@/lib/store/schema"
-import { money, pct } from "@/lib/format"
+import { money } from "@/lib/format"
 
 export default function SettingsPage() {
   const { state, setSettings, replaceAll, saveError, ready } = useStore()

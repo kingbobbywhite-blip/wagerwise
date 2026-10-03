@@ -47,6 +47,8 @@ export default function BuildPage() {
 
   React.useEffect(() => {
     if (mode) setCaptured(capturedFromMode(mode, c.picks))
+    // Re-seed only when a different mode is selected, not whenever its object is rebuilt.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode?.id, state.settings.defaultAppId, c.picks])
 
   const captureValid = validateCapture(captured).length === 0
