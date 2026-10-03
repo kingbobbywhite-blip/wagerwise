@@ -68,18 +68,36 @@ are reported rather than guessed.
 ## 4. The daily picks are sportsbook bets, not pick'em picks
 
 The automatic flow finds mispriced offers **on sportsbooks**, because that is the only
-place prices can be read from. It cannot tell you what to play on PrizePicks, because it
-cannot see PrizePicks.
+place prices can be read from. Without a PropLine key it cannot see PrizePicks at all.
 
-The pick'em targets are the bridge: a number to check against your own screen. That is a
-real answer, but it is not the same as the app placing the pick for you, and no amount of
-engineering makes it one without either scraping their board or you typing it in.
+The pick'em targets are the bridge: a number to check against your own screen. With a
+PropLine key, the lines PrizePicks and Underdog are posting are read through PropLine's
+licensed feed (nothing is scraped) and the entry is built at those lines. That narrows the
+gap but does not close it:
+
+- The lines are as fresh as the last pull. A line that moved after it is not the line on
+  your screen; the app fills in what it read, and you can overwrite it.
+- Only standard picks go into the entry. Goblins, demons and Underdog's boosted or
+  discounted sides are listed with their chances but need their own bar, which the app does
+  not compute.
+- What PrizePicks posts says nothing about what a pick is worth. PropLine serves PrizePicks
+  at a synthetic even-money price, and every such row is kept out of the pricing.
+- Coverage is PropLine's. A player the feed has not mapped, or an app it does not carry
+  (Sleeper, Real, Winible), falls back to the books' line.
 
 ## 5. The odds feed costs money and burns quota fast
 
-Player props are billed per market per event. Fourteen markets across a twelve-game slate is
-168 credits for one refresh. Narrow the market list to what is on your board, narrow the book
-list to the ones that carry weight, and expect to re-pull before tip rather than continuously.
+Player props on The Odds API are billed per market per event. Fourteen markets across a
+twelve-game slate is 168 credits for one refresh. Narrow the market list to what is on your
+board, narrow the book list to the ones that carry weight, and expect to re-pull before tip
+rather than continuously.
+
+PropLine bills per request instead: one for the game list and one per game, whatever the
+markets, against 1,000 a day free. The trade is the reference price. PropLine's Pinnacle feed
+carries no basketball or football player props (NHL goalie saves only), so with PropLine
+pricing the slate the sharp reference is BetOnline or LowVig, and a prop neither of them posts
+is left unpriced while "require a sharp book" is on. Pinnacle via The Odds API, with PropLine
+supplying only the pick'em lines, keeps the stronger reference.
 
 If the feed fails, props stay unpriced and the optimizer refuses to build. That is the
 intended behaviour, not a bug.
@@ -122,7 +140,10 @@ regularly.
 ## 12. Exchange and prediction-market support is partial
 
 ProphetX and Polymarket are modelled in the payout registry, and their prices can be imported
-and shown on the board, but the build screen optimises DFS pick'em entries only.
+and shown on the board, but the build screen optimises DFS pick'em entries only. A PropLine
+pull carries their prop prices too, and either can be ticked as a place to bet under
+Settings. Exchange offers with less than $25 behind them are dropped as not bettable, and
+exchanges never count as a sharp reference.
 
 ## 13. The odds feed does not say which team a player is on
 

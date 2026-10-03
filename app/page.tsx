@@ -15,14 +15,15 @@ import { Tooltip, TooltipProvider } from "@/components/ui/tooltip"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
 import { formatAmerican } from "@/lib/quant/odds"
-import { breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
+import { DEFAULT_APPS, breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import { buildDailyPicks, buildPickemEntry } from "@/lib/today/build"
+import { buildDailyPicks, buildPickemEntry, hasAppLines } from "@/lib/today/build"
 import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
+import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
 import { useStore } from "@/lib/store/provider"
 import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
-import { money, pct, shortDate, signedPct } from "@/lib/format"
+import { money, pct, possessive, shortDate, signedPct } from "@/lib/format"
 
 /** "Minnesota Lynx at New York Liberty, Tue, Sep 29, 8:00 PM" in the viewer's own timezone. */
 function nextGameText(e: { commence_time: string; home_team: string; away_team: string }): string {
@@ -36,6 +37,11 @@ function nextGameText(e: { commence_time: string; home_team: string; away_team: 
   return `${e.away_team} at ${e.home_team}, ${when}`
 }
 
+/** "prizepicks" to "PrizePicks", for the pick'em apps PropLine carries. */
+function appName(id: string): string {
+  return findApp(DEFAULT_APPS, id)?.name ?? id
+}
+
 export default function TodayPage() {
   const { state, setDaily, setSettings, ready } = useStore()
   const [busy, setBusy] = React.useState(false)
@@ -43,15 +49,25 @@ export default function TodayPage() {
   const [needsKey, setNeedsKey] = React.useState(false)
 
   const s = state.settings
-  const hasKey = s.oddsFeed.apiKey.trim().length > 0
+  const usePropline = s.oddsFeed.provider === "propline"
+  const hasKey = (usePropline ? s.oddsFeed.proplineKey : s.oddsFeed.apiKey).trim().length > 0
+  // The switch decides whether pick'em lines are used at all. The server
+  // pulls them only when it has a PropLine key, from Settings or the environment.
+  const wantPickem = s.oddsFeed.pickemLines
 
   const leagueId = s.daily.league
   const league = leagueFor(leagueId)
   // Only ever show the cache belonging to the league on screen. Rendering an
   // NBA pull under a WNBA heading would be worse than showing nothing.
   const daily = state.daily[leagueId] ?? null
+  // A PropLine pull carries the lines whatever the switch says; it is honoured here.
+  const pickemLines = wantPickem ? daily?.pickemLines : undefined
   const markets = marketsForLeague(leagueId, s.daily.markets)
-  const cost = creditWarning(leagueId, Math.min(s.daily.maxGames, league.maxGames), markets.length)
+  // Credits are The Odds API's monthly quota. PropLine counts requests per day,
+  // one per game whatever the markets, so a slate is never a quota event there.
+  const cost = usePropline
+    ? { message: null, severe: false }
+    : creditWarning(leagueId, Math.min(s.daily.maxGames, league.maxGames), markets.length)
 
   function selectLeague(next: LeagueId) {
     setSettings((prev) => ({
@@ -88,16 +104,21 @@ export default function TodayPage() {
       dfsBreakEven,
       parlayCount: 4,
       bettableBooks: s.oddsFeed.bettable,
+      pickemLines,
     })
-  }, [daily, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven])
+  }, [daily, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, s.oddsFeed.bettable, dfsBreakEven])
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)
   const entryMode = findMode(entryApp, s.defaultModeId)
   const entry = React.useMemo(
-    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, dfsBreakEven) : null),
-    [picks, s.constraints.picks, dfsBreakEven],
+    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, dfsBreakEven, 2, s.defaultAppId) : null),
+    [picks, s.constraints.picks, dfsBreakEven, s.defaultAppId],
   )
+  // Whether this pull carried the default app's own lines, so the entry and
+  // the targets can say which line they are at.
+  const appLinesLive = !!picks && hasAppLines(picks.dfsTargets, s.defaultAppId)
+  const pickemAppsSeen = Array.from(new Set((pickemLines ?? []).map((l) => l.app)))
   const entryExp = entry && entryMode ? entryExpectation(entry.map((l) => l.prob), entryMode) : null
 
   // Books you bet at that the cached pull has no prices from, usually because
@@ -127,6 +148,9 @@ export default function TodayPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           apiKey: s.oddsFeed.apiKey || undefined,
+          provider: s.oddsFeed.provider,
+          proplineKey: s.oddsFeed.proplineKey || undefined,
+          pickemLines: wantPickem,
           league: leagueId,
           from: start.toISOString(),
           to: end.toISOString(),
@@ -152,6 +176,9 @@ export default function TodayPage() {
         requestsRemaining: data.requestsRemaining ?? null,
         creditsSpent: data.estimatedCredits ?? 0,
         nextEvent: data.nextEvent,
+        provider: data.provider ?? s.oddsFeed.provider,
+        pickemLines: data.pickemLines ?? undefined,
+        pickemNote: data.pickemNote ?? null,
       })
       const n = (data.quotes ?? []).length
       toast.success(
@@ -167,6 +194,9 @@ export default function TodayPage() {
       }
       if (data.failures?.length) {
         toast.warning(`${data.failures.length} games could not be priced`)
+      }
+      if (data.pickemNote && wantPickem) {
+        toast.info(data.pickemNote)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -189,10 +219,14 @@ export default function TodayPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {daily
                   ? `${daily.events.length} ${league.label} games · pulled ${shortDate(daily.fetchedAt)}${
+                      daily.provider === "propline" ? " from PropLine" : ""
+                    }${
                       daily.requestsRemaining != null
-                        ? ` · ${daily.requestsRemaining} feed requests left`
+                        ? daily.provider === "propline"
+                          ? ` · ${daily.requestsRemaining} PropLine requests left today`
+                          : ` · ${daily.requestsRemaining} feed requests left`
                         : ""
-                    }`
+                    }${pickemAppsSeen.length > 0 ? ` · lines from ${pickemAppsSeen.map(appName).join(", ")}` : ""}`
                   : `Pull today's ${league.label} slate and price it.`}
               </p>
             </div>
@@ -263,21 +297,40 @@ export default function TodayPage() {
                   will refuse to guess rather than invent an edge for you.
                 </p>
                 <ol className="mt-3 max-w-2xl list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-muted-foreground">
-                  <li>
-                    Get a free key at{" "}
-                    <a
-                      href="https://the-odds-api.com"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary underline underline-offset-2"
-                    >
-                      the-odds-api.com
-                    </a>
-                    . The free tier is 500 requests a month.
-                  </li>
+                  {usePropline ? (
+                    <li>
+                      Get a free key at{" "}
+                      <a
+                        href="https://prop-line.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline underline-offset-2"
+                      >
+                        prop-line.com
+                      </a>
+                      . The free tier is {PROPLINE_FREE_DAILY.toLocaleString()} requests a day, and it also carries
+                      PrizePicks and Underdog lines.
+                    </li>
+                  ) : (
+                    <li>
+                      Get a free key at{" "}
+                      <a
+                        href="https://the-odds-api.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline underline-offset-2"
+                      >
+                        the-odds-api.com
+                      </a>
+                      . The free tier is 500 requests a month. Or switch the provider to PropLine in Settings: 1,000
+                      requests a day, with the pick&apos;em apps&apos; own lines included.
+                    </li>
+                  )}
                   <li>
                     Paste it into <Link href="/settings" className="text-primary underline underline-offset-2">Settings → Odds feed</Link>,
-                    or put <code className="font-mono">ODDS_API_KEY=…</code> in a <code className="font-mono">.env.local</code> file.
+                    or put{" "}
+                    <code className="font-mono">{usePropline ? "PROPLINE_API_KEY" : "ODDS_API_KEY"}=…</code> in a{" "}
+                    <code className="font-mono">.env.local</code> file.
                   </li>
                   <li>Come back here and press the button.</li>
                 </ol>
@@ -439,19 +492,20 @@ export default function TodayPage() {
                     </ul>
                     <p className="text-[11px] leading-relaxed text-muted-foreground">
                       {entryExp
-                        ? `All ${entry.length} hit ${pct(entryExp.pAllHit, 1)} of the time; at ${entryApp?.name ?? "the app"}'s stored ${entryMode?.label ?? ""} table that is ${signedPct(entryExp.ev)} expected per entry. `
+                        ? `All ${entry.length} hit ${pct(entryExp.pAllHit, 1)} of the time; at ${possessive(entryApp?.name ?? "the app")} stored ${entryMode?.label ?? ""} table that is ${signedPct(entryExp.ev)} expected per entry. `
                         : ""}
-                      One leg per player and at most two per game, so it never holds both sides of a prop. Lines are the
-                      books&apos; own, which PrizePicks, Underdog, Sleeper and Real almost always post: if a line in your
-                      app differs, check it in the table below before playing it. Standard picks only; a goblin or demon
-                      changes the payout. Legs are treated as independent.
+                      One leg per player and at most two per game, so it never holds both sides of a prop.{" "}
+                      {appLinesLive
+                        ? `Lines are ${possessive(entryApp?.name ?? "the app")} own, read through PropLine at ${shortDate(daily!.fetchedAt)}, and each chance is the books' consensus at that exact line. Props ${entryApp?.name ?? "the app"} was not offering are left out. Lines move: if one on your screen differs, check it in the table below.`
+                        : `Lines are the books' own, which PrizePicks, Underdog, Sleeper and Real almost always post: if a line in your app differs, check it in the table below before playing it.`}{" "}
+                      Standard picks only; a goblin or demon changes the payout. Legs are treated as independent.
                     </p>
                   </>
                 ) : (
                   <p className="text-[11px] leading-relaxed text-muted-foreground">
                     Fewer than {s.constraints.picks} props clear the {pct(dfsBreakEven)} bar on this slate, one per
-                    player. Padding the entry with coin flips is the bet the bar exists to stop: play a smaller entry,
-                    or pass.
+                    player{appLinesLive ? `, at the lines ${entryApp?.name ?? "the app"} is actually posting` : ""}.
+                    Padding the entry with coin flips is the bet the bar exists to stop: play a smaller entry, or pass.
                   </p>
                 )}
               </section>
@@ -464,12 +518,15 @@ export default function TodayPage() {
                 </h2>
                 <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
                   Most likely to hit first. Chance is the side the books favour, at the line they hang, which is
-                  the line a pick&apos;em app almost always copies. Nothing here can see what PrizePicks or Underdog
-                  are offering, so if your app shows a different line, type it in and you get one answer: the over,
-                  the under, or pass. Never both: on a pick&apos;em app one
+                  the line a pick&apos;em app almost always copies.{" "}
+                  {pickemAppsSeen.length > 0
+                    ? `The apps' own lines (${pickemAppsSeen.map(appName).join(", ")}) are listed under each player, priced off the same books, and ${appLinesLive ? `${possessive(entryApp?.name ?? "your app")} line is filled in for you` : `${entryApp?.name ?? "your default app"} posted none in this pull, so type its line in`}. `
+                    : "Nothing here can see what PrizePicks or Underdog are offering unless a PropLine key is set in Settings, so if your app shows a different line, type it in. "}
+                  You get one answer: the over, the under, or pass. Never both: on a pick&apos;em app one
                   of the two always loses. The bar is a {pct(dfsBreakEven)} per-leg hit rate, from your default{" "}
                   {s.constraints.picks}-pick entry, for standard picks; a goblin or demon pays differently and needs
                   its own bar.
+                  {wantPickem && daily?.pickemNote ? ` ${daily.pickemNote}` : ""}
                 </p>
                 <div className="overflow-x-auto rounded-lg border border-border/60">
                   <table className="w-full min-w-[760px] border-collapse text-sm">
@@ -486,7 +543,7 @@ export default function TodayPage() {
                     </thead>
                     <tbody>
                       {picks.dfsTargets.slice(0, 30).map((t) => (
-                        <DfsTargetRow key={t.key} t={t} bar={dfsBreakEven} />
+                        <DfsTargetRow key={t.key} t={t} bar={dfsBreakEven} app={s.defaultAppId} />
                       ))}
                     </tbody>
                   </table>
@@ -498,7 +555,7 @@ export default function TodayPage() {
               <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Games</h2>
               <div className="mt-2 flex flex-wrap gap-2">
                 {picks.games.map((g) => (
-                  <Badge key={g.gameId} variant="outline" className="font-mono text-[11px]">
+                  <Badge key={g.gameId} variant="outline" className="max-w-full whitespace-normal font-mono text-[11px]">
                     <CalendarDays className="mr-1 size-3" />
                     {g.awayTeam} at {g.homeTeam}
                     <span className="ml-1.5 text-muted-foreground">{g.propCount}</span>

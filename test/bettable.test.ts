@@ -94,3 +94,55 @@ describe("the books in the rotation", () => {
     expect(stored.settings.apps.some((a) => a.id === "dabble")).toBe(false)
   })
 })
+
+import { isSharp, bookProfile, bookConsensus } from "@/lib/quant/books"
+
+describe("PropLine settings", () => {
+  it("keeps a phone from before the provider choice on The Odds API, with its key", () => {
+    const old = migrate({ settings: { oddsFeed: { apiKey: "abc", bettable: ["fanduel"] } } })
+    expect(old.settings.oddsFeed.provider).toBe("theoddsapi")
+    expect(old.settings.oddsFeed.apiKey).toBe("abc")
+    expect(old.settings.oddsFeed.proplineKey).toBe("")
+    expect(old.settings.oddsFeed.pickemLines).toBe(true)
+  })
+
+  it("falls back to The Odds API for a provider it does not know", () => {
+    const odd = migrate({ settings: { oddsFeed: { provider: "pinnwire" as never } } })
+    expect(odd.settings.oddsFeed.provider).toBe("theoddsapi")
+    expect(migrate({ settings: { oddsFeed: { provider: "propline" } } }).settings.oddsFeed.provider).toBe("propline")
+  })
+
+  it("keeps the pick'em lines on a cached pull", () => {
+    const line = {
+      app: "prizepicks", player: "A", playerKey: "a", market: "PTS", gameId: "X@Y", line: 20.5,
+      pickType: "standard", over: { multiplier: null }, under: { multiplier: null }, fetchedAt: null,
+    }
+    const m = migrate({
+      daily: { nba: { league: "nba", fetchedAt: "", quotes: [], events: [], requestsRemaining: 900, creditsSpent: 0, provider: "propline", pickemLines: [line] } },
+    })
+    expect(m.daily.nba!.pickemLines).toHaveLength(1)
+    expect(m.daily.nba!.provider).toBe("propline")
+  })
+})
+
+describe("exchanges and offshore books from PropLine", () => {
+  it("never treats an exchange as a sharp reference", () => {
+    for (const id of ["prophetx", "polymarket", "kalshi", "novig", "bovada"]) {
+      expect(isSharp(id)).toBe(false)
+      expect(bookProfile(id).tier).not.toBe("unknown")
+    }
+  })
+
+  it("keeps a room full of exchanges from outvoting one sharp book", () => {
+    const c = bookConsensus([
+      { book: "betonlineag", value: 0.5 },
+      { book: "prophetx", value: 0.7 },
+      { book: "polymarket", value: 0.7 },
+      { book: "kalshi", value: 0.7 },
+      { book: "novig", value: 0.7 },
+      { book: "bovada", value: 0.7 },
+    ])!
+    // BetOnline weighs 0.5; the five others share a 0.45 cap.
+    expect(c.value).toBeLessThan(0.6)
+  })
+})

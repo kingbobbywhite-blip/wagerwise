@@ -320,3 +320,21 @@ still clears the per-leg hit rate your entry size requires.
 That turns "tell me what to play on PrizePicks" into something answerable: here is the
 player, here is the number, take the over only at or below it. If neither side clears, the
 prop is a pass, which is the correct answer more often than people expect.
+
+### The apps' own lines
+
+With a PropLine key, the lines PrizePicks and Underdog are posting arrive with the pull.
+They are split from the sportsbook rows before anything is priced, because they are lines,
+not prices: PropLine serves PrizePicks at a synthetic +100/+100 on every pick, and an
+even-money row in the consensus would drag every fair price toward a coin flip.
+
+Each app line is matched to a target on player and market (not game: two feeds rarely
+spell a team the same way, and a player has one game a day) and priced off the target's
+own distribution, the one the sportsbook consensus built. A whole-number line gets its
+push probability, which voids the pick.
+
+The pick'em entry then plays the default app's real line: for each prop it takes the side
+with the better chance at that line, among the sides offered as a standard 1.0 pick, and
+re-checks the bar there. A line two points harder than the books' can drop a prop below
+the bar, and a prop the app is not offering is left out because it cannot be played. When
+the pull carried nothing from that app, the entry falls back to the books' line.
