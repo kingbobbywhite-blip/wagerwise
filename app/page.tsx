@@ -21,6 +21,7 @@ import { buildDailyPicks, buildPickemEntry, hasAppLines } from "@/lib/today/buil
 import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
+import { NO_SERVER_KEYS, hasFeedKey, parseServerKeys, type ServerKeys } from "@/lib/odds-feed/keys"
 import { useStore } from "@/lib/store/provider"
 import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
 import { money, pct, possessive, shortDate, signedPct } from "@/lib/format"
@@ -47,10 +48,31 @@ export default function TodayPage() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [needsKey, setNeedsKey] = React.useState(false)
+  // Which keys the server holds in its environment, which the routes use
+  // before any key from Settings. Null until the server has answered.
+  const [serverKeys, setServerKeys] = React.useState<ServerKeys | null>(null)
+
+  React.useEffect(() => {
+    let live = true
+    fetch("/api/keys", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (live) setServerKeys(parseServerKeys(json))
+      })
+      .catch(() => {
+        if (live) setServerKeys(NO_SERVER_KEYS)
+      })
+    return () => {
+      live = false
+    }
+  }, [])
 
   const s = state.settings
   const usePropline = s.oddsFeed.provider === "propline"
-  const hasKey = (usePropline ? s.oddsFeed.proplineKey : s.oddsFeed.apiKey).trim().length > 0
+  const hasKey = hasFeedKey(s.oddsFeed, serverKeys ?? NO_SERVER_KEYS)
+  // Hold the setup card back until the server has said whether it has a key,
+  // so an install set up through .env.local never flashes it.
+  const needsSetup = !hasKey && serverKeys !== null
   // The switch decides whether pick'em lines are used at all. The server
   // pulls them only when it has a PropLine key, from Settings or the environment.
   const wantPickem = s.oddsFeed.pickemLines
@@ -286,7 +308,7 @@ export default function TodayPage() {
           <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">{league.note}</p>
         </header>
 
-        {!hasKey ? (
+        {needsSetup ? (
           <div className="rounded-xl border border-accent/40 bg-accent/5 p-5">
             <div className="flex items-start gap-3">
               <KeyRound className="mt-0.5 size-4 shrink-0 text-accent" />
