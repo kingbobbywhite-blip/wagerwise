@@ -95,6 +95,12 @@ export interface DfsTarget {
   hasSharpBook: boolean
   /** Lines the pick'em apps are posting for this prop, when a pick'em feed was pulled. */
   appLines?: AppLine[]
+  /**
+   * Apps whose lines came through for this target's game, for any player. A
+   * prop with no line from an app that covered its game is not on offer there;
+   * one from a game the app's lines never arrived for is simply unknown.
+   */
+  appCoverage?: string[]
 }
 
 export interface DailyPicks {
@@ -287,10 +293,35 @@ export function priceAppLines(
     .sort((a, b) => a.app.localeCompare(b.app) || a.line - b.line)
 }
 
+/**
+ * Which apps' lines arrived for each game, read off every prop on the slate
+ * rather than only the targets, and matched on player so that two feeds
+ * spelling a team differently still agree on the game.
+ */
+function pickemCoverage(quotes: FeedQuote[], lines: PickemLine[] | undefined): Map<string, Set<string>> {
+  const appsByPlayer = new Map<string, Set<string>>()
+  for (const l of lines ?? []) {
+    const k = l.playerKey || normalizeName(l.player)
+    const set = appsByPlayer.get(k) ?? new Set<string>()
+    set.add(l.app)
+    appsByPlayer.set(k, set)
+  }
+  const byGame = new Map<string, Set<string>>()
+  for (const q of quotes) {
+    const apps = appsByPlayer.get(normalizeName(q.player))
+    if (!apps) continue
+    const set = byGame.get(q.gameId) ?? new Set<string>()
+    for (const a of apps) set.add(a)
+    byGame.set(q.gameId, set)
+  }
+  return byGame
+}
+
 export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTarget[] {
   const now = opts.now ?? Date.now()
   const out: DfsTarget[] = []
   const appIndex = indexPickemLines(opts.pickemLines)
+  const coverage = pickemCoverage(quotes, opts.pickemLines)
 
   for (const group of groupQuotes(quotes)) {
     const ref = referenceProjection(group, group.quotes, opts.value, now)
@@ -320,6 +351,7 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
       marketSide,
       marketProb: Math.max(atMarket.over, atMarket.under),
       appLines: priceAppLines(appIndex.get(`${normalizeName(group.player)}|${group.market}`) ?? [], ref.distribution),
+      appCoverage: Array.from(coverage.get(group.gameId) ?? []).sort(),
       ...t,
     })
   }
@@ -378,7 +410,10 @@ export function hasAppLines(targets: Pick<DfsTarget, "appLines">[], app: string 
  *
  * Given an app whose lines were pulled, every leg is at that app's real line
  * and a prop the app is not offering is left out, because it cannot be played
- * there. Without them, legs are at the books' line, as before.
+ * there. A prop from a game the app's lines never arrived for (a failed request,
+ * a game the pick'em pull did not list) is unknown rather than absent, so it
+ * stays in at the books' line and says so. Without app lines at all, every leg
+ * is at the books' line, as before.
  */
 export function buildPickemEntry(
   targets: DfsTarget[],
@@ -390,9 +425,12 @@ export function buildPickemEntry(
   const live = hasAppLines(targets, app)
   const plays: PickemLeg[] = []
   for (const t of targets) {
-    if (live) {
-      const p = appPlay(t, app!)
-      if (p) plays.push({ target: t, ...p, source: "app" })
+    const p = live ? appPlay(t, app!) : null
+    if (p) {
+      plays.push({ target: t, ...p, source: "app" })
+    } else if (live && (t.appCoverage ?? []).includes(app!)) {
+      // The app posted lines for this game but not this prop: not on offer.
+      continue
     } else {
       plays.push({ target: t, side: t.marketSide, line: t.marketLine, prob: t.marketProb, source: "books" })
     }

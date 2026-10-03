@@ -126,7 +126,7 @@ export async function POST(request: Request) {
         eventIds: body.eventIds,
         eventsOnly: body.eventsOnly,
       })
-      const cappedOut = Math.max(0, pull.inWindow.length - pull.selected.length)
+      const cappedOut = pull.cappedOut
       if (body.eventsOnly) {
         return NextResponse.json({
           league: leagueId,
