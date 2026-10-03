@@ -26,7 +26,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = React.useState(false)
   const [saveError, setSaveError] = React.useState<string | null>(null)
 
+  // localStorage only exists in the browser, so it has to be read after mount.
+  // Reading it during render would make the first client render differ from
+  // the server's and break hydration.
   React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating from localStorage, see above
     setState(loadState())
     setReady(true)
   }, [])
@@ -36,6 +40,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (!ready) return
     const r = saveState(state)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the write's outcome is only known once it has run
     setSaveError(r.ok ? null : r.error)
   }, [state, ready])
 

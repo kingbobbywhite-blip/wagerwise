@@ -18,12 +18,4 @@ export default defineConfig(
   tseslint.configs.recommended,
   reactHooks.configs.flat.recommended,
   nextPlugin.configs["core-web-vitals"],
-  {
-    rules: {
-      // The store hydrates from localStorage in a mount effect (there is no
-      // window during SSR), and a few screens reset derived state when their
-      // inputs change. Both are deliberate; this React Compiler rule flags them.
-      "react-hooks/set-state-in-effect": "off",
-    },
-  },
 )
