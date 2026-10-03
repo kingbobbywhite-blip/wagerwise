@@ -344,7 +344,7 @@ export default function BoardPage() {
         <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
           <Info className="mt-0.5 size-3 shrink-0" />
           <span>
-            Win probability is the model&apos;s own number, not the app&apos;s. The vertical marker on each bar is the per-leg rate
+            Win probability is the model's own number, not the app's. The vertical marker on each bar is the per-leg rate
             you need just to break even on a {state.settings.constraints.picks}-pick entry. A leg above 50% is not
             automatically a bet, and an edge that looks large is far more often a stale price or a bad input than a real
             opportunity.

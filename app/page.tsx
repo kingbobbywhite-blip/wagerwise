@@ -459,7 +459,7 @@ export default function TodayPage() {
             {picks.dfsTargets.length > 0 ? (
               <section className="space-y-3">
                 <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                  Pick&apos;em targets
+                  Pick'em targets
                 </h2>
                 <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
                   Most likely to hit first. Chance is the side the books favour, at the line they hang, which is

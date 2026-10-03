@@ -253,7 +253,7 @@ export default function SettingsPage() {
                 className="mt-1.5 font-mono text-xs"
               />
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                Stored in this browser and sent only to the odds feed, through this app&apos;s own server so it never appears
+                Stored in this browser and sent only to the odds feed, through this app's own server so it never appears
                 in page JavaScript. You can also set ODDS_API_KEY in the environment instead, which takes precedence.
               </p>
             </div>

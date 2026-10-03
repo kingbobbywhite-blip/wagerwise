@@ -1,20 +1,21 @@
 import { defineConfig, globalIgnores } from "eslint/config"
-import nextVitals from "eslint-config-next/core-web-vitals"
-import nextTs from "eslint-config-next/typescript"
+import nextPlugin from "@next/eslint-plugin-next"
+import reactHooks from "eslint-plugin-react-hooks"
+import tseslint from "typescript-eslint"
 
-export default defineConfig([
-  ...nextVitals,
-  ...nextTs,
+// Built from the same pieces as eslint-config-next (Next rules, React Hooks,
+// typescript-eslint recommended) rather than that package itself, because its
+// bundled eslint-plugin-react, -import and -jsx-a11y do not run on ESLint 10.
+export default defineConfig(
   globalIgnores([
-    // Next build output and its generated types
     ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
-    // Archived snapshots, not part of the app
+    "node_modules/**",
     "archive/**",
-    // Vendored, minified tesseract.js worker and wasm loaders
-    "public/**",
-    "coverage/**",
+    "next-env.d.ts",
+    // Vendored, minified Tesseract worker and WASM loaders served as-is.
+    "public/tesseract/**",
   ]),
-])
+  tseslint.configs.recommended,
+  reactHooks.configs.flat.recommended,
+  nextPlugin.configs["core-web-vitals"],
+)

@@ -134,7 +134,7 @@ export default function BuildPage() {
       <header>
         <h1 className="font-mono text-lg font-semibold tracking-tight">Build entries</h1>
         <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
-          Searches for the entry that maximises your chosen objective under the app&apos;s real payout table, scoring every
+          Searches for the entry that maximises your chosen objective under the app's real payout table, scoring every
           candidate with a correlation-aware simulation rather than multiplying leg probabilities together.
         </p>
       </header>
