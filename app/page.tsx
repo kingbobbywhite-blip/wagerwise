@@ -11,11 +11,10 @@ import { DfsTargetRow } from "@/components/dfs-target-row"
 import { SideBadge } from "@/components/side-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipProvider } from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
-import { formatAmerican } from "@/lib/quant/odds"
-import { DEFAULT_APPS, breakEvenLegProb, capturedFromMode, findApp, findMode } from "@/lib/quant/payouts"
+import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import { buildDailyPicks, buildPickemEntry, hasAppLines } from "@/lib/today/build"
 import { entryExpectation } from "@/lib/tracker/entries"
@@ -23,7 +22,7 @@ import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
 import { useStore } from "@/lib/store/provider"
 import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
-import { money, pct, possessive, shortDate, signedPct } from "@/lib/format"
+import { pct, possessive, shortDate, signedPct } from "@/lib/format"
 
 /** "Minnesota Lynx at New York Liberty, Tue, Sep 29, 8:00 PM" in the viewer's own timezone. */
 function nextGameText(e: { commence_time: string; home_team: string; away_team: string }): string {
@@ -106,7 +105,7 @@ export default function TodayPage() {
       bettableBooks: s.oddsFeed.bettable,
       pickemLines,
     })
-  }, [daily, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, s.oddsFeed.bettable, dfsBreakEven])
+  }, [daily, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)

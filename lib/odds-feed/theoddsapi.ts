@@ -2,7 +2,7 @@ import { marketSport, type MarketKey, type Sport } from "@/lib/nba/markets"
 import { DEFAULT_LEAGUE, leagueFor, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 import type { BookQuote } from "@/lib/quant/projection"
-import type { FeedEvent, FeedEventOdds } from "./types"
+import type { FeedEventOdds } from "./types"
 
 /**
  * The Odds API adapter.

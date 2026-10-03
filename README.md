@@ -119,6 +119,7 @@ unprotected URL and enter the key in Settings instead.
 
 ```bash
 npm test         # 464 unit tests over the probability engine, the feeds and screenshot reading
+npm run lint
 npm run build
 ```
 

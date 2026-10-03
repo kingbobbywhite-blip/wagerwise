@@ -302,7 +302,10 @@ describe("end-to-end daily pipeline per league", () => {
     expect(picks.stats.booksSeen).toContain("pinnacle")
     // Projections must land near the WNBA lines, not NBA ones.
     const arike = picks.dfsTargets.find((t) => t.player === "Arike Ogunbowale")
-    if (arike) expect(arike.mean).toBeGreaterThan(15), expect(arike.mean).toBeLessThan(28)
+    if (arike) {
+      expect(arike.mean).toBeGreaterThan(15)
+      expect(arike.mean).toBeLessThan(28)
+    }
   })
 
   it("prices an NFL slate at NFL numbers", () => {
