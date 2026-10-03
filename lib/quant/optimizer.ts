@@ -167,19 +167,6 @@ function feasible(pool: Pool, idx: number[], next: number, c: OptimizerConstrain
   return true
 }
 
-function avgCorrelation(pool: Pool, idx: number[]): number {
-  if (idx.length < 2) return 0
-  let s = 0
-  let n = 0
-  for (let i = 0; i < idx.length; i++) {
-    for (let j = i + 1; j < idx.length; j++) {
-      s += pool.matrix[idx[i]][idx[j]]
-      n++
-    }
-  }
-  return n ? s / n : 0
-}
-
 // ---------------------------------------------------------------------------
 // Beam search
 // ---------------------------------------------------------------------------
