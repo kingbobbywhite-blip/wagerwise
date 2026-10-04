@@ -94,6 +94,12 @@ export interface ValueBetSettings {
   requireSharpReference: boolean
   /** Reject prices longer than this; the model is least reliable in the tails. */
   maxAmerican: number
+  /**
+   * Commission an exchange takes on net winnings, by book id (ProphetX's 2%).
+   * The posted price is gross, so the edge and the stake are judged on what
+   * actually comes back. Books not listed pay what they post.
+   */
+  commission?: Record<string, number>
 }
 
 export const DEFAULT_VALUE_SETTINGS: ValueBetSettings = {
@@ -171,11 +177,11 @@ export function referenceProjection(
   )
 }
 
-function sideEdge(fairProb: number, american: number): { edge: number; kelly: number } {
-  const decimal = americanToDecimal(american)
-  const edge = fairProb * decimal - 1
-  const b = decimal - 1
-  const kelly = b <= 0 ? 0 : Math.max(0, (fairProb * decimal - 1) / b)
+export function sideEdge(fairProb: number, american: number, commission = 0): { edge: number; kelly: number } {
+  // Commission comes off the winnings, not the stake: a +100 at 2% returns 1.98.
+  const b = (americanToDecimal(american) - 1) * (1 - clamp(commission, 0, 1))
+  const edge = fairProb * (1 + b) - 1
+  const kelly = b <= 0 ? 0 : Math.max(0, edge / b)
   return { edge, kelly }
 }
 
@@ -210,7 +216,7 @@ export function findValueBets(
         if (s.price == null || !Number.isFinite(s.price)) continue
         if (Math.abs(s.price) > settings.maxAmerican && s.price > 0) continue
 
-        const { edge, kelly } = sideEdge(s.fairProb, s.price)
+        const { edge, kelly } = sideEdge(s.fairProb, s.price, settings.commission?.[offer.book] ?? 0)
         if (edge < settings.minEdge) continue
 
         const warnings = [...ref.warnings]

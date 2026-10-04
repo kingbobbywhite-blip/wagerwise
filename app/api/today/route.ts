@@ -307,7 +307,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       events: pull.selected,
       quotes: normalized.quotes,
       pickemLines: normalized.pickemLines,
-      pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures),
+      pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length),
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures: pull.failures,
@@ -332,10 +332,11 @@ async function pickemFromPropline(
   const league = leagueFor(args.leagueId)
   try {
     const pull = await pullPropline({ ...args, league: args.leagueId, bookmakers: PICKEM_BOOKS })
-    const lines = normalizeProplineMany(pull.payloads, league.sport).pickemLines
+    const normalized = normalizeProplineMany(pull.payloads, league.sport)
+    const lines = normalized.pickemLines
     const unlisted = args.games.length - pull.selected.length
     const note =
-      pickemNoteFor(lines.length, pull.failures) ??
+      pickemNoteFor(lines.length, pull.failures, normalized.closedGames.length) ??
       (unlisted > 0
         ? `PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`
         : null)

@@ -143,7 +143,9 @@ ProphetX and Polymarket are modelled in the payout registry, and their prices ca
 and shown on the board, but the build screen optimises DFS pick'em entries only. A PropLine
 pull carries their prop prices too, and either can be ticked as a place to bet under
 Settings. Exchange offers with less than $25 behind them are dropped as not bettable, and
-exchanges never count as a sharp reference.
+exchanges never count as a sharp reference. The commission recorded for each app under
+Settings → Payouts (ProphetX's 2% on net winnings) is taken off before an exchange bet's
+edge and stake are judged, and off a parlay built at that exchange.
 
 ## 13. The odds feed does not say which team a player is on
 

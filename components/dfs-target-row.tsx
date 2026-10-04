@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { SideBadge } from "@/components/side-badge"
 import { pct, possessive } from "@/lib/format"
 import { DEFAULT_APPS, findApp } from "@/lib/quant/payouts"
-import { dfsVerdict, probAt, type AppLine, type DfsTarget } from "@/lib/today/build"
+import { appVerdict, dfsVerdict, probAt, type AppLine, type DfsTarget } from "@/lib/today/build"
 
 /** "PrizePicks 24.5 over 58%", or the flavour and multiplier when the pick is not standard. */
 function describeAppLine(l: AppLine): string {
@@ -24,16 +24,24 @@ function describeAppLine(l: AppLine): string {
  * or higher"), but never as two picks side by side, which is how both sides of
  * one prop ended up in two entries.
  *
- * When the pull carried the default app's own line, it is filled in, so the
- * answer is already there; typing a different number still overrides it.
+ * When the pull carried the default app's own line, it is filled in, and the
+ * answer follows the entry's rule: only a side the app offers as a standard
+ * pick is named, so a discounted Underdog side reads as a pass with its reason.
+ * Typing a different number still overrides it.
  */
 export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?: string | null }) {
-  const appStandard = app ? t.appLines?.find((l) => l.app === app && l.pickType === "standard") : undefined
+  const atApp = app ? appVerdict(t, app, bar) : null
   const [typed, setTyped] = React.useState<string | null>(null)
-  const line = typed ?? (appStandard ? String(appStandard.line) : "")
+  const fromApp = typed == null && atApp != null
+  const line = typed ?? (atApp ? String(atApp.line) : "")
   const value = Number.parseFloat(line)
-  const verdict = line.trim() === "" ? null : dfsVerdict(t, value)
-  const chance = verdict && verdict !== "PASS" ? probAt(t, value, verdict) : null
+  const verdict = fromApp
+    ? (atApp.side ?? "PASS")
+    : line.trim() === ""
+      ? null
+      : dfsVerdict(t, value)
+  const chance = fromApp ? atApp.prob : verdict && verdict !== "PASS" ? probAt(t, value, verdict) : null
+  const passReason = fromApp && atApp.reason ? atApp.reason : `neither side clears at ${value}`
 
   const rule = [
     t.overAt != null ? `over if ${t.overAt} or lower` : null,
@@ -85,9 +93,9 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
           className="h-7 w-20 font-mono text-xs"
           aria-label={`Line your app shows for ${t.player} ${t.marketLabel}`}
         />
-        {appStandard && typed == null ? (
+        {fromApp ? (
           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-            {possessive(findApp(DEFAULT_APPS, appStandard.app)?.name ?? appStandard.app)} line
+            {possessive(findApp(DEFAULT_APPS, app!)?.name ?? app!)} line
           </div>
         ) : null}
       </td>
@@ -95,7 +103,7 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
         {verdict == null ? (
           <span className="font-mono text-[10px] text-muted-foreground">{rule}; pass between</span>
         ) : verdict === "PASS" ? (
-          <span className="font-mono text-xs text-muted-foreground">Pass: neither side clears at {value}</span>
+          <span className="font-mono text-xs text-muted-foreground">Pass: {passReason}</span>
         ) : (
           <span className="flex items-center gap-1.5">
             <SideBadge side={verdict} />

@@ -349,4 +349,13 @@ nicknames and start time, so the two feeds cover the same slate.
 A pick'em line is dropped once its game has started, when PropLine marks the app frozen on
 a live game, or when the app has pulled the market. An app stops taking picks at the start,
 and the pregame line it leaves behind, judged against live sportsbook prices, would read as
-a near-certain hit.
+a near-certain hit. For the same reason the entry never takes a leg from a game that has
+started, even at the books' line: the books may still be pricing it in play, but no pick'em
+app will take it. The note under the targets says when started games are why lines are
+missing.
+
+The target row fills in the default app's line and answers by the entry's rule: it names a
+side only when the app offers it as a standard pick and it clears the bar. When the likelier
+side is one Underdog has discounted (a 0.85x Higher, say) or one the app does not offer, the
+row reads as a pass and says which, because a discounted side needs a far higher hit rate
+than the standard bar, and the app does not compute that bar.

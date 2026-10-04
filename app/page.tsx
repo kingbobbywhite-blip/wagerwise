@@ -119,6 +119,8 @@ export default function TodayPage() {
         suspiciousEdge: 0.12,
         requireSharpReference: s.daily.requireSharpReference,
         maxAmerican: 400,
+        // Exchanges take commission on winnings (ProphetX 2%); the app ids match the feed's book keys.
+        commission: Object.fromEntries(s.apps.filter((a) => (a.commission ?? 0) > 0).map((a) => [a.id, a.commission!])),
       },
       correlation: s.correlation ?? DEFAULT_CORRELATION,
       constraints: { ...s.constraints, picks: s.daily.parlayLegs },
@@ -127,7 +129,7 @@ export default function TodayPage() {
       bettableBooks: s.oddsFeed.bettable,
       pickemLines,
     })
-  }, [daily, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
+  }, [daily, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable, s.apps])
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)

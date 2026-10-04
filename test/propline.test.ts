@@ -424,3 +424,19 @@ describe("matching games across feeds", () => {
     expect(pull.selected.map((e) => e.id)).toEqual(["7"])
   })
 })
+
+describe("closed games", () => {
+  it("reports the games whose pick'em lines closed because they started", () => {
+    const live = normalizeProplineEvent(event, "basketball", { now: Date.parse("2026-01-16T01:00:00Z") })
+    expect(live.closedGames).toEqual(["Minnesota Timberwolves@Oklahoma City Thunder"])
+    expect(normalizeProplineEvent(event, "basketball", BEFORE).closedGames).toEqual([])
+  })
+
+  it("says the games have started rather than that the apps have not posted", () => {
+    expect(pickemNoteFor(0, [], 2)).toBe(
+      "2 games have already started, so the pick'em apps have closed their lines and they are left out of the entry.",
+    )
+    expect(pickemNoteFor(10, [], 1)).toContain("1 game has already started")
+    expect(pickemNoteFor(0, [], 0)).toContain("no pick'em lines for these games yet")
+  })
+})

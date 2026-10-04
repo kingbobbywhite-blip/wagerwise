@@ -130,6 +130,8 @@ export interface PickemLine {
 
 export interface ProplineNormalizeResult extends NormalizeResult {
   pickemLines: PickemLine[]
+  /** Games whose pick'em lines were closed because the game had started, by game id. */
+  closedGames: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +207,7 @@ export function normalizeProplineEvent(
   // leaves behind is the pregame line. Built into an entry against live
   // sportsbook prices, that stale number reads as a near-certain hit.
   const started = Date.parse(event.commence_time) <= (opts.now ?? Date.now())
+  let closed = false
   const gameId = `${event.away_team}@${event.home_team}`
   const dropped: NormalizeResult["dropped"] = []
   const books: FeedBookmaker[] = []
@@ -214,6 +217,7 @@ export function normalizeProplineEvent(
     if (isPickemBook(book)) {
       if (started || book.pregame_only) {
         dropped.push({ reason: "pick'em lines closed: the game has started", detail: book.key })
+        closed = true
         continue
       }
       for (const market of book.markets ?? []) {
@@ -290,6 +294,7 @@ export function normalizeProplineEvent(
     unknownMarkets: priced.unknownMarkets,
     dropped: [...dropped, ...priced.dropped],
     pickemLines: Array.from(lines.values()),
+    closedGames: closed ? [gameId] : [],
   }
 }
 
@@ -298,13 +303,14 @@ export function normalizeProplineMany(
   sport?: Sport,
   opts?: { minLiquidity?: number; now?: number },
 ): ProplineNormalizeResult {
-  const all: ProplineNormalizeResult = { quotes: [], unknownMarkets: [], dropped: [], pickemLines: [] }
+  const all: ProplineNormalizeResult = { quotes: [], unknownMarkets: [], dropped: [], pickemLines: [], closedGames: [] }
   const unknown = new Set<string>()
   for (const e of events) {
     const r = normalizeProplineEvent(e, sport, opts)
     all.quotes.push(...r.quotes)
     all.dropped.push(...r.dropped)
     all.pickemLines.push(...r.pickemLines)
+    all.closedGames.push(...r.closedGames)
     for (const m of r.unknownMarkets) unknown.add(m)
   }
   all.unknownMarkets = Array.from(unknown)
@@ -412,14 +418,18 @@ export async function proplineErrorText(res: Response): Promise<string> {
  * named before anything else: when the daily limit runs out mid-pull, "the apps
  * have not posted yet" would send someone to wait for lines that are coming.
  */
-export function pickemNoteFor(lineCount: number, failures: { error: string }[]): string | null {
+export function pickemNoteFor(lineCount: number, failures: { error: string }[], closedGames = 0): string | null {
   if (failures.length > 0) {
     return `Pick'em lines for ${failures.length} game${failures.length === 1 ? "" : "s"} could not be read: ${failures[0].error}`
   }
+  const closed =
+    closedGames > 0
+      ? `${closedGames} game${closedGames === 1 ? " has" : "s have"} already started, so the pick'em apps have closed ${closedGames === 1 ? "its" : "their"} lines and ${closedGames === 1 ? "it is" : "they are"} left out of the entry.`
+      : null
   if (lineCount === 0) {
-    return "PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start."
+    return closed ?? "PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start."
   }
-  return null
+  return closed
 }
 
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
