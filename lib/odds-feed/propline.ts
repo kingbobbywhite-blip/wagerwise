@@ -128,8 +128,26 @@ export interface PickemLine {
   fetchedAt: string | null
 }
 
+/**
+ * A game an app answered for in a pull, whether or not any of its lines
+ * survived. A game whose lines were all closed or pulled is still one the app
+ * covered: its props are not on offer there, which is not the same as unknown.
+ */
+export interface PickemGame {
+  app: string
+  /** "Away Team@Home Team", in PropLine's own team names. */
+  gameId: string
+}
+
 export interface ProplineNormalizeResult extends NormalizeResult {
   pickemLines: PickemLine[]
+  pickemGames: PickemGame[]
+  /**
+   * Games that had started, or that an app was frozen on as live, so no pick'em
+   * line there can be played. Counted whether or not PropLine still listed the
+   * apps for them.
+   */
+  startedGames: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -209,10 +227,14 @@ export function normalizeProplineEvent(
   const dropped: NormalizeResult["dropped"] = []
   const books: FeedBookmaker[] = []
   const lines = new Map<string, PickemLine>()
+  const apps = new Set<string>()
+  let closedByStart = false
 
   for (const book of event.bookmakers ?? []) {
     if (isPickemBook(book)) {
+      apps.add(book.key.toLowerCase())
       if (started || book.pregame_only) {
+        closedByStart = true
         dropped.push({ reason: "pick'em lines closed: the game has started", detail: book.key })
         continue
       }
@@ -290,6 +312,8 @@ export function normalizeProplineEvent(
     unknownMarkets: priced.unknownMarkets,
     dropped: [...dropped, ...priced.dropped],
     pickemLines: Array.from(lines.values()),
+    pickemGames: Array.from(apps, (app) => ({ app, gameId })),
+    startedGames: started || closedByStart ? [gameId] : [],
   }
 }
 
@@ -298,13 +322,22 @@ export function normalizeProplineMany(
   sport?: Sport,
   opts?: { minLiquidity?: number; now?: number },
 ): ProplineNormalizeResult {
-  const all: ProplineNormalizeResult = { quotes: [], unknownMarkets: [], dropped: [], pickemLines: [] }
+  const all: ProplineNormalizeResult = {
+    quotes: [],
+    unknownMarkets: [],
+    dropped: [],
+    pickemLines: [],
+    pickemGames: [],
+    startedGames: [],
+  }
   const unknown = new Set<string>()
   for (const e of events) {
     const r = normalizeProplineEvent(e, sport, opts)
     all.quotes.push(...r.quotes)
     all.dropped.push(...r.dropped)
     all.pickemLines.push(...r.pickemLines)
+    all.pickemGames.push(...r.pickemGames)
+    all.startedGames.push(...r.startedGames)
     for (const m of r.unknownMarkets) unknown.add(m)
   }
   all.unknownMarkets = Array.from(unknown)
@@ -411,15 +444,40 @@ export async function proplineErrorText(res: Response): Promise<string> {
  * What to tell the user about the pick'em lines of a pull. A failed request is
  * named before anything else: when the daily limit runs out mid-pull, "the apps
  * have not posted yet" would send someone to wait for lines that are coming.
+ * After that, games PropLine did not list, then games that have started, and
+ * only then "not posted yet", so the note never blames the apps for a match
+ * that failed or a game that is already under way.
+ *
+ * `asked` is how many games PropLine was asked about, `started` how many of
+ * those had started, and `unlisted` how many priced games PropLine did not list.
  */
-export function pickemNoteFor(lineCount: number, failures: { error: string }[]): string | null {
+export function pickemNoteFor(
+  lineCount: number,
+  failures: { error: string }[],
+  games: { asked?: number; started?: number; unlisted?: number } = {},
+): string | null {
   if (failures.length > 0) {
     return `Pick'em lines for ${failures.length} game${failures.length === 1 ? "" : "s"} could not be read: ${failures[0].error}`
   }
-  if (lineCount === 0) {
-    return "PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start."
+  const notes: string[] = []
+  const unlisted = games.unlisted ?? 0
+  if (unlisted > 0) {
+    notes.push(`PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`)
   }
-  return null
+  const asked = games.asked
+  const started = games.started ?? 0
+  if (lineCount === 0 && (asked == null || asked > 0)) {
+    if (asked != null && started >= asked) {
+      notes.push("Every game here has started, and the pick'em apps stop taking picks at the start.")
+    } else if (started > 0) {
+      notes.push(
+        `${started} of these games ${started === 1 ? "has" : "have"} started, and the pick'em apps stop taking picks at the start. The rest have no pick'em lines yet: the apps usually post a few hours before the start.`,
+      )
+    } else {
+      notes.push("PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start.")
+    }
+  }
+  return notes.length > 0 ? notes.join(" ") : null
 }
 
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>

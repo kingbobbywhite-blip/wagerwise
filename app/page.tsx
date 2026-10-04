@@ -83,6 +83,7 @@ export default function TodayPage() {
   const daily = state.daily[leagueId] ?? null
   // A PropLine pull carries the lines whatever the switch says; it is honoured here.
   const pickemLines = wantPickem ? daily?.pickemLines : undefined
+  const pickemGames = wantPickem ? daily?.pickemGames : undefined
   const markets = marketsForLeague(leagueId, s.daily.markets)
   // Credits are The Odds API's monthly quota. PropLine counts requests per day,
   // one per game whatever the markets, so a slate is never a quota event there.
@@ -126,8 +127,9 @@ export default function TodayPage() {
       parlayCount: 4,
       bettableBooks: s.oddsFeed.bettable,
       pickemLines,
+      pickemGames,
     })
-  }, [daily, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
+  }, [daily, pickemLines, pickemGames, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)
@@ -199,6 +201,7 @@ export default function TodayPage() {
         nextEvent: data.nextEvent,
         provider: data.provider ?? s.oddsFeed.provider,
         pickemLines: data.pickemLines ?? undefined,
+        pickemGames: data.pickemGames ?? undefined,
         pickemNote: data.pickemNote ?? null,
       })
       const n = (data.quotes ?? []).length

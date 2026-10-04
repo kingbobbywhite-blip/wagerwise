@@ -447,3 +447,117 @@ describe("pick'em lines from the apps", () => {
     expect(hasAppLines([target("A", "g1", 0.7)], "prizepicks")).toBe(false)
   })
 })
+
+describe("started games and shared names in the pick'em entry", () => {
+  const NOW = Date.parse("2026-01-16T01:00:00Z")
+  const appLine = (over: number): AppLine => ({
+    app: "prizepicks",
+    line: 24.5,
+    pickType: "standard",
+    over,
+    under: 1 - over,
+    push: 0,
+    overMultiplier: null,
+    underMultiplier: null,
+    overOffered: true,
+    underOffered: true,
+  })
+  const tgt = (player: string, gameId: string, marketProb: number, extra: Partial<DfsTarget> = {}): DfsTarget =>
+    ({
+      key: player,
+      player,
+      gameId,
+      marketProb,
+      marketSide: "OVER",
+      marketLine: 24.5,
+      marketLabel: "Points",
+      commenceTime: null,
+      appLines: [],
+      appCoverage: [],
+      ...extra,
+    }) as DfsTarget
+  const STARTED = "2026-01-16T00:10:00Z"
+  const LATER = "2026-01-16T03:00:00Z"
+
+  it("never takes a leg from a game that has started, whatever the app's lines say", () => {
+    const targets = [
+      // The app's lines for this game were closed at the start, so none arrived.
+      tgt("Edwards", "MIN@OKC", 0.75, { commenceTime: STARTED }),
+      tgt("Jokic", "DEN@LAC", 0.65, { commenceTime: LATER, appLines: [appLine(0.65)], appCoverage: ["prizepicks"] }),
+      tgt("Murray", "DEN@LAC", 0.6, { commenceTime: LATER, appLines: [appLine(0.6)], appCoverage: ["prizepicks"] }),
+    ]
+    expect(buildPickemEntry(targets, 2, 0.55, 2, "prizepicks", NOW)!.map((l) => l.target.player)).toEqual(["Jokic", "Murray"])
+    // Without app lines at all, too: the apps stop taking picks at the start either way.
+    expect(buildPickemEntry(targets, 2, 0.55, 2, null, NOW)!.map((l) => l.target.player)).toEqual(["Jokic", "Murray"])
+  })
+
+  it("keeps the same game before it starts, and a prop with no start time", () => {
+    const targets = [tgt("Edwards", "MIN@OKC", 0.75, { commenceTime: STARTED }), tgt("Kept", "DEN@LAC", 0.6)]
+    const before = Date.parse("2026-01-15T23:00:00Z")
+    expect(buildPickemEntry(targets, 2, 0.55, 2, null, before)!.map((l) => l.target.player)).toEqual(["Edwards", "Kept"])
+    expect(buildPickemEntry(targets, 1, 0.55, 2, null, NOW)!.map((l) => l.target.player)).toEqual(["Kept"])
+  })
+
+  it("leaves out a covered game's props when the app answered for it but posted no line at all", () => {
+    // PrizePicks answered for MIN@OKC (every market pulled) and posted nothing anywhere.
+    const targets = [
+      tgt("Edwards", "MIN@OKC", 0.75, { commenceTime: LATER, appCoverage: ["prizepicks"] }),
+      tgt("Jokic", "DEN@LAC", 0.65, { commenceTime: LATER }),
+    ]
+    expect(buildPickemEntry(targets, 1, 0.55, 2, "prizepicks", NOW)!.map((l) => [l.target.player, l.source])).toEqual([
+      ["Jokic", "books"],
+    ])
+  })
+
+  const pickem = (player: string, gameId: string): PickemLine => ({
+    app: "prizepicks",
+    player,
+    playerKey: player.toLowerCase(),
+    market: "PTS",
+    gameId,
+    line: 24.5,
+    pickType: "standard",
+    over: { multiplier: null },
+    under: { multiplier: null },
+    fetchedAt: null,
+  })
+  const juiced = (player: string, gameId: string) => [
+    q(player, "PTS", "pinnacle", 25.5, -135, 115, gameId),
+    q(player, "PTS", "betonlineag", 25.5, -140, 118, gameId),
+  ]
+
+  const coverageOf = (targets: DfsTarget[], player: string) => targets.find((t) => t.player === player)!.appCoverage
+
+  it("does not let a player sharing a name mark another game as covered", () => {
+    // A John Smith plays in both games. Only MIN@OKC's lines arrived.
+    const quotes = [...juiced("John Smith", "MIN@OKC"), ...juiced("John Smith", "DEN@LAC"), ...juiced("Nikola Jokic", "DEN@LAC")]
+    const targets = buildDfsTargets(quotes, { ...OPTS, pickemLines: [pickem("John Smith", "MIN@OKC")] })
+    // DEN@LAC's lines never arrived: unknown, so Jokic must not read as not on offer.
+    expect(coverageOf(targets, "Nikola Jokic")).toEqual([])
+  })
+
+  it("places a line whose game the feeds name differently by its player, only when that player is in one game", () => {
+    const quotes = [
+      ...juiced("Anthony Edwards", "MIN@OKC"),
+      ...juiced("John Smith", "MIN@OKC"),
+      ...juiced("John Smith", "DEN@LAC"),
+      ...juiced("Nikola Jokic", "DEN@LAC"),
+    ]
+    const targets = buildDfsTargets(quotes, {
+      ...OPTS,
+      pickemLines: [pickem("Anthony Edwards", "Wolves@Thunders"), pickem("John Smith", "Nugs@Clips")],
+    })
+    expect(coverageOf(targets, "Anthony Edwards")).toEqual(["prizepicks"])
+    // John Smith is in two games, so his line places neither.
+    expect(coverageOf(targets, "Nikola Jokic")).toEqual([])
+  })
+
+  it("counts a game the app answered for with no lines left as covered", () => {
+    const targets = buildDfsTargets(juiced("Anthony Edwards", "MIN@OKC"), {
+      ...OPTS,
+      pickemLines: [],
+      pickemGames: [{ app: "prizepicks", gameId: "MIN@OKC" }],
+    })
+    expect(targets[0].appCoverage).toEqual(["prizepicks"])
+  })
+})
