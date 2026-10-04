@@ -440,3 +440,17 @@ describe("closed games", () => {
     expect(pickemNoteFor(0, [], 0)).toContain("no pick'em lines for these games yet")
   })
 })
+
+import { onlyPricedPlayers } from "@/lib/odds-feed/propline"
+
+describe("onlyPricedPlayers", () => {
+  it("keeps only lines for players the books priced, matched on the normalised name", () => {
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const extra = { ...r.pickemLines[0], player: "Nobody Priced", playerKey: "nobody priced" }
+    const kept = onlyPricedPlayers([...r.pickemLines, extra], r.quotes)
+    expect(kept).toHaveLength(r.pickemLines.length)
+    expect(kept.every((l) => l.playerKey === "anthony edwards")).toBe(true)
+    expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards (MIN)" }])).toHaveLength(0)
+    expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards" }])).toHaveLength(r.pickemLines.length)
+  })
+})

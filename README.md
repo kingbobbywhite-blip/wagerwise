@@ -93,6 +93,11 @@ Leave `ODDS_API_KEY` unset in Vercel unless the deployment is password-protected
 URL with a server-side key lets anyone who finds it spend your feed quota. Entering the key
 in Settings instead keeps it in your own browser.
 
+The feed routes only answer JSON requests from the app's own pages, so another website open
+in your browser cannot spend a key held in `.env.local` through your local server. That does
+not protect a public URL from someone calling it directly, which is why the advice above
+stands.
+
 ### The API key
 
 The app needs sportsbook prices. Get a key from
@@ -118,7 +123,7 @@ The same caution about public deployments applies: leave `PROPLINE_API_KEY` unse
 unprotected URL and enter the key in Settings instead.
 
 ```bash
-npm test         # 494 unit tests over the probability engine, the feeds and screenshot reading
+npm test         # 498 unit tests over the probability engine, the feeds and screenshot reading
 npm run lint
 npm run build
 ```

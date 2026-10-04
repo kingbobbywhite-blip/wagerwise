@@ -40,7 +40,14 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
     : line.trim() === ""
       ? null
       : dfsVerdict(t, value)
-  const chance = fromApp ? atApp.prob : verdict && verdict !== "PASS" ? probAt(t, value, verdict) : null
+  // The ladder holds only half-point lines; on a whole number the app line
+  // priced at that exact number (push included) has the chance.
+  const atThisLine = t.appLines?.find((l) => l.app === app && Math.abs(l.line - value) < 1e-9)
+  const chance = fromApp
+    ? atApp.prob
+    : verdict && verdict !== "PASS"
+      ? (probAt(t, value, verdict) ?? (atThisLine ? (verdict === "OVER" ? atThisLine.over : atThisLine.under) : null))
+      : null
   const passReason = fromApp && atApp.reason ? atApp.reason : `neither side clears at ${value}`
 
   const rule = [
@@ -88,7 +95,7 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
         <Input
           inputMode="decimal"
           value={line}
-          onChange={(e) => setTyped(e.target.value)}
+          onChange={(e) => setTyped(e.target.value.trim() === "" ? null : e.target.value)}
           placeholder={String(t.marketLine)}
           className="h-7 w-20 font-mono text-xs"
           aria-label={`Line your app shows for ${t.player} ${t.marketLabel}`}

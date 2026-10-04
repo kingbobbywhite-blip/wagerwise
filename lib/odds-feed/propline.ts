@@ -414,6 +414,16 @@ export async function proplineErrorText(res: Response): Promise<string> {
 }
 
 /**
+ * Pick'em lines for players the books priced. A line for anyone else can never
+ * be matched to a target, and every pull is kept in this browser's storage, so
+ * carrying the rest only fills it.
+ */
+export function onlyPricedPlayers(lines: PickemLine[], quotes: { player: string; playerKey?: string }[]): PickemLine[] {
+  const priced = new Set(quotes.map((q) => q.playerKey || normalizeName(q.player)))
+  return lines.filter((l) => priced.has(l.playerKey))
+}
+
+/**
  * What to tell the user about the pick'em lines of a pull. A failed request is
  * named before anything else: when the daily limit runs out mid-pull, "the apps
  * have not posted yet" would send someone to wait for lines that are coming.
