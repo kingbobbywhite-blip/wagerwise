@@ -20,6 +20,8 @@ import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { DEFAULT_SETTINGS, type OddsProvider } from "@/lib/store/schema"
 import { money } from "@/lib/format"
 
+const TAB = "px-1.5 text-xs sm:px-2 sm:text-sm"
+
 export default function SettingsPage() {
   const { state, setSettings, replaceAll, saveError, ready } = useStore()
   const s = state.settings
@@ -68,12 +70,14 @@ export default function SettingsPage() {
       ) : null}
 
       <Tabs defaultValue="bankroll">
-        <TabsList className="font-mono text-xs">
-          <TabsTrigger value="bankroll">Bankroll</TabsTrigger>
-          <TabsTrigger value="model">Model</TabsTrigger>
-          <TabsTrigger value="feed">Odds feed</TabsTrigger>
-          <TabsTrigger value="payouts">Payouts</TabsTrigger>
-          <TabsTrigger value="data">Data</TabsTrigger>
+        {/* Five tabs at full size overflow a 360px phone and push Data off the
+            edge, so they shrink below sm and scroll rather than widen the page. */}
+        <TabsList className="max-w-full justify-start overflow-x-auto font-mono text-xs">
+          <TabsTrigger value="bankroll" className={TAB}>Bankroll</TabsTrigger>
+          <TabsTrigger value="model" className={TAB}>Model</TabsTrigger>
+          <TabsTrigger value="feed" className={TAB}>Odds feed</TabsTrigger>
+          <TabsTrigger value="payouts" className={TAB}>Payouts</TabsTrigger>
+          <TabsTrigger value="data" className={TAB}>Data</TabsTrigger>
         </TabsList>
 
         <TabsContent value="bankroll" className="mt-4 space-y-4">
