@@ -346,7 +346,10 @@ arrived for the game at all (a request failed, or PropLine did not list it), the
 unknown rather than absent: it stays in at the books' line and is marked so. Games are
 matched across the feeds on the teams' nicknames, or on one team's when a feed spells the
 other differently (a team plays once a day), and never on a player's name, so two players
-who share a name cannot mark each other's games. With The Odds API pricing the
+who share a name cannot mark each other's games. For the same reason a prop is a player in a
+game: two players who share a name (the NHL has two Sebastian Ahos) are priced on their own
+game's quotes, and an app's line goes only to the player in that line's game. A line whose
+game is not on the slate is left out rather than matched by name. With The Odds API pricing the
 slate, the pick'em pull asks PropLine for exactly the games that were priced, matched on the
 teams' nicknames and start time, so the two feeds cover the same slate.
 

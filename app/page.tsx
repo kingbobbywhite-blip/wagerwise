@@ -16,7 +16,8 @@ import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
 import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import { appAnswered, buildDailyPicks, buildPickemEntry, hasAppLines } from "@/lib/today/build"
+import { appAnswered, buildDailyPicks, buildPickemEntry, hasAppLines, hasStarted } from "@/lib/today/build"
+import { dailyCacheFrom } from "@/lib/today/cache"
 import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
@@ -91,7 +92,9 @@ export default function TodayPage() {
   // A PropLine pull carries the lines whatever the switch says; it is honoured here.
   const pickemLines = wantPickem ? daily?.pickemLines : undefined
   const pickemGames = wantPickem ? daily?.pickemGames : undefined
-  const pickemStarted = wantPickem ? daily?.pickemStarted : undefined
+  // Which games PropLine saw under way is a fact about the games, not an app
+  // line, so it applies whatever the pick'em switch says.
+  const pickemStarted = daily?.pickemStarted
   const markets = marketsForLeague(leagueId, s.daily.markets)
   // Credits are The Odds API's monthly quota. PropLine counts requests per day,
   // one per game whatever the markets, so a slate is never a quota event there.
@@ -155,6 +158,12 @@ export default function TodayPage() {
   // The pick'em note is written at pull time. Once every game has started it is
   // out of date whatever it said, so it says that instead.
   const allStarted = !!daily && daily.events.length > 0 && daily.events.every((e) => Date.parse(e.commence_time) <= now)
+  // Props that clear the bar but sit in games already under way: the entry
+  // leaves them out, and an empty entry should say that rather than blame the bar.
+  const startedClearing = picks
+    ? picks.dfsTargets.filter((t) => t.marketProb >= dfsBreakEven && hasStarted(t, now)).length
+    : 0
+  const anyOpen = !!picks && picks.dfsTargets.some((t) => !hasStarted(t, now))
   const pickemNote = allStarted
     ? "Every game in this pull has started, and the pick'em apps stop taking picks at the start."
     : daily?.pickemNote
@@ -208,19 +217,7 @@ export default function TodayPage() {
         setError(data.error ?? `Request failed (${res.status}).`)
         return
       }
-      setDaily({
-        league: leagueId,
-        fetchedAt: data.fetchedAt ?? new Date().toISOString(),
-        quotes: data.quotes ?? [],
-        events: data.events ?? [],
-        requestsRemaining: data.requestsRemaining ?? null,
-        creditsSpent: data.estimatedCredits ?? 0,
-        nextEvent: data.nextEvent,
-        provider: data.provider ?? s.oddsFeed.provider,
-        pickemLines: data.pickemLines ?? undefined,
-        pickemGames: data.pickemGames ?? undefined,
-        pickemNote: data.pickemNote ?? null,
-      })
+      setDaily(dailyCacheFrom(data, leagueId, s.oddsFeed.provider))
       const n = (data.quotes ?? []).length
       toast.success(
         n > 0
@@ -547,9 +544,22 @@ export default function TodayPage() {
                   </>
                 ) : (
                   <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    Fewer than {s.constraints.picks} props clear the {pct(dfsBreakEven)} bar on this slate, one per
-                    player{appLinesLive ? `, at the lines ${entryApp?.name ?? "the app"} is actually posting` : ""}.
-                    Padding the entry with coin flips is the bet the bar exists to stop: play a smaller entry, or pass.
+                    {!anyOpen && (allStarted || startedClearing > 0) ? (
+                      <>
+                        Every game on this slate has started, and the pick&apos;em apps stop taking picks at the start.
+                        Refresh for later games, or pass.
+                      </>
+                    ) : (
+                      <>
+                        {startedClearing > 0
+                          ? `${startedClearing} ${startedClearing === 1 ? "prop clears" : "props clear"} the bar in games that have started, which the apps no longer take. `
+                          : ""}
+                        Fewer than {s.constraints.picks} props clear the {pct(dfsBreakEven)} bar
+                        {startedClearing > 0 ? " in games still to start" : " on this slate"}, one per player
+                        {appLinesLive ? `, at the lines ${entryApp?.name ?? "the app"} is actually posting` : ""}.
+                        Padding the entry with coin flips is the bet the bar exists to stop: play a smaller entry, or pass.
+                      </>
+                    )}
                   </p>
                 )}
               </section>

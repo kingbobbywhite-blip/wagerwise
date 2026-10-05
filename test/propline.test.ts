@@ -514,21 +514,45 @@ describe("pickemSlate", () => {
   const bosNyk = game("Boston Celtics", "New York Knicks", "2026-01-16T06:00:00Z")
 
   it("counts a started game as started even when PropLine no longer lists it", () => {
-    expect(pickemSlate([minOkc, denLac], [denLac], [], NOW)).toEqual({ games: 2, started: 1, unlisted: 0 })
+    expect(pickemSlate([minOkc, denLac], [denLac], [], [], NOW)).toEqual({ games: 2, started: 1, unlisted: 0, failed: 0 })
   })
 
   it("counts a game PropLine says has started, though the pricing feed lists a later start", () => {
     const later = { ...minOkc, commence_time: "2026-01-16T01:30:00Z" }
     const listed = { ...minOkc, home_team: "OKC Thunder" }
-    expect(pickemSlate([later], [listed], ["Minnesota Timberwolves@OKC Thunder"], NOW)).toEqual({
+    expect(pickemSlate([later], [listed], ["Minnesota Timberwolves@OKC Thunder"], [], NOW)).toEqual({
       games: 1,
       started: 1,
       unlisted: 0,
+      failed: 0,
     })
   })
 
+  it("puts a game that started and whose request failed in started only", () => {
+    const listed = [
+      { ...minOkc, id: 1 },
+      { ...denLac, id: 2 },
+      { ...bosNyk, id: 3 },
+    ]
+    // MIN@OKC started and its request failed; DEN@LAC failed too; BOS@NYK came back empty.
+    const slate = pickemSlate([minOkc, denLac, bosNyk], listed, [], [1, "2"], NOW)
+    expect(slate).toEqual({ games: 3, started: 1, unlisted: 0, failed: 1 })
+    const note = pickemNoteFor(0, [{ error: "404" }, { error: "404" }], slate)!
+    expect(note).toContain("1 of the 3 games has started")
+    expect(note).toContain("no open pick'em lines for the other game yet")
+  })
+
+  it("still says which games have no lines when the only failure is a started game", () => {
+    const listed = [
+      { ...minOkc, id: 1 },
+      { ...denLac, id: 2 },
+    ]
+    const slate = pickemSlate([minOkc, denLac], listed, [], [1], NOW)
+    expect(pickemNoteFor(0, [{ error: "404" }], slate)).toContain("no open pick'em lines for the other game yet")
+  })
+
   it("counts only games still to start as unlisted", () => {
-    expect(pickemSlate([minOkc, denLac, bosNyk], [minOkc], [], NOW)).toEqual({ games: 3, started: 1, unlisted: 2 })
+    expect(pickemSlate([minOkc, denLac, bosNyk], [minOkc], [], [], NOW)).toEqual({ games: 3, started: 1, unlisted: 2, failed: 0 })
   })
 })
 

@@ -347,7 +347,12 @@ async function pickemFromPropline(
     const note = pickemNoteFor(
       normalized.pickemLines.length,
       pull.failures,
-      pickemSlate(args.games, pull.selected, normalized.startedGames),
+      pickemSlate(
+        args.games,
+        pull.selected,
+        normalized.startedGames,
+        pull.failures.map((f) => f.eventId),
+      ),
     )
     return {
       lines: normalized.pickemLines,

@@ -462,6 +462,16 @@ export function appPlay(
 }
 
 /**
+ * True when a target's game has started by either feed: its own start time has
+ * passed, or PropLine reported it under way. No pick'em app takes it then.
+ */
+export function hasStarted(t: Pick<DfsTarget, "commenceTime" | "started">, now = Date.now()): boolean {
+  if (t.started) return true
+  const start = t.commenceTime ? Date.parse(t.commenceTime) : NaN
+  return Number.isFinite(start) && start <= now
+}
+
+/**
  * True when the app answered for any game in the pull, with lines or without
  * (every line closed or pulled), so a prop it has no line for in a game it
  * answered for is not on offer.
@@ -509,8 +519,7 @@ export function buildPickemEntry(
   const live = appAnswered(targets, app)
   const plays: PickemLeg[] = []
   for (const t of targets) {
-    const start = t.commenceTime ? Date.parse(t.commenceTime) : NaN
-    if (t.started || (Number.isFinite(start) && start <= now)) continue
+    if (hasStarted(t, now)) continue
     const p = live ? appPlay(t, app!) : null
     if (p) {
       plays.push({ target: t, ...p, source: "app" })

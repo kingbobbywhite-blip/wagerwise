@@ -448,25 +448,32 @@ export interface PickemSlate {
   started: number
   /** Of those still to start, games PropLine did not list. */
   unlisted?: number
+  /** Of those still to start and listed, games whose PropLine request failed. */
+  failed?: number
 }
 
 /**
- * Count the priced slate for the pick'em note. A game has started when either
- * feed's clock says so: the feeds can disagree on a start time, and the app
- * locks at whichever start is real. A game still to start that no PropLine
- * listing matched is unlisted.
+ * Count the priced slate for the pick'em note, each game in one bucket. A game
+ * has started when either feed's clock says so: the feeds can disagree on a
+ * start time, and the app locks at whichever start is real. A game still to
+ * start that no PropLine listing matched is unlisted; one that was listed but
+ * whose request failed is failed.
  *
  * `startedListed` is PropLine's own list of started games ("Away@Home" in its
- * names), from normalizeProplineMany.
+ * names), from normalizeProplineMany; `failedIds` the PropLine event ids whose
+ * requests failed.
  */
 export function pickemSlate(
   priced: GameRef[],
-  listed: GameRef[],
+  listed: (GameRef & { id?: string | number })[],
   startedListed: string[],
+  failedIds: (string | number)[] = [],
   now = Date.now(),
 ): PickemSlate {
+  const failedSet = new Set(failedIds.map(String))
   let started = 0
   let unlisted = 0
+  let failed = 0
   for (const g of priced) {
     const match = listed.find((e) => sameGame(e, g))
     const t = Date.parse(g.commence_time)
@@ -474,9 +481,11 @@ export function pickemSlate(
       started++
     } else if (!match) {
       unlisted++
+    } else if (match.id != null && failedSet.has(String(match.id))) {
+      failed++
     }
   }
-  return { games: priced.length, started, unlisted }
+  return { games: priced.length, started, unlisted, failed }
 }
 
 /**
@@ -514,7 +523,8 @@ export function pickemNoteFor(lineCount: number, failures: { error: string }[], 
         : `${slate.started} of the ${slate.games} games ${slate.started === 1 ? "has" : "have"} started, and the pick'em apps stop taking picks at the start.`,
     )
   }
-  const rest = slate.games - slate.started - unlisted - failures.length
+  // A failed game is subtracted once: a started one is already counted as started.
+  const rest = slate.games - slate.started - unlisted - (slate.failed ?? failures.length)
   if (lineCount === 0 && rest > 0) {
     const which = notes.length > 0 ? `the other ${rest === 1 ? "game" : `${rest} games`}` : "these games"
     notes.push(

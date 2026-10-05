@@ -644,3 +644,17 @@ describe("players who share a name", () => {
     expect(lineOf("DEN@LAC")).toEqual([28.5])
   })
 })
+
+import { hasStarted } from "@/lib/today/build"
+
+describe("hasStarted", () => {
+  const NOW = Date.parse("2026-01-16T01:00:00Z")
+  it("reads either feed's word that a game has started", () => {
+    expect(hasStarted({ commenceTime: "2026-01-16T00:10:00Z" }, NOW)).toBe(true)
+    expect(hasStarted({ commenceTime: "2026-01-16T01:00:00Z" }, NOW)).toBe(true)
+    expect(hasStarted({ commenceTime: "2026-01-16T03:00:00Z" }, NOW)).toBe(false)
+    expect(hasStarted({ commenceTime: "2026-01-16T03:00:00Z", started: true }, NOW)).toBe(true)
+    expect(hasStarted({ commenceTime: null }, NOW)).toBe(false)
+    expect(hasStarted({ commenceTime: "not a time" }, NOW)).toBe(false)
+  })
+})
