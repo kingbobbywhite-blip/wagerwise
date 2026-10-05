@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { buildDailyPicks, buildDfsTargets, dfsTargetsFor, summariseGames, valueBetsToCandidates } from "@/lib/today/build"
-import { DEFAULT_VALUE_SETTINGS, findValueBets, type FeedQuote } from "@/lib/quant/valuebets"
+import { DEFAULT_VALUE_SETTINGS, findValueBets, groupQuotes, type FeedQuote } from "@/lib/quant/valuebets"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { DEFAULT_CONSTRAINTS } from "@/lib/quant/optimizer"
 import { distributionFor } from "@/lib/nba/markets"
@@ -346,9 +346,14 @@ describe("pick'em lines from the apps", () => {
     expect(demon.underOffered).toBe(false)
   })
 
-  it("matches lines on player and market even when the game is spelled differently", () => {
-    const [t] = buildDfsTargets(quotes, { ...OPTS, pickemLines: [pp("Anthony Edwards", 24.5, { gameId: "Wolves@Thunder" })] })
+  it("matches lines on player and market when the feeds spell one team differently", () => {
+    const [t] = buildDfsTargets(quotes, { ...OPTS, pickemLines: [pp("Anthony Edwards", 24.5, { gameId: "Wolves@OKC" })] })
     expect(t.appLines).toHaveLength(1)
+  })
+
+  it("never attaches a line whose game is not on the slate", () => {
+    const [t] = buildDfsTargets(quotes, { ...OPTS, pickemLines: [pp("Anthony Edwards", 24.5, { gameId: "Wolves@Thunder" })] })
+    expect(t.appLines).toEqual([])
   })
 
   it("never matches another market or player", () => {
@@ -581,5 +586,61 @@ describe("started games and shared names in the pick'em entry", () => {
       pickemGames: [{ app: "prizepicks", gameId: "MIN@OKC" }],
     })
     expect(targets[0].appCoverage).toEqual(["prizepicks"])
+  })
+})
+
+describe("players who share a name", () => {
+  const juiced = (player: string, gameId: string, over = -135, under = 115) => [
+    q(player, "PTS", "pinnacle", 25.5, over, under, gameId),
+    q(player, "PTS", "betonlineag", 25.5, over - 5, under + 3, gameId),
+  ]
+  const line = (player: string, gameId: string, point: number): PickemLine => ({
+    app: "prizepicks",
+    player,
+    playerKey: player.toLowerCase(),
+    market: "PTS",
+    gameId,
+    line: point,
+    pickType: "standard",
+    over: { multiplier: null },
+    under: { multiplier: null },
+    fetchedAt: null,
+  })
+
+  it("prices each namesake on his own game's quotes", () => {
+    // Two John Smiths: the books like one's over and the other's under.
+    const quotes = [...juiced("John Smith", "MIN@OKC", -150, 125), ...juiced("John Smith", "DEN@LAC", 125, -150)]
+    const targets = buildDfsTargets(quotes, OPTS)
+    const smiths = targets.filter((t) => t.player === "John Smith")
+    expect(smiths.map((t) => t.gameId).sort()).toEqual(["DEN@LAC", "MIN@OKC"])
+    expect(smiths.find((t) => t.gameId === "MIN@OKC")!.marketSide).toBe("OVER")
+    expect(smiths.find((t) => t.gameId === "DEN@LAC")!.marketSide).toBe("UNDER")
+    expect(new Set(smiths.map((t) => t.key)).size).toBe(2)
+  })
+
+  it("keeps one decision per namesake, not one between them", () => {
+    const quotes = [...juiced("John Smith", "MIN@OKC", -150, 125), ...juiced("John Smith", "DEN@LAC", 125, -150)]
+    const groups = groupQuotes(quotes)
+    expect(groups.filter((g) => g.player === "John Smith")).toHaveLength(2)
+  })
+
+  it("gives a namesake's app line only to the player in that line's game", () => {
+    // Aho of Carolina has a PrizePicks line; his game has no prices here. Aho of the Islanders does.
+    const quotes = [...juiced("Sebastian Aho", "BOS@NYI")]
+    const [t] = buildDfsTargets(quotes, { ...OPTS, pickemLines: [line("Sebastian Aho", "CAR@NYR", 2.5)] })
+    expect(t.gameId).toBe("BOS@NYI")
+    expect(t.appLines).toEqual([])
+  })
+
+  it("gives each namesake his own app line when both games are on the slate", () => {
+    const quotes = [...juiced("John Smith", "MIN@OKC"), ...juiced("John Smith", "DEN@LAC")]
+    const targets = buildDfsTargets(quotes, {
+      ...OPTS,
+      pickemLines: [line("John Smith", "MIN@OKC", 22.5), line("John Smith", "DEN@LAC", 28.5)],
+    })
+    const lineOf = (gameId: string) =>
+      targets.find((t) => t.player === "John Smith" && t.gameId === gameId)!.appLines!.map((l) => l.line)
+    expect(lineOf("MIN@OKC")).toEqual([22.5])
+    expect(lineOf("DEN@LAC")).toEqual([28.5])
   })
 })

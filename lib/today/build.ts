@@ -267,10 +267,24 @@ export function marketLineOf(lines: number[], mean: number): number {
  * Index pick'em lines by player and market. The game is left out on purpose:
  * a player has one game a day, and two feeds rarely spell a team the same way.
  */
-function indexPickemLines(lines: PickemLine[] | undefined): Map<string, PickemLine[]> {
+function appLineKey(gameId: string, player: string, market: string): string {
+  return `${gameId}|${player}|${market}`
+}
+
+/**
+ * App lines by the slate game they belong to, then player and market. A line
+ * whose game cannot be placed on the slate is left out rather than matched by
+ * name alone: it may belong to a namesake in a game this pull has no prices for.
+ */
+function indexPickemLines(
+  lines: PickemLine[] | undefined,
+  gameOf: (gameId: string) => string | undefined,
+): Map<string, PickemLine[]> {
   const map = new Map<string, PickemLine[]>()
   for (const l of lines ?? []) {
-    const k = `${l.playerKey || normalizeName(l.player)}|${l.market}`
+    const game = gameOf(l.gameId)
+    if (!game) continue
+    const k = appLineKey(game, l.playerKey || normalizeName(l.player), l.market)
     const arr = map.get(k)
     if (arr) arr.push(l)
     else map.set(k, [l])
@@ -366,8 +380,8 @@ function pickemCoverage(
 export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTarget[] {
   const now = opts.now ?? Date.now()
   const out: DfsTarget[] = []
-  const appIndex = indexPickemLines(opts.pickemLines)
   const gameOf = slateGames(quotes)
+  const appIndex = indexPickemLines(opts.pickemLines, gameOf)
   const coverage = pickemCoverage(gameOf, opts.pickemLines, opts.pickemGames)
   const started = new Set(
     (opts.startedGames ?? []).map(gameOf).filter((id): id is string => !!id),
@@ -400,7 +414,10 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
       marketLine,
       marketSide,
       marketProb: Math.max(atMarket.over, atMarket.under),
-      appLines: priceAppLines(appIndex.get(`${normalizeName(group.player)}|${group.market}`) ?? [], ref.distribution),
+      appLines: priceAppLines(
+        appIndex.get(appLineKey(group.gameId, normalizeName(group.player), group.market)) ?? [],
+        ref.distribution,
+      ),
       appCoverage: Array.from(coverage.get(group.gameId) ?? []).sort(),
       started: started.has(group.gameId),
       ...t,
