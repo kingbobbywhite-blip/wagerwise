@@ -42,8 +42,15 @@ describe("dailyCacheFrom", () => {
     }
   })
 
+  it("keeps the apps' lines only when the pick'em switch is on, and which games started either way", () => {
+    const off = dailyCacheFrom(full, "nba", "theoddsapi", { pickem: false })
+    expect(off.pickemLines).toBeUndefined()
+    expect(off.pickemGames).toBeUndefined()
+    expect(off.pickemStarted).toEqual(["A@H"])
+  })
+
   it("fills defaults for a minimal response", () => {
-    expect(dailyCacheFrom({}, "wnba", "theoddsapi", "2026-01-16T00:00:00Z")).toEqual({
+    expect(dailyCacheFrom({}, "wnba", "theoddsapi", { fetchedAt: "2026-01-16T00:00:00Z" })).toEqual({
       league: "wnba",
       fetchedAt: "2026-01-16T00:00:00Z",
       quotes: [],

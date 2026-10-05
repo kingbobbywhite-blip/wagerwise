@@ -425,6 +425,36 @@ describe("matching games across feeds", () => {
   })
 })
 
+describe("closed games", () => {
+  it("reports the games whose pick'em lines closed because they started", () => {
+    const live = normalizeProplineEvent(event, "basketball", { now: Date.parse("2026-01-16T01:00:00Z") })
+    expect(live.startedGames).toEqual(["Minnesota Timberwolves@Oklahoma City Thunder"])
+    expect(normalizeProplineEvent(event, "basketball", BEFORE).startedGames).toEqual([])
+  })
+
+  it("says the games have started rather than that the apps have not posted", () => {
+    expect(pickemNoteFor(0, [], { games: 2, started: 2 })).toBe(
+      "Every game on this slate has started, and the pick'em apps stop taking picks at the start.",
+    )
+    expect(pickemNoteFor(10, [], { games: 3, started: 1 })).toContain("1 of the 3 games has started")
+    expect(pickemNoteFor(0, [], { games: 2, started: 0 })).toContain("no open pick'em lines for these games yet")
+  })
+})
+
+import { onlyPricedPlayers } from "@/lib/odds-feed/propline"
+
+describe("onlyPricedPlayers", () => {
+  it("keeps only lines for players the books priced, matched on the normalised name", () => {
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const extra = { ...r.pickemLines[0], player: "Nobody Priced", playerKey: "nobody priced" }
+    const kept = onlyPricedPlayers([...r.pickemLines, extra], r.quotes)
+    expect(kept).toHaveLength(r.pickemLines.length)
+    expect(kept.every((l) => l.playerKey === "anthony edwards")).toBe(true)
+    expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards (MIN)" }])).toHaveLength(0)
+    expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards" }])).toHaveLength(r.pickemLines.length)
+  })
+})
+
 describe("games the apps answered for", () => {
   const GAME = "Minnesota Timberwolves@Oklahoma City Thunder"
 

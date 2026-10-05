@@ -361,4 +361,11 @@ started, whether or not pick'em lines were pulled: the sportsbooks keep pricing 
 play, but no app will take the pick. A game counts as started when either feed's clock
 says so, since the feeds can list different start times, and the Today screen re-checks
 the clock every minute, so a game that tips while the page is open leaves the entry
-without waiting for a refresh.
+without waiting for a refresh. The note under the targets says when started games are why
+lines are missing.
+
+The target row fills in the default app's line and answers by the entry's rule: it names a
+side only when the app offers it as a standard pick and it clears the bar. When the likelier
+side is one Underdog has discounted (a 0.85x Higher, say) or one the app does not offer, the
+row reads as a pass and says which, because a discounted side needs a far higher hit rate
+than the standard bar, and the app does not compute that bar.

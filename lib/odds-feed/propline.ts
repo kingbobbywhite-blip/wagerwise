@@ -489,6 +489,16 @@ export function pickemSlate(
 }
 
 /**
+ * Pick'em lines for players the books priced. A line for anyone else can never
+ * be matched to a target, and every pull is kept in this browser's storage, so
+ * carrying the rest only fills it.
+ */
+export function onlyPricedPlayers(lines: PickemLine[], quotes: { player: string; playerKey?: string }[]): PickemLine[] {
+  const priced = new Set(quotes.map((q) => q.playerKey || normalizeName(q.player)))
+  return lines.filter((l) => priced.has(l.playerKey))
+}
+
+/**
  * What to tell the user about the pick'em lines of a pull, in this order: a
  * failed request, games PropLine did not list, games that have started, and
  * only then games the apps have no open lines for yet. Each is counted over

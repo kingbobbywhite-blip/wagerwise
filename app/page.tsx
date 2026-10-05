@@ -131,6 +131,8 @@ export default function TodayPage() {
         suspiciousEdge: 0.12,
         requireSharpReference: s.daily.requireSharpReference,
         maxAmerican: 400,
+        // Exchanges take commission on winnings (ProphetX 2%); the app ids match the feed's book keys.
+        commission: Object.fromEntries(s.apps.filter((a) => (a.commission ?? 0) > 0).map((a) => [a.id, a.commission!])),
       },
       correlation: s.correlation ?? DEFAULT_CORRELATION,
       constraints: { ...s.constraints, picks: s.daily.parlayLegs },
@@ -141,7 +143,7 @@ export default function TodayPage() {
       pickemGames,
       startedGames: pickemStarted,
     })
-  }, [daily, pickemLines, pickemGames, pickemStarted, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
+  }, [daily, pickemLines, pickemGames, pickemStarted, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable, s.apps])
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)
@@ -169,6 +171,15 @@ export default function TodayPage() {
     : daily?.pickemNote
   const pickemAppsSeen = Array.from(new Set((pickemLines ?? []).map((l) => l.app)))
   const entryExp = entry && entryMode ? entryExpectation(entry.map((l) => l.prob), entryMode) : null
+  // The table shows the 30 likeliest at the books' line, but the entry ranks by
+  // the app's own line, so a leg can come from further down. Its row is where
+  // its line can be checked and overridden, so it is always shown.
+  const shownTargets = React.useMemo(() => {
+    if (!picks) return []
+    const top = picks.dfsTargets.slice(0, 30)
+    const extra = (entry ?? []).map((l) => l.target).filter((t) => !top.includes(t))
+    return [...top, ...extra]
+  }, [picks, entry])
 
   // Books you bet at that the cached pull has no prices from, usually because
   // the pull predates adding them. Refreshing brings them in.
@@ -217,7 +228,8 @@ export default function TodayPage() {
         setError(data.error ?? `Request failed (${res.status}).`)
         return
       }
-      setDaily(dailyCacheFrom(data, leagueId, s.oddsFeed.provider))
+      // Pick'em lines are only kept when they will be used: each pull lives in this browser's storage.
+      setDaily(dailyCacheFrom(data, leagueId, s.oddsFeed.provider, { pickem: wantPickem }))
       const n = (data.quotes ?? []).length
       toast.success(
         n > 0
@@ -573,9 +585,19 @@ export default function TodayPage() {
                 <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
                   Most likely to hit first. Chance is the side the books favour, at the line they hang, which is
                   the line a pick&apos;em app almost always copies.{" "}
-                  {pickemAppsSeen.length > 0
-                    ? `The apps' own lines (${pickemAppsSeen.map(appName).join(", ")}) are listed under each player, priced off the same books, and ${appLinesPosted ? `${possessive(entryApp?.name ?? "your app")} line is filled in for you` : `${entryApp?.name ?? "your default app"} posted none in this pull, so type its line in`}. `
-                    : "Nothing here can see what PrizePicks or Underdog are offering unless a PropLine key is set in Settings, so if your app shows a different line, type it in. "}
+                  {!wantPickem
+                    ? "The pick'em apps' own lines are switched off in Settings, so if your app shows a different line, type it in. "
+                    : pickemAppsSeen.length > 0
+                      ? `The apps' own lines (${pickemAppsSeen.map(appName).join(", ")}) are listed under each player, priced off the same books, and ${
+                          appLinesPosted
+                            ? `${possessive(entryApp?.name ?? "your app")} line is filled in for you`
+                            : pickemAppsSeen.includes(s.defaultAppId)
+                              ? `none of ${possessive(entryApp?.name ?? "your app")} lines matched these props, so type its line in`
+                              : `${entryApp?.name ?? "your default app"} posted none in this pull, so type its line in`
+                        }. `
+                      : s.oddsFeed.proplineKey.trim() || serverKeys?.propline
+                        ? "No pick'em lines came through in this pull, so if your app shows a different line, type it in. "
+                        : "Nothing here can see what PrizePicks or Underdog are offering unless a PropLine key is set in Settings, so if your app shows a different line, type it in. "}
                   You get one answer: the over, the under, or pass. Never both: on a pick&apos;em app one
                   of the two always loses. The bar is a {pct(dfsBreakEven)} per-leg hit rate, from your default{" "}
                   {s.constraints.picks}-pick entry, for standard picks; a goblin or demon pays differently and needs
@@ -596,7 +618,7 @@ export default function TodayPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {picks.dfsTargets.slice(0, 30).map((t) => (
+                      {shownTargets.map((t) => (
                         <DfsTargetRow key={t.key} t={t} bar={dfsBreakEven} app={s.defaultAppId} />
                       ))}
                     </tbody>

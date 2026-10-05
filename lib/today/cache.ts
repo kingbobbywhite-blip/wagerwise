@@ -27,19 +27,23 @@ export function dailyCacheFrom(
   data: TodayResponse,
   league: LeagueId,
   provider: OddsProvider,
-  fetchedAt: string = new Date().toISOString(),
+  opts: { pickem?: boolean; fetchedAt?: string } = {},
 ): DailyCache {
+  // The apps' lines and the games they answered for are only kept when they
+  // will be used: every pull lives in this browser's storage. Which games had
+  // started is kept either way, since it is a fact about the games.
+  const pickem = opts.pickem ?? true
   return {
     league,
-    fetchedAt: data.fetchedAt ?? fetchedAt,
+    fetchedAt: data.fetchedAt ?? opts.fetchedAt ?? new Date().toISOString(),
     quotes: data.quotes ?? [],
     events: data.events ?? [],
     requestsRemaining: data.requestsRemaining ?? null,
     creditsSpent: data.estimatedCredits ?? 0,
     nextEvent: data.nextEvent,
     provider: data.provider ?? provider,
-    pickemLines: data.pickemLines ?? undefined,
-    pickemGames: data.pickemGames ?? undefined,
+    pickemLines: pickem ? (data.pickemLines ?? undefined) : undefined,
+    pickemGames: pickem ? (data.pickemGames ?? undefined) : undefined,
     pickemStarted: data.pickemStarted ?? undefined,
     pickemNote: data.pickemNote ?? null,
   }

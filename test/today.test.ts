@@ -453,6 +453,79 @@ describe("pick'em lines from the apps", () => {
   })
 })
 
+import { appVerdict } from "@/lib/today/build"
+import { sideEdge } from "@/lib/quant/valuebets"
+
+describe("games that have already started", () => {
+  const started = (player: string, gameId: string, prob: number, commenceTime: string) =>
+    ({ key: player, player, gameId, marketProb: prob, marketSide: "OVER", marketLine: 20.5, marketLabel: "Points", commenceTime, appLines: [], appCoverage: [] }) as unknown as DfsTarget
+
+  it("never puts a leg from a started game in the entry, however likely it looks", () => {
+    const now = Date.parse("2026-01-16T01:30:00Z")
+    const targets = [
+      started("Live", "g1", 0.78, "2026-01-16T00:10:00Z"),
+      started("Later A", "g2", 0.62, "2026-01-16T03:00:00Z"),
+      started("Later B", "g3", 0.6, "2026-01-16T03:30:00Z"),
+    ]
+    const entry = buildPickemEntry(targets, 2, 0.55, 2, "prizepicks", now)!
+    expect(entry.map((l) => l.target.player)).toEqual(["Later A", "Later B"])
+    expect(buildPickemEntry(targets, 3, 0.55, 2, "prizepicks", now)).toBeNull()
+  })
+})
+
+describe("appVerdict: the target row's answer at the app's own line", () => {
+  const ud = (over: number, extra: Partial<AppLine> = {}): Pick<DfsTarget, "appLines"> => ({
+    appLines: [
+      {
+        app: "underdog", line: 25.5, pickType: "standard", over, under: 1 - over, push: 0,
+        overMultiplier: null, underMultiplier: null, overOffered: true, underOffered: true, ...extra,
+      },
+    ],
+  })
+
+  it("names a standard side that clears the bar", () => {
+    expect(appVerdict(ud(0.58), "underdog", 0.55)).toEqual({ line: 25.5, side: "OVER", prob: 0.58, reason: null })
+  })
+
+  it("passes on a favoured side the app discounts, and says why", () => {
+    const v = appVerdict(ud(0.58, { overMultiplier: 0.85 }), "underdog", 0.55)!
+    expect(v.side).toBeNull()
+    expect(v.reason).toBe("the over pays ×0.85, which needs its own bar")
+  })
+
+  it("passes on a favoured side the app does not offer", () => {
+    expect(appVerdict(ud(0.58, { overOffered: false }), "underdog", 0.55)!.reason).toBe("the over is not offered")
+  })
+
+  it("says neither clears when the standard sides fall short, and is null without a standard line", () => {
+    expect(appVerdict(ud(0.52), "underdog", 0.55)!.reason).toBe("neither side clears")
+    expect(appVerdict(ud(0.6, { pickType: "goblin" }), "underdog", 0.55)).toBeNull()
+    expect(appVerdict(ud(0.6), "prizepicks", 0.55)).toBeNull()
+  })
+})
+
+describe("exchange commission", () => {
+  it("judges an exchange price on what comes back after commission", () => {
+    expect(sideEdge(0.51, 100).edge).toBeCloseTo(0.02, 9)
+    const net = sideEdge(0.51, 100, 0.02)
+    expect(net.edge).toBeCloseTo(0.51 * 1.98 - 1, 9)
+    expect(net.kelly).toBeCloseTo((0.51 * 1.98 - 1) / 0.98, 9)
+  })
+
+  it("drops a ProphetX edge that only clears the bar before commission", () => {
+    const quotes = [
+      q("A Player", "PTS", "pinnacle", 20.5, -110, -110),
+      q("A Player", "PTS", "betonlineag", 20.5, -110, -110),
+      q("A Player", "PTS", "prophetx", 20.5, 106, -125),
+    ]
+    const value = { ...OPTS.value, minEdge: 0.02 }
+    const gross = findValueBets(quotes, value, OPTS.now).filter((b) => b.book === "prophetx")
+    const net = findValueBets(quotes, { ...value, commission: { prophetx: 0.02 } }, OPTS.now).filter((b) => b.book === "prophetx")
+    expect(gross.length).toBe(1)
+    expect(net.length).toBe(0)
+  })
+})
+
 describe("started games and shared names in the pick'em entry", () => {
   const NOW = Date.parse("2026-01-16T01:00:00Z")
   const appLine = (over: number): AppLine => ({

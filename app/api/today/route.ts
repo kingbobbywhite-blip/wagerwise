@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
+import { crossSiteRejection } from "@/lib/odds-feed/same-origin"
 import { estimateCredits, eventOddsUrl, eventsUrl, marketsForLeague, normalizeMany } from "@/lib/odds-feed/theoddsapi"
 import {
   PICKEM_BOOKS,
   normalizeProplineMany,
+  onlyPricedPlayers,
   pickemNoteFor,
   pickemSlate,
   pullPropline,
@@ -80,6 +82,10 @@ async function fetchJson<T>(url: string): Promise<{ data: T; remaining: number |
 }
 
 export async function POST(request: Request) {
+  // Before any key is read: another site's page must not spend this server's quota.
+  const refused = crossSiteRejection(request)
+  if (refused) return refused
+
   let body: RequestBody
   try {
     body = (await request.json()) as RequestBody
@@ -224,7 +230,16 @@ export async function POST(request: Request) {
     // and never costs the prices already pulled.
     const pickem =
       body.pickemLines && proplineKey
-        ? await pickemFromPropline({ apiKey: proplineKey, leagueId, markets, maxGames, fromMs, toMs, games: selected })
+        ? await pickemFromPropline({
+            apiKey: proplineKey,
+            leagueId,
+            markets,
+            maxGames,
+            fromMs,
+            toMs,
+            games: selected,
+            quotes: normalized.quotes,
+          })
         : { lines: [] as PickemLine[], games: [] as PickemGame[], started: [] as string[], note: null, remaining: null }
 
     return NextResponse.json({
@@ -312,7 +327,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       ...base,
       events: pull.selected,
       quotes: normalized.quotes,
-      pickemLines: normalized.pickemLines,
+      pickemLines: onlyPricedPlayers(normalized.pickemLines, normalized.quotes),
       pickemGames: normalized.pickemGames,
       pickemStarted: normalized.startedGames,
       pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures, {
@@ -338,7 +353,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
  * prices, for exactly the games The Odds API priced.
  */
 async function pickemFromPropline(
-  args: PullArgs & { games: FeedEvent[] },
+  args: PullArgs & { games: FeedEvent[]; quotes: { player: string; playerKey?: string }[] },
 ): Promise<{ lines: PickemLine[]; games: PickemGame[]; started: string[]; note: string | null; remaining: number | null }> {
   const league = leagueFor(args.leagueId)
   try {
@@ -355,7 +370,7 @@ async function pickemFromPropline(
       ),
     )
     return {
-      lines: normalized.pickemLines,
+      lines: onlyPricedPlayers(normalized.pickemLines, args.quotes),
       games: normalized.pickemGames,
       started: normalized.startedGames,
       note,
