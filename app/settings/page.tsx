@@ -550,7 +550,8 @@ export default function SettingsPage() {
             </div>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               Holding {state.slips.length} logged entries and {state.slate?.rows.length ?? 0} slate lines. Export writes
-              a single JSON file containing your settings, current slate and full betting history.
+              a single JSON file containing your settings, current slate and full betting history. The settings
+              include any API keys entered here, so a restore brings them back; keep the file private.
             </p>
           </div>
         </TabsContent>

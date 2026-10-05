@@ -7,6 +7,7 @@ import {
   normalizeMany,
 } from "@/lib/odds-feed/theoddsapi"
 import { normalizeProplineMany, pullPropline, resolveProplineKey } from "@/lib/odds-feed/propline"
+import { feedErrorText, fetchOddsApi, noneCouldBePriced, notStarted } from "@/lib/odds-feed/http"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
 import { DEFAULT_LEAGUE, LEAGUE_IDS, isLeagueId, leagueFor } from "@/lib/leagues"
 
@@ -56,21 +57,6 @@ function resolveKey(body: RequestBody): string | null {
   return null
 }
 
-async function fetchJson<T>(url: string): Promise<{ data: T; remaining: number | null; used: number | null }> {
-  const res = await fetch(url, { cache: "no-store" })
-  if (!res.ok) {
-    const text = await res.text().catch(() => "")
-    throw new Error(`Feed returned ${res.status}. ${text.slice(0, 300)}`)
-  }
-  const remaining = Number(res.headers.get("x-requests-remaining"))
-  const used = Number(res.headers.get("x-requests-used"))
-  return {
-    data: (await res.json()) as T,
-    remaining: Number.isFinite(remaining) ? remaining : null,
-    used: Number.isFinite(used) ? used : null,
-  }
-}
-
 export async function POST(request: Request) {
   let body: RequestBody
   try {
@@ -111,7 +97,8 @@ export async function POST(request: Request) {
   // Only today's games. Without a window this used to price every event the
   // feed listed, which during the season is weeks of games, and props are
   // billed per market per game: one press could spend a month's free quota.
-  const fromMs = body.from ? Date.parse(body.from) : Date.now()
+  const now = Date.now()
+  const fromMs = body.from ? Date.parse(body.from) : now
   const toMs = body.to ? Date.parse(body.to) : fromMs + 30 * 3600 * 1000
 
   if (usePropline) {
@@ -125,22 +112,37 @@ export async function POST(request: Request) {
         maxGames,
         eventIds: body.eventIds,
         eventsOnly: body.eventsOnly,
+        now,
       })
       const cappedOut = pull.cappedOut
       if (body.eventsOnly) {
         return NextResponse.json({
           league: leagueId,
           cappedOut,
+          startedCount: pull.started,
           events: pull.selected,
           estimatedCredits: 0,
           requestsRemaining: pull.quota?.remaining ?? null,
           requestsUsed: pull.quota?.used ?? null,
         })
       }
+      const failed = noneCouldBePriced(pull.selected.length, pull.payloads.length, pull.failures)
+      if (failed) {
+        return NextResponse.json(
+          {
+            error: failed,
+            failures: pull.failures,
+            requestsRemaining: pull.quota?.remaining ?? null,
+            requestsUsed: pull.quota?.used ?? null,
+          },
+          { status: 502 },
+        )
+      }
       const normalized = normalizeProplineMany(pull.payloads, league.sport)
       return NextResponse.json({
         league: leagueId,
         cappedOut,
+        startedCount: pull.started,
         events: pull.selected,
         quotes: normalized.quotes,
         unknownMarkets: normalized.unknownMarkets,
@@ -151,21 +153,23 @@ export async function POST(request: Request) {
         requestsUsed: pull.quota?.used ?? null,
       })
     } catch (err) {
-      return NextResponse.json(
-        { error: err instanceof Error ? err.message : "Could not reach PropLine." },
-        { status: 502 },
-      )
+      return NextResponse.json({ error: feedErrorText(err, "PropLine") }, { status: 502 })
     }
   }
 
   try {
-    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey!, leagueId))
-    const inWindow = events.data
+    const events = await fetchOddsApi<FeedEvent[]>(eventsUrl(apiKey!, leagueId))
+    if (!Array.isArray(events.data)) throw new SyntaxError("events listing is not a list")
+    const listed = events.data
       .filter((e) => {
         const t = Date.parse(e.commence_time)
         return Number.isFinite(t) && t >= fromMs && t <= toMs
       })
       .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
+    // A game under way is priced live and its pick'em lines are closed, so it
+    // is skipped before the cap rather than spending a slot and quota.
+    const inWindow = listed.filter((e) => notStarted(e.commence_time, now))
+    const started = listed.length - inWindow.length
     const chosen = body.eventIds?.length ? inWindow.filter((e) => body.eventIds!.includes(e.id)) : inWindow
     const wanted = chosen.slice(0, maxGames)
     const cappedOut = chosen.length - wanted.length
@@ -174,6 +178,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         league: leagueId,
         cappedOut,
+        startedCount: started,
         events: wanted,
         estimatedCredits: estimateCredits(wanted.length, markets.length),
         requestsRemaining: events.remaining,
@@ -191,15 +196,23 @@ export async function POST(request: Request) {
 
     for (const e of wanted) {
       try {
-        const r = await fetchJson<FeedEventOdds>(
+        const r = await fetchOddsApi<FeedEventOdds>(
           eventOddsUrl(apiKey!, e.id, { markets, regions, bookmakers: body.bookmakers, league: leagueId }),
         )
         payloads.push(r.data)
         if (r.remaining != null) remaining = r.remaining
         if (r.used != null) used = r.used
       } catch (err) {
-        failures.push({ eventId: e.id, error: err instanceof Error ? err.message : String(err) })
+        failures.push({ eventId: e.id, error: feedErrorText(err, "The Odds API") })
       }
+    }
+
+    const failed = noneCouldBePriced(wanted.length, payloads.length, failures)
+    if (failed) {
+      return NextResponse.json(
+        { error: failed, failures, requestsRemaining: remaining, requestsUsed: used },
+        { status: 502 },
+      )
     }
 
     const normalized = normalizeMany(payloads, league.sport)
@@ -207,6 +220,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       league: leagueId,
       cappedOut,
+      startedCount: started,
       events: wanted,
       quotes: normalized.quotes,
       unknownMarkets: normalized.unknownMarkets,
@@ -217,9 +231,6 @@ export async function POST(request: Request) {
       requestsUsed: used,
     })
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Could not reach the odds feed." },
-      { status: 502 },
-    )
+    return NextResponse.json({ error: feedErrorText(err, "The Odds API") }, { status: 502 })
   }
 }

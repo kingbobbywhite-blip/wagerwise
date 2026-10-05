@@ -16,11 +16,12 @@ import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
 import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import { buildDailyPicks, buildPickemEntry, hasAppLines } from "@/lib/today/build"
+import { buildDailyPicks, buildPickemEntry, hasAppLines, upcomingQuotes } from "@/lib/today/build"
 import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
 import { NO_SERVER_KEYS, hasFeedKey, parseServerKeys, type ServerKeys } from "@/lib/odds-feed/keys"
+import { notStarted } from "@/lib/odds-feed/http"
 import { useStore } from "@/lib/store/provider"
 import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
 import { pct, possessive, shortDate, signedPct } from "@/lib/format"
@@ -50,6 +51,14 @@ export default function TodayPage() {
   // Which keys the server holds in its environment, which the routes use
   // before any key from Settings. Null until the server has answered.
   const [serverKeys, setServerKeys] = React.useState<ServerKeys | null>(null)
+  // The clock that retires games from a cached pull as they start. A minute is
+  // fine-grained enough for tip-off and cheap enough to rebuild the picks on.
+  const [now, setNow] = React.useState(() => Date.now())
+
+  React.useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   React.useEffect(() => {
     let live = true
@@ -81,6 +90,15 @@ export default function TodayPage() {
   // Only ever show the cache belonging to the league on screen. Rendering an
   // NBA pull under a WNBA heading would be worse than showing nothing.
   const daily = state.daily[leagueId] ?? null
+  // Only games still to start are worth a pick; the rest of the pull is kept,
+  // so this undoes itself if the clock was wrong.
+  const upcoming = React.useMemo(
+    () => (daily ? upcomingQuotes(daily.quotes as FeedQuote[], now) : []),
+    [daily, now],
+  )
+  const startedSincePull = daily
+    ? new Set(daily.quotes.filter((q) => !notStarted(q.commenceTime, now)).map((q) => q.gameId)).size
+    : 0
   // A PropLine pull carries the lines whatever the switch says; it is honoured here.
   const pickemLines = wantPickem ? daily?.pickemLines : undefined
   const markets = marketsForLeague(leagueId, s.daily.markets)
@@ -111,8 +129,8 @@ export default function TodayPage() {
   }, [s.apps, s.defaultAppId, s.defaultModeId, s.constraints.picks])
 
   const picks = React.useMemo(() => {
-    if (!daily || daily.quotes.length === 0) return null
-    return buildDailyPicks(daily.quotes as FeedQuote[], {
+    if (!daily || upcoming.length === 0) return null
+    return buildDailyPicks(upcoming, {
       value: {
         projection: { ...s.projection, league: leagueId },
         minEdge: s.daily.minEdge,
@@ -127,7 +145,7 @@ export default function TodayPage() {
       bettableBooks: s.oddsFeed.bettable,
       pickemLines,
     })
-  }, [daily, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
+  }, [daily, upcoming, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)
@@ -197,6 +215,7 @@ export default function TodayPage() {
         requestsRemaining: data.requestsRemaining ?? null,
         creditsSpent: data.estimatedCredits ?? 0,
         nextEvent: data.nextEvent,
+        startedCount: data.startedCount ?? 0,
         provider: data.provider ?? s.oddsFeed.provider,
         pickemLines: data.pickemLines ?? undefined,
         pickemNote: data.pickemNote ?? null,
@@ -205,16 +224,26 @@ export default function TodayPage() {
       toast.success(
         n > 0
           ? `Pulled ${n} ${league.label} prices`
-          : data.nextEvent
-            ? `No ${league.label} games today. Next: ${nextGameText(data.nextEvent)}`
-            : data.note ?? `No ${league.label} prices for today`,
+          : data.startedCount > 0
+            ? `Every ${league.label} game today has already started`
+            : data.nextEvent
+              ? `No ${league.label} games today. Next: ${nextGameText(data.nextEvent)}`
+              : data.note ?? `No ${league.label} prices for today`,
       )
+      if (n > 0 && data.startedCount > 0) {
+        toast.info(
+          `${data.startedCount} game${data.startedCount === 1 ? " had" : "s had"} already started and ${data.startedCount === 1 ? "was" : "were"} skipped: live games are not priced.`,
+        )
+      }
       if (data.costSevere && data.costWarning) toast.warning(data.costWarning)
       if (data.cappedOut > 0) {
         toast.info(`${data.cappedOut} more games on the slate were not pulled, to protect your feed quota.`)
       }
       if (data.failures?.length) {
-        toast.warning(`${data.failures.length} games could not be priced`)
+        toast.warning(
+          `${data.failures.length} of ${(data.events ?? []).length} games could not be priced`,
+          { description: data.failures[0].error },
+        )
       }
       if (data.pickemNote && wantPickem) {
         toast.info(data.pickemNote)
@@ -247,7 +276,11 @@ export default function TodayPage() {
                           ? ` · ${daily.requestsRemaining} PropLine requests left today`
                           : ` · ${daily.requestsRemaining} feed requests left`
                         : ""
-                    }${pickemAppsSeen.length > 0 ? ` · lines from ${pickemAppsSeen.map(appName).join(", ")}` : ""}`
+                    }${pickemAppsSeen.length > 0 ? ` · lines from ${pickemAppsSeen.map(appName).join(", ")}` : ""}${
+                      startedSincePull > 0
+                        ? ` · ${startedSincePull} game${startedSincePull === 1 ? " has" : "s have"} started since, and ${startedSincePull === 1 ? "is" : "are"} hidden`
+                        : ""
+                    }`
                   : `Pull today's ${league.label} slate and price it.`}
               </p>
             </div>
@@ -596,7 +629,11 @@ export default function TodayPage() {
             <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-muted-foreground">
               {!daily
                 ? "Press the button above to pull today's slate. Player props are billed per market per game, so nothing is fetched until you ask."
-                : daily.nextEvent
+                : daily.quotes.length > 0
+                  ? `Every game in this pull has started since it was pulled, so nothing in it can still be played. Press Refresh for any later games today.`
+                  : daily.startedCount
+                    ? `Every ${league.label} game today has already started, and live games are not priced: their lines move with the score and the pick'em apps have closed them.${daily.nextEvent ? ` The next game is ${nextGameText(daily.nextEvent)}.` : ""}`
+                    : daily.nextEvent
                   ? `There is no ${league.label} game today, so there is nothing to price. The next game is ${nextGameText(daily.nextEvent)}. Press Refresh that day; props usually go up a few hours before tip.`
                   : daily.nextEvent === null
                     ? `The feed lists no upcoming ${league.label} games at all, so the season looks to be over or the next schedule is not posted yet. Nothing is broken; switch leagues above.`

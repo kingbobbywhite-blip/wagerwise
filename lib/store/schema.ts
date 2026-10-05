@@ -242,6 +242,8 @@ export interface DailyCache {
    * it lists none at all. Tells "no game today" apart from "season over".
    */
   nextEvent?: { commence_time: string; home_team: string; away_team: string } | null
+  /** Games in today's window that had already started at pull time, and so were not priced. */
+  startedCount?: number
   /** The feed that priced this pull. Absent on pulls from before there was a choice. */
   provider?: OddsProvider
   /** Lines the pick'em apps were posting at pull time, from PropLine. Absent when not pulled. */
