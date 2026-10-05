@@ -16,7 +16,7 @@ import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
 import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import { buildDailyPicks, buildPickemEntry, hasAppLines } from "@/lib/today/build"
+import { appAnswered, buildDailyPicks, buildPickemEntry, hasAppLines } from "@/lib/today/build"
 import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
@@ -50,6 +50,13 @@ export default function TodayPage() {
   // Which keys the server holds in its environment, which the routes use
   // before any key from Settings. Null until the server has answered.
   const [serverKeys, setServerKeys] = React.useState<ServerKeys | null>(null)
+  // A clock for the entry: a game that tips while this page is open must leave
+  // it without waiting for a refresh, because the apps stop taking it at the start.
+  const [now, setNow] = React.useState(() => Date.now())
+  React.useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   React.useEffect(() => {
     let live = true
@@ -84,6 +91,7 @@ export default function TodayPage() {
   // A PropLine pull carries the lines whatever the switch says; it is honoured here.
   const pickemLines = wantPickem ? daily?.pickemLines : undefined
   const pickemGames = wantPickem ? daily?.pickemGames : undefined
+  const pickemStarted = wantPickem ? daily?.pickemStarted : undefined
   const markets = marketsForLeague(leagueId, s.daily.markets)
   // Credits are The Odds API's monthly quota. PropLine counts requests per day,
   // one per game whatever the markets, so a slate is never a quota event there.
@@ -128,19 +136,28 @@ export default function TodayPage() {
       bettableBooks: s.oddsFeed.bettable,
       pickemLines,
       pickemGames,
+      startedGames: pickemStarted,
     })
-  }, [daily, pickemLines, pickemGames, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
+  }, [daily, pickemLines, pickemGames, pickemStarted, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable])
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)
   const entryMode = findMode(entryApp, s.defaultModeId)
   const entry = React.useMemo(
-    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, dfsBreakEven, 2, s.defaultAppId) : null),
-    [picks, s.constraints.picks, dfsBreakEven, s.defaultAppId],
+    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, dfsBreakEven, 2, s.defaultAppId, now) : null),
+    [picks, s.constraints.picks, dfsBreakEven, s.defaultAppId, now],
   )
-  // Whether this pull carried the default app's own lines, so the entry and
-  // the targets can say which line they are at.
-  const appLinesLive = !!picks && hasAppLines(picks.dfsTargets, s.defaultAppId)
+  // Whether the default app answered for any game in this pull, so the entry
+  // can say which line each leg is at and that props it was not offering are out.
+  const appLinesLive = !!picks && appAnswered(picks.dfsTargets, s.defaultAppId)
+  // Whether it posted any lines at all, for the targets table to fill them in.
+  const appLinesPosted = !!picks && hasAppLines(picks.dfsTargets, s.defaultAppId)
+  // The pick'em note is written at pull time. Once every game has started it is
+  // out of date whatever it said, so it says that instead.
+  const allStarted = !!daily && daily.events.length > 0 && daily.events.every((e) => Date.parse(e.commence_time) <= now)
+  const pickemNote = allStarted
+    ? "Every game in this pull has started, and the pick'em apps stop taking picks at the start."
+    : daily?.pickemNote
   const pickemAppsSeen = Array.from(new Set((pickemLines ?? []).map((l) => l.app)))
   const entryExp = entry && entryMode ? entryExpectation(entry.map((l) => l.prob), entryMode) : null
 
@@ -547,13 +564,13 @@ export default function TodayPage() {
                   Most likely to hit first. Chance is the side the books favour, at the line they hang, which is
                   the line a pick&apos;em app almost always copies.{" "}
                   {pickemAppsSeen.length > 0
-                    ? `The apps' own lines (${pickemAppsSeen.map(appName).join(", ")}) are listed under each player, priced off the same books, and ${appLinesLive ? `${possessive(entryApp?.name ?? "your app")} line is filled in for you` : `${entryApp?.name ?? "your default app"} posted none in this pull, so type its line in`}. `
+                    ? `The apps' own lines (${pickemAppsSeen.map(appName).join(", ")}) are listed under each player, priced off the same books, and ${appLinesPosted ? `${possessive(entryApp?.name ?? "your app")} line is filled in for you` : `${entryApp?.name ?? "your default app"} posted none in this pull, so type its line in`}. `
                     : "Nothing here can see what PrizePicks or Underdog are offering unless a PropLine key is set in Settings, so if your app shows a different line, type it in. "}
                   You get one answer: the over, the under, or pass. Never both: on a pick&apos;em app one
                   of the two always loses. The bar is a {pct(dfsBreakEven)} per-leg hit rate, from your default{" "}
                   {s.constraints.picks}-pick entry, for standard picks; a goblin or demon pays differently and needs
                   its own bar.
-                  {wantPickem && daily?.pickemNote ? ` ${daily.pickemNote}` : ""}
+                  {wantPickem && pickemNote ? ` ${pickemNote}` : ""}
                 </p>
                 <div className="overflow-x-auto rounded-lg border border-border/60">
                   <table className="w-full min-w-[760px] border-collapse text-sm">

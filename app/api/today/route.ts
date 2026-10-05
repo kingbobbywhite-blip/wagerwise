@@ -4,6 +4,7 @@ import {
   PICKEM_BOOKS,
   normalizeProplineMany,
   pickemNoteFor,
+  pickemSlate,
   pullPropline,
   resolveProplineKey,
   type PickemGame,
@@ -224,7 +225,7 @@ export async function POST(request: Request) {
     const pickem =
       body.pickemLines && proplineKey
         ? await pickemFromPropline({ apiKey: proplineKey, leagueId, markets, maxGames, fromMs, toMs, games: selected })
-        : { lines: [] as PickemLine[], games: [] as PickemGame[], note: null, remaining: null }
+        : { lines: [] as PickemLine[], games: [] as PickemGame[], started: [] as string[], note: null, remaining: null }
 
     return NextResponse.json({
       league: leagueId,
@@ -233,6 +234,7 @@ export async function POST(request: Request) {
       quotes: normalized.quotes,
       pickemLines: pickem.lines,
       pickemGames: pickem.games,
+      pickemStarted: pickem.started,
       pickemNote: pickem.note,
       proplineRemaining: pickem.remaining,
       unknownMarkets: normalized.unknownMarkets,
@@ -299,6 +301,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
         quotes: [],
         pickemLines: [],
         pickemGames: [],
+        pickemStarted: [],
         nextEvent: next ? { commence_time: next.commence_time, home_team: next.home_team, away_team: next.away_team } : null,
         note,
       })
@@ -311,8 +314,9 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       quotes: normalized.quotes,
       pickemLines: normalized.pickemLines,
       pickemGames: normalized.pickemGames,
+      pickemStarted: normalized.startedGames,
       pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures, {
-        asked: pull.selected.length,
+        games: pull.selected.length,
         started: normalized.startedGames.length,
       }),
       unknownMarkets: normalized.unknownMarkets,
@@ -335,19 +339,20 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
  */
 async function pickemFromPropline(
   args: PullArgs & { games: FeedEvent[] },
-): Promise<{ lines: PickemLine[]; games: PickemGame[]; note: string | null; remaining: number | null }> {
+): Promise<{ lines: PickemLine[]; games: PickemGame[]; started: string[]; note: string | null; remaining: number | null }> {
   const league = leagueFor(args.leagueId)
   try {
     const pull = await pullPropline({ ...args, league: args.leagueId, bookmakers: PICKEM_BOOKS })
     const normalized = normalizeProplineMany(pull.payloads, league.sport)
-    const note = pickemNoteFor(normalized.pickemLines.length, pull.failures, {
-      asked: pull.selected.length,
-      started: normalized.startedGames.length,
-      unlisted: args.games.length - pull.selected.length,
-    })
+    const note = pickemNoteFor(
+      normalized.pickemLines.length,
+      pull.failures,
+      pickemSlate(args.games, pull.selected, normalized.startedGames),
+    )
     return {
       lines: normalized.pickemLines,
       games: normalized.pickemGames,
+      started: normalized.startedGames,
       note,
       remaining: pull.quota?.remaining ?? null,
     }
@@ -355,6 +360,7 @@ async function pickemFromPropline(
     return {
       lines: [],
       games: [],
+      started: [],
       note: `Pick'em lines unavailable: ${err instanceof Error ? err.message : String(err)}`,
       remaining: null,
     }

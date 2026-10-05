@@ -118,7 +118,7 @@ The same caution about public deployments applies: leave `PROPLINE_API_KEY` unse
 unprotected URL and enter the key in Settings instead.
 
 ```bash
-npm test         # 502 unit tests over the probability engine, the feeds and screenshot reading
+npm test         # 510 unit tests over the probability engine, the feeds and screenshot reading
 npm run lint
 npm run build
 ```

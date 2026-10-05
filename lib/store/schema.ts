@@ -252,6 +252,8 @@ export interface DailyCache {
    * pulls from before it was recorded.
    */
   pickemGames?: PickemGame[]
+  /** Games PropLine reported under way at pull time ("Away@Home" in its names). */
+  pickemStarted?: string[]
   /** Why the pick'em lines are missing or partial, when they are. */
   pickemNote?: string | null
 }

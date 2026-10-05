@@ -465,29 +465,70 @@ describe("games the apps answered for", () => {
   })
 })
 
-describe("pickemNoteFor with the games behind it", () => {
+describe("pickemNoteFor over the priced slate", () => {
   it("says every game has started instead of telling the user to wait for lines", () => {
-    const note = pickemNoteFor(0, [], { asked: 3, started: 3 })!
-    expect(note).toContain("Every game here has started")
-    expect(note).not.toContain("usually post")
+    const note = pickemNoteFor(0, [], { games: 3, started: 3 })!
+    expect(note).toBe("Every game on this slate has started, and the pick'em apps stop taking picks at the start.")
   })
 
-  it("separates games that started from games the apps have not posted yet", () => {
-    expect(pickemNoteFor(0, [], { asked: 3, started: 1 })).toContain("1 of these games has started")
+  it("counts started games against the whole slate, and only the rest as not posted", () => {
+    const note = pickemNoteFor(0, [], { games: 3, started: 1 })!
+    expect(note).toContain("1 of the 3 games has started")
+    expect(note).toContain("no open pick'em lines for the other 2 games yet")
   })
 
-  it("names games PropLine did not list before anything about the apps", () => {
-    expect(pickemNoteFor(0, [], { asked: 0, unlisted: 4 })).toBe(
-      "PropLine did not list 4 of the priced games, so props there are at the books' line.",
+  it("names games PropLine did not list, and never calls the slate fully started when it is not", () => {
+    expect(pickemNoteFor(0, [], { games: 4, started: 0, unlisted: 4 })).toBe(
+      "PropLine did not list 4 of the games still to start, so props there are at the books' line.",
     )
-    const both = pickemNoteFor(0, [], { asked: 2, unlisted: 1 })!
-    expect(both.startsWith("PropLine did not list 1 of the priced game")).toBe(true)
-    expect(both).toContain("no pick'em lines for these games yet")
-    expect(pickemNoteFor(8, [], { asked: 3, unlisted: 1 })).toContain("did not list 1")
+    // Three priced games: PropLine lists two, both under way, and not a third still to start.
+    const mixed = pickemNoteFor(0, [], { games: 3, started: 2, unlisted: 1 })!
+    expect(mixed).toContain("did not list 1 of the games still to start")
+    expect(mixed).toContain("2 of the 3 games have started")
+    expect(mixed).not.toContain("Every game")
+    expect(mixed).not.toContain("no open pick'em lines")
   })
 
-  it("still names a failed request first", () => {
-    expect(pickemNoteFor(0, [{ error: "limit" }], { asked: 3, started: 3, unlisted: 2 })).toContain("could not be read: limit")
+  it("keeps the unlisted count when a request also failed", () => {
+    const note = pickemNoteFor(0, [{ error: "limit" }], { games: 3, started: 0, unlisted: 1 })!
+    expect(note.startsWith("Pick'em lines for 1 game could not be read: limit")).toBe(true)
+    expect(note).toContain("did not list 1 of the games still to start")
+  })
+
+  it("says nothing more when lines arrived for a slate that is still to start", () => {
+    expect(pickemNoteFor(8, [], { games: 3, started: 0, unlisted: 0 })).toBeNull()
+  })
+
+  it("allows that a missing line may have been pulled, not only not posted yet", () => {
+    expect(pickemNoteFor(0, [], { games: 2, started: 0 })).toContain("pull a line when news breaks")
+  })
+})
+
+import { pickemSlate } from "@/lib/odds-feed/propline"
+
+describe("pickemSlate", () => {
+  const NOW = Date.parse("2026-01-16T01:00:00Z")
+  const game = (away: string, home: string, commence_time: string) => ({ away_team: away, home_team: home, commence_time })
+  const minOkc = game("Minnesota Timberwolves", "Oklahoma City Thunder", "2026-01-16T00:10:00Z")
+  const denLac = game("Denver Nuggets", "Los Angeles Clippers", "2026-01-16T03:00:00Z")
+  const bosNyk = game("Boston Celtics", "New York Knicks", "2026-01-16T06:00:00Z")
+
+  it("counts a started game as started even when PropLine no longer lists it", () => {
+    expect(pickemSlate([minOkc, denLac], [denLac], [], NOW)).toEqual({ games: 2, started: 1, unlisted: 0 })
+  })
+
+  it("counts a game PropLine says has started, though the pricing feed lists a later start", () => {
+    const later = { ...minOkc, commence_time: "2026-01-16T01:30:00Z" }
+    const listed = { ...minOkc, home_team: "OKC Thunder" }
+    expect(pickemSlate([later], [listed], ["Minnesota Timberwolves@OKC Thunder"], NOW)).toEqual({
+      games: 1,
+      started: 1,
+      unlisted: 0,
+    })
+  })
+
+  it("counts only games still to start as unlisted", () => {
+    expect(pickemSlate([minOkc, denLac, bosNyk], [minOkc], [], NOW)).toEqual({ games: 3, started: 1, unlisted: 2 })
   })
 })
 

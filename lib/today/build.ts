@@ -101,6 +101,11 @@ export interface DfsTarget {
    * one from a game the app's lines never arrived for is simply unknown.
    */
   appCoverage?: string[]
+  /**
+   * PropLine reported this game under way at pull time. The feed that priced
+   * the slate can list a later start, so this is checked as well as the time.
+   */
+  started?: boolean
 }
 
 export interface DailyPicks {
@@ -151,6 +156,8 @@ export interface BuildOptions {
   pickemLines?: PickemLine[]
   /** Games each app answered for, including ones whose lines were all closed or pulled. */
   pickemGames?: PickemGame[]
+  /** Games PropLine reported under way ("Away@Home" in its names). */
+  startedGames?: string[]
   now?: number
 }
 
@@ -295,66 +302,63 @@ export function priceAppLines(
     .sort((a, b) => a.app.localeCompare(b.app) || a.line - b.line)
 }
 
-/** "Minnesota Timberwolves@Oklahoma City Thunder" to "timberwolves@thunder". */
-function nicknameKey(away: string, home: string): string {
-  return `${teamNickname(away)}@${teamNickname(home)}`
+function quoteTeams(q: FeedQuote): [string, string] | null {
+  if (q.awayTeam && q.homeTeam) return [q.awayTeam, q.homeTeam]
+  const [away, home] = q.gameId.split("@")
+  return away && home ? [away, home] : null
 }
 
-function quoteGameKey(q: FeedQuote): string | null {
-  if (q.awayTeam && q.homeTeam) return nicknameKey(q.awayTeam, q.homeTeam)
-  const [away, home] = q.gameId.split("@")
-  return away && home ? nicknameKey(away, home) : null
+function addTo(map: Map<string, Set<string>>, key: string, value: string) {
+  const set = map.get(key) ?? new Set<string>()
+  set.add(value)
+  map.set(key, set)
+}
+
+/**
+ * Place another feed's "Away@Home" on this slate. Both teams' nicknames first;
+ * failing that, one team, because a team plays once a day, so a feed that
+ * spells one side differently still lands on the right game. Never by a
+ * player's name: two players can share one, and a line from a game missing
+ * here must not land on a namesake's game.
+ */
+function slateGames(quotes: FeedQuote[]): (gameId: string) => string | undefined {
+  const byPair = new Map<string, string>()
+  const byAway = new Map<string, Set<string>>()
+  const byHome = new Map<string, Set<string>>()
+  for (const q of quotes) {
+    const teams = quoteTeams(q)
+    if (!teams) continue
+    const [away, home] = teams.map(teamNickname)
+    byPair.set(`${away}@${home}`, q.gameId)
+    addTo(byAway, away, q.gameId)
+    addTo(byHome, home, q.gameId)
+  }
+  return (gameId) => {
+    const [awayName, homeName] = gameId.split("@")
+    if (!awayName || !homeName) return undefined
+    const away = teamNickname(awayName)
+    const home = teamNickname(homeName)
+    const exact = byPair.get(`${away}@${home}`)
+    if (exact) return exact
+    const either = new Set([...(byAway.get(away) ?? []), ...(byHome.get(home) ?? [])])
+    return either.size === 1 ? Array.from(either)[0] : undefined
+  }
 }
 
 /**
  * Which apps answered for each game on the slate. A game counts as covered when
  * the app sent anything for it, even if every line was then closed (the game
  * started) or pulled: its props are not on offer, which is not unknown.
- *
- * Games are matched on the teams' nicknames, so two feeds spelling a team
- * differently still agree. Where they disagree on a nickname too, a line is
- * placed by its player, but only when that player is in a single game on the
- * slate: two players sharing a name must not mark each other's games.
  */
 function pickemCoverage(
-  quotes: FeedQuote[],
+  gameOf: (gameId: string) => string | undefined,
   lines: PickemLine[] | undefined,
   games: PickemGame[] | undefined,
 ): Map<string, Set<string>> {
-  const gameByKey = new Map<string, string>()
-  const gamesByPlayer = new Map<string, Set<string>>()
-  for (const q of quotes) {
-    const key = quoteGameKey(q)
-    if (key) gameByKey.set(key, q.gameId)
-    const player = normalizeName(q.player)
-    const set = gamesByPlayer.get(player) ?? new Set<string>()
-    set.add(q.gameId)
-    gamesByPlayer.set(player, set)
-  }
-
   const byGame = new Map<string, Set<string>>()
-  const mark = (gameId: string, app: string) => {
-    const set = byGame.get(gameId) ?? new Set<string>()
-    set.add(app)
-    byGame.set(gameId, set)
-  }
-  const gameOf = (gameId: string): string | undefined => {
-    const [away, home] = gameId.split("@")
-    return away && home ? gameByKey.get(nicknameKey(away, home)) : undefined
-  }
-
-  for (const g of games ?? []) {
+  for (const g of [...(games ?? []), ...(lines ?? [])]) {
     const id = gameOf(g.gameId)
-    if (id) mark(id, g.app)
-  }
-  for (const l of lines ?? []) {
-    const id = gameOf(l.gameId)
-    if (id) {
-      mark(id, l.app)
-      continue
-    }
-    const only = gamesByPlayer.get(l.playerKey || normalizeName(l.player))
-    if (only && only.size === 1) mark(Array.from(only)[0], l.app)
+    if (id) addTo(byGame, id, g.app)
   }
   return byGame
 }
@@ -363,7 +367,11 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
   const now = opts.now ?? Date.now()
   const out: DfsTarget[] = []
   const appIndex = indexPickemLines(opts.pickemLines)
-  const coverage = pickemCoverage(quotes, opts.pickemLines, opts.pickemGames)
+  const gameOf = slateGames(quotes)
+  const coverage = pickemCoverage(gameOf, opts.pickemLines, opts.pickemGames)
+  const started = new Set(
+    (opts.startedGames ?? []).map(gameOf).filter((id): id is string => !!id),
+  )
 
   for (const group of groupQuotes(quotes)) {
     const ref = referenceProjection(group, group.quotes, opts.value, now)
@@ -394,6 +402,7 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
       marketProb: Math.max(atMarket.over, atMarket.under),
       appLines: priceAppLines(appIndex.get(`${normalizeName(group.player)}|${group.market}`) ?? [], ref.distribution),
       appCoverage: Array.from(coverage.get(group.gameId) ?? []).sort(),
+      started: started.has(group.gameId),
       ...t,
     })
   }
@@ -435,6 +444,18 @@ export function appPlay(
   return best
 }
 
+/**
+ * True when the app answered for any game in the pull, with lines or without
+ * (every line closed or pulled), so a prop it has no line for in a game it
+ * answered for is not on offer.
+ */
+export function appAnswered(
+  targets: Pick<DfsTarget, "appLines" | "appCoverage">[],
+  app: string | null | undefined,
+): boolean {
+  return hasAppLines(targets, app) || (!!app && targets.some((t) => (t.appCoverage ?? []).includes(app)))
+}
+
 /** True when the pull carried any lines from this app, so a missing line means "not offered". */
 export function hasAppLines(targets: Pick<DfsTarget, "appLines">[], app: string | null | undefined): boolean {
   return !!app && targets.some((t) => (t.appLines ?? []).some((l) => l.app === app))
@@ -468,12 +489,11 @@ export function buildPickemEntry(
   app?: string | null,
   now = Date.now(),
 ): PickemLeg[] | null {
-  // The app answered for at least one game: a missing line there means "not offered".
-  const live = hasAppLines(targets, app) || (!!app && targets.some((t) => (t.appCoverage ?? []).includes(app)))
+  const live = appAnswered(targets, app)
   const plays: PickemLeg[] = []
   for (const t of targets) {
     const start = t.commenceTime ? Date.parse(t.commenceTime) : NaN
-    if (Number.isFinite(start) && start <= now) continue
+    if (t.started || (Number.isFinite(start) && start <= now)) continue
     const p = live ? appPlay(t, app!) : null
     if (p) {
       plays.push({ target: t, ...p, source: "app" })

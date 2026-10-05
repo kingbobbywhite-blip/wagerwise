@@ -440,42 +440,86 @@ export async function proplineErrorText(res: Response): Promise<string> {
   return `PropLine returned ${res.status}. ${detail}`.trim()
 }
 
+/** The priced slate, as the pick'em note needs to describe it. */
+export interface PickemSlate {
+  /** Games on the priced slate. */
+  games: number
+  /** Of those, games that have started. */
+  started: number
+  /** Of those still to start, games PropLine did not list. */
+  unlisted?: number
+}
+
 /**
- * What to tell the user about the pick'em lines of a pull. A failed request is
- * named before anything else: when the daily limit runs out mid-pull, "the apps
- * have not posted yet" would send someone to wait for lines that are coming.
- * After that, games PropLine did not list, then games that have started, and
- * only then "not posted yet", so the note never blames the apps for a match
- * that failed or a game that is already under way.
+ * Count the priced slate for the pick'em note. A game has started when either
+ * feed's clock says so: the feeds can disagree on a start time, and the app
+ * locks at whichever start is real. A game still to start that no PropLine
+ * listing matched is unlisted.
  *
- * `asked` is how many games PropLine was asked about, `started` how many of
- * those had started, and `unlisted` how many priced games PropLine did not list.
+ * `startedListed` is PropLine's own list of started games ("Away@Home" in its
+ * names), from normalizeProplineMany.
  */
-export function pickemNoteFor(
-  lineCount: number,
-  failures: { error: string }[],
-  games: { asked?: number; started?: number; unlisted?: number } = {},
-): string | null {
-  if (failures.length > 0) {
-    return `Pick'em lines for ${failures.length} game${failures.length === 1 ? "" : "s"} could not be read: ${failures[0].error}`
+export function pickemSlate(
+  priced: GameRef[],
+  listed: GameRef[],
+  startedListed: string[],
+  now = Date.now(),
+): PickemSlate {
+  let started = 0
+  let unlisted = 0
+  for (const g of priced) {
+    const match = listed.find((e) => sameGame(e, g))
+    const t = Date.parse(g.commence_time)
+    if ((Number.isFinite(t) && t <= now) || (match && startedListed.includes(`${match.away_team}@${match.home_team}`))) {
+      started++
+    } else if (!match) {
+      unlisted++
+    }
   }
+  return { games: priced.length, started, unlisted }
+}
+
+/**
+ * What to tell the user about the pick'em lines of a pull, in this order: a
+ * failed request, games PropLine did not list, games that have started, and
+ * only then games the apps have no open lines for yet. Each is counted over
+ * the priced slate, so the note never blames the apps for a match that failed
+ * or a game that is already under way, and a failure never hides the rest.
+ * Without a slate, it says only what the line count and failures show.
+ */
+export function pickemNoteFor(lineCount: number, failures: { error: string }[], slate?: PickemSlate): string | null {
   const notes: string[] = []
-  const unlisted = games.unlisted ?? 0
-  if (unlisted > 0) {
-    notes.push(`PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`)
+  if (failures.length > 0) {
+    notes.push(
+      `Pick'em lines for ${failures.length} game${failures.length === 1 ? "" : "s"} could not be read: ${failures[0].error}`,
+    )
   }
-  const asked = games.asked
-  const started = games.started ?? 0
-  if (lineCount === 0 && (asked == null || asked > 0)) {
-    if (asked != null && started >= asked) {
-      notes.push("Every game here has started, and the pick'em apps stop taking picks at the start.")
-    } else if (started > 0) {
-      notes.push(
-        `${started} of these games ${started === 1 ? "has" : "have"} started, and the pick'em apps stop taking picks at the start. The rest have no pick'em lines yet: the apps usually post a few hours before the start.`,
-      )
-    } else {
+  if (!slate) {
+    if (failures.length === 0 && lineCount === 0) {
       notes.push("PropLine returned no pick'em lines for these games yet. The apps usually post a few hours before the start.")
     }
+    return notes.length > 0 ? notes.join(" ") : null
+  }
+
+  const unlisted = slate.unlisted ?? 0
+  if (unlisted > 0) {
+    notes.push(
+      `PropLine did not list ${unlisted} of the games still to start, so props there are at the books' line.`,
+    )
+  }
+  if (slate.started > 0) {
+    notes.push(
+      slate.started >= slate.games
+        ? "Every game on this slate has started, and the pick'em apps stop taking picks at the start."
+        : `${slate.started} of the ${slate.games} games ${slate.started === 1 ? "has" : "have"} started, and the pick'em apps stop taking picks at the start.`,
+    )
+  }
+  const rest = slate.games - slate.started - unlisted - failures.length
+  if (lineCount === 0 && rest > 0) {
+    const which = notes.length > 0 ? `the other ${rest === 1 ? "game" : `${rest} games`}` : "these games"
+    notes.push(
+      `PropLine shows no open pick'em lines for ${which} yet. The apps usually post a few hours before the start, and pull a line when news breaks.`,
+    )
   }
   return notes.length > 0 ? notes.join(" ") : null
 }
