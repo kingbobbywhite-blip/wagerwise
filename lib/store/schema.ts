@@ -4,7 +4,7 @@ import { DEFAULT_APPS, type BookApp, type CapturedPayout } from "@/lib/quant/pay
 import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow } from "@/lib/quant/projection"
 import type { MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import type { PickemLine } from "@/lib/odds-feed/propline"
+import type { PickemGame, PickemLine } from "@/lib/odds-feed/propline"
 import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId } from "@/lib/leagues"
 
 export const STATE_VERSION = 1
@@ -246,6 +246,14 @@ export interface DailyCache {
   provider?: OddsProvider
   /** Lines the pick'em apps were posting at pull time, from PropLine. Absent when not pulled. */
   pickemLines?: PickemLine[]
+  /**
+   * Games each app answered for, including ones whose lines were all closed or
+   * pulled, so their props read as not on offer rather than unknown. Absent on
+   * pulls from before it was recorded.
+   */
+  pickemGames?: PickemGame[]
+  /** Games PropLine reported under way at pull time ("Away@Home" in its names). */
+  pickemStarted?: string[]
   /** Why the pick'em lines are missing or partial, when they are. */
   pickemNote?: string | null
 }

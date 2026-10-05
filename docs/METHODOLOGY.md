@@ -339,20 +339,30 @@ re-checks the bar there. A line two points harder than the books' can drop a pro
 the bar, and a prop the app is not offering is left out because it cannot be played. When
 the pull carried nothing from that app, the entry falls back to the books' line.
 
-"Not offering" is decided per game. If the app posted lines for anyone in a game but not
-for this prop, the prop is not on offer. If no line from the app arrived for the game at
-all (a request failed, or PropLine did not list it), the prop is unknown rather than absent:
-it stays in at the books' line and is marked so. With The Odds API pricing the slate, the
-pick'em pull asks PropLine for exactly the games that were priced, matched on the teams'
-nicknames and start time, so the two feeds cover the same slate.
+"Not offering" is decided per game. If the app answered for a game but has no line for
+this prop, the prop is not on offer. That includes a game whose lines were all closed or
+pulled: the app answered, and nothing it answered can be played. If nothing from the app
+arrived for the game at all (a request failed, or PropLine did not list it), the prop is
+unknown rather than absent: it stays in at the books' line and is marked so. Games are
+matched across the feeds on the teams' nicknames, or on one team's when a feed spells the
+other differently (a team plays once a day), and never on a player's name, so two players
+who share a name cannot mark each other's games. For the same reason a prop is a player in a
+game: two players who share a name (the NHL has two Sebastian Ahos) are priced on their own
+game's quotes, and an app's line goes only to the player in that line's game. A line whose
+game is not on the slate is left out rather than matched by name. With The Odds API pricing the
+slate, the pick'em pull asks PropLine for exactly the games that were priced, matched on the
+teams' nicknames and start time, so the two feeds cover the same slate.
 
 A pick'em line is dropped once its game has started, when PropLine marks the app frozen on
 a live game, or when the app has pulled the market. An app stops taking picks at the start,
 and the pregame line it leaves behind, judged against live sportsbook prices, would read as
 a near-certain hit. For the same reason the entry never takes a leg from a game that has
-started, even at the books' line: the books may still be pricing it in play, but no pick'em
-app will take it. The note under the targets says when started games are why lines are
-missing.
+started, whether or not pick'em lines were pulled: the sportsbooks keep pricing a game in
+play, but no app will take the pick. A game counts as started when either feed's clock
+says so, since the feeds can list different start times, and the Today screen re-checks
+the clock every minute, so a game that tips while the page is open leaves the entry
+without waiting for a refresh. The note under the targets says when started games are why
+lines are missing.
 
 The target row fills in the default app's line and answers by the entry's rule: it names a
 side only when the app offers it as a standard pick and it clears the bar. When the likelier

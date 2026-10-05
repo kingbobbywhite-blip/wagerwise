@@ -119,11 +119,15 @@ export interface PropGroup {
   quotes: FeedQuote[]
 }
 
-/** Group feed quotes by player and market. */
+/**
+ * Group feed quotes by game, player and market. The game is part of the prop:
+ * two players can share a name (the NHL has two Sebastian Ahos), and a player
+ * plays one game a day, so a name alone would pool two people's prices.
+ */
 export function groupQuotes(quotes: FeedQuote[]): PropGroup[] {
   const map = new Map<string, PropGroup>()
   for (const q of quotes) {
-    const key = `${q.player.toLowerCase()}|${q.market}`
+    const key = `${q.player.toLowerCase()}|${q.market}|${q.gameId}`
     const g = map.get(key)
     if (g) g.quotes.push(q)
     else
@@ -286,7 +290,7 @@ export function bestPerSelection(bets: ValueBet[]): ValueBet[] {
   const best = new Map<string, ValueBet>()
   const bestOther = new Map<string, ValueBet>()
   for (const b of bets) {
-    const key = `${b.player.toLowerCase()}|${b.market}`
+    const key = `${b.player.toLowerCase()}|${b.market}|${b.gameId}`
     const existing = best.get(key)
     if (!existing || b.edge > existing.edge) {
       if (existing && existing.side !== b.side) bestOther.set(key, existing)

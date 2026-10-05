@@ -6,8 +6,10 @@ import {
   normalizeProplineMany,
   onlyPricedPlayers,
   pickemNoteFor,
+  pickemSlate,
   pullPropline,
   resolveProplineKey,
+  type PickemGame,
   type PickemLine,
 } from "@/lib/odds-feed/propline"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
@@ -238,7 +240,7 @@ export async function POST(request: Request) {
             games: selected,
             quotes: normalized.quotes,
           })
-        : { lines: [] as PickemLine[], note: null, remaining: null }
+        : { lines: [] as PickemLine[], games: [] as PickemGame[], started: [] as string[], note: null, remaining: null }
 
     return NextResponse.json({
       league: leagueId,
@@ -246,6 +248,8 @@ export async function POST(request: Request) {
       events: selected,
       quotes: normalized.quotes,
       pickemLines: pickem.lines,
+      pickemGames: pickem.games,
+      pickemStarted: pickem.started,
       pickemNote: pickem.note,
       proplineRemaining: pickem.remaining,
       unknownMarkets: normalized.unknownMarkets,
@@ -311,6 +315,8 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
         events: [],
         quotes: [],
         pickemLines: [],
+        pickemGames: [],
+        pickemStarted: [],
         nextEvent: next ? { commence_time: next.commence_time, home_team: next.home_team, away_team: next.away_team } : null,
         note,
       })
@@ -322,7 +328,12 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       events: pull.selected,
       quotes: normalized.quotes,
       pickemLines: onlyPricedPlayers(normalized.pickemLines, normalized.quotes),
-      pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length),
+      pickemGames: normalized.pickemGames,
+      pickemStarted: normalized.startedGames,
+      pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures, {
+        games: pull.selected.length,
+        started: normalized.startedGames.length,
+      }),
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures: pull.failures,
@@ -343,22 +354,33 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
  */
 async function pickemFromPropline(
   args: PullArgs & { games: FeedEvent[]; quotes: { player: string; playerKey?: string }[] },
-): Promise<{ lines: PickemLine[]; note: string | null; remaining: number | null }> {
+): Promise<{ lines: PickemLine[]; games: PickemGame[]; started: string[]; note: string | null; remaining: number | null }> {
   const league = leagueFor(args.leagueId)
   try {
     const pull = await pullPropline({ ...args, league: args.leagueId, bookmakers: PICKEM_BOOKS })
     const normalized = normalizeProplineMany(pull.payloads, league.sport)
-    const lines = onlyPricedPlayers(normalized.pickemLines, args.quotes)
-    const unlisted = args.games.length - pull.selected.length
-    const note =
-      pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length) ??
-      (unlisted > 0
-        ? `PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`
-        : null)
-    return { lines, note, remaining: pull.quota?.remaining ?? null }
+    const note = pickemNoteFor(
+      normalized.pickemLines.length,
+      pull.failures,
+      pickemSlate(
+        args.games,
+        pull.selected,
+        normalized.startedGames,
+        pull.failures.map((f) => f.eventId),
+      ),
+    )
+    return {
+      lines: onlyPricedPlayers(normalized.pickemLines, args.quotes),
+      games: normalized.pickemGames,
+      started: normalized.startedGames,
+      note,
+      remaining: pull.quota?.remaining ?? null,
+    }
   } catch (err) {
     return {
       lines: [],
+      games: [],
+      started: [],
       note: `Pick'em lines unavailable: ${err instanceof Error ? err.message : String(err)}`,
       remaining: null,
     }

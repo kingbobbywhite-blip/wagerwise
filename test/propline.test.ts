@@ -428,16 +428,16 @@ describe("matching games across feeds", () => {
 describe("closed games", () => {
   it("reports the games whose pick'em lines closed because they started", () => {
     const live = normalizeProplineEvent(event, "basketball", { now: Date.parse("2026-01-16T01:00:00Z") })
-    expect(live.closedGames).toEqual(["Minnesota Timberwolves@Oklahoma City Thunder"])
-    expect(normalizeProplineEvent(event, "basketball", BEFORE).closedGames).toEqual([])
+    expect(live.startedGames).toEqual(["Minnesota Timberwolves@Oklahoma City Thunder"])
+    expect(normalizeProplineEvent(event, "basketball", BEFORE).startedGames).toEqual([])
   })
 
   it("says the games have started rather than that the apps have not posted", () => {
-    expect(pickemNoteFor(0, [], 2)).toBe(
-      "2 games have already started, so the pick'em apps have closed their lines and they are left out of the entry.",
+    expect(pickemNoteFor(0, [], { games: 2, started: 2 })).toBe(
+      "Every game on this slate has started, and the pick'em apps stop taking picks at the start.",
     )
-    expect(pickemNoteFor(10, [], 1)).toContain("1 game has already started")
-    expect(pickemNoteFor(0, [], 0)).toContain("no pick'em lines for these games yet")
+    expect(pickemNoteFor(10, [], { games: 3, started: 1 })).toContain("1 of the 3 games has started")
+    expect(pickemNoteFor(0, [], { games: 2, started: 0 })).toContain("no open pick'em lines for these games yet")
   })
 })
 
@@ -452,5 +452,223 @@ describe("onlyPricedPlayers", () => {
     expect(kept.every((l) => l.playerKey === "anthony edwards")).toBe(true)
     expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards (MIN)" }])).toHaveLength(0)
     expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards" }])).toHaveLength(r.pickemLines.length)
+  })
+})
+
+describe("games the apps answered for", () => {
+  const GAME = "Minnesota Timberwolves@Oklahoma City Thunder"
+
+  it("records the game for each app even when every line was closed because it started", () => {
+    const live = normalizeProplineEvent(event, "basketball", { now: Date.parse("2026-01-16T01:00:00Z") })
+    expect(live.pickemLines).toHaveLength(0)
+    expect(live.pickemGames).toEqual([
+      { app: "prizepicks", gameId: GAME },
+      { app: "underdog", gameId: GAME },
+    ])
+    expect(live.startedGames).toEqual([GAME])
+  })
+
+  it("records the game when the app pulled every market, without calling it started", () => {
+    const pp = event.bookmakers[3]
+    const pulled = normalizeProplineEvent(
+      { ...event, bookmakers: [{ ...pp, markets: pp.markets.map((m) => ({ ...m, suspended_at: "2026-01-15T17:00:00Z" })) }] },
+      "basketball",
+      BEFORE,
+    )
+    expect(pulled.pickemLines).toHaveLength(0)
+    expect(pulled.pickemGames).toEqual([{ app: "prizepicks", gameId: GAME }])
+    expect(pulled.startedGames).toEqual([])
+  })
+
+  it("records nothing for a game no app answered for", () => {
+    const books = normalizeProplineEvent({ ...event, bookmakers: event.bookmakers.slice(0, 3) }, "basketball", BEFORE)
+    expect(books.pickemGames).toEqual([])
+    expect(books.startedGames).toEqual([])
+  })
+
+  it("counts a started game as started even when PropLine no longer lists the apps for it", () => {
+    const live = normalizeProplineEvent({ ...event, bookmakers: event.bookmakers.slice(0, 3) }, "basketball", {
+      now: Date.parse("2026-01-16T01:00:00Z"),
+    })
+    expect(live.pickemGames).toEqual([])
+    expect(live.startedGames).toEqual([GAME])
+  })
+})
+
+describe("pickemNoteFor over the priced slate", () => {
+  it("says every game has started instead of telling the user to wait for lines", () => {
+    const note = pickemNoteFor(0, [], { games: 3, started: 3 })!
+    expect(note).toBe("Every game on this slate has started, and the pick'em apps stop taking picks at the start.")
+  })
+
+  it("counts started games against the whole slate, and only the rest as not posted", () => {
+    const note = pickemNoteFor(0, [], { games: 3, started: 1 })!
+    expect(note).toContain("1 of the 3 games has started")
+    expect(note).toContain("no open pick'em lines for the other 2 games yet")
+  })
+
+  it("names games PropLine did not list, and never calls the slate fully started when it is not", () => {
+    expect(pickemNoteFor(0, [], { games: 4, started: 0, unlisted: 4 })).toBe(
+      "PropLine did not list 4 of the games still to start, so props there are at the books' line.",
+    )
+    // Three priced games: PropLine lists two, both under way, and not a third still to start.
+    const mixed = pickemNoteFor(0, [], { games: 3, started: 2, unlisted: 1 })!
+    expect(mixed).toContain("did not list 1 of the games still to start")
+    expect(mixed).toContain("2 of the 3 games have started")
+    expect(mixed).not.toContain("Every game")
+    expect(mixed).not.toContain("no open pick'em lines")
+  })
+
+  it("keeps the unlisted count when a request also failed", () => {
+    const note = pickemNoteFor(0, [{ error: "limit" }], { games: 3, started: 0, unlisted: 1 })!
+    expect(note.startsWith("Pick'em lines for 1 game could not be read: limit")).toBe(true)
+    expect(note).toContain("did not list 1 of the games still to start")
+  })
+
+  it("says nothing more when lines arrived for a slate that is still to start", () => {
+    expect(pickemNoteFor(8, [], { games: 3, started: 0, unlisted: 0 })).toBeNull()
+  })
+
+  it("allows that a missing line may have been pulled, not only not posted yet", () => {
+    expect(pickemNoteFor(0, [], { games: 2, started: 0 })).toContain("pull a line when news breaks")
+  })
+})
+
+import { pickemSlate } from "@/lib/odds-feed/propline"
+
+describe("pickemSlate", () => {
+  const NOW = Date.parse("2026-01-16T01:00:00Z")
+  const game = (away: string, home: string, commence_time: string) => ({ away_team: away, home_team: home, commence_time })
+  const minOkc = game("Minnesota Timberwolves", "Oklahoma City Thunder", "2026-01-16T00:10:00Z")
+  const denLac = game("Denver Nuggets", "Los Angeles Clippers", "2026-01-16T03:00:00Z")
+  const bosNyk = game("Boston Celtics", "New York Knicks", "2026-01-16T06:00:00Z")
+
+  it("counts a started game as started even when PropLine no longer lists it", () => {
+    expect(pickemSlate([minOkc, denLac], [denLac], [], [], NOW)).toEqual({ games: 2, started: 1, unlisted: 0, failed: 0 })
+  })
+
+  it("counts a game PropLine says has started, though the pricing feed lists a later start", () => {
+    const later = { ...minOkc, commence_time: "2026-01-16T01:30:00Z" }
+    const listed = { ...minOkc, home_team: "OKC Thunder" }
+    expect(pickemSlate([later], [listed], ["Minnesota Timberwolves@OKC Thunder"], [], NOW)).toEqual({
+      games: 1,
+      started: 1,
+      unlisted: 0,
+      failed: 0,
+    })
+  })
+
+  it("puts a game that started and whose request failed in started only", () => {
+    const listed = [
+      { ...minOkc, id: 1 },
+      { ...denLac, id: 2 },
+      { ...bosNyk, id: 3 },
+    ]
+    // MIN@OKC started and its request failed; DEN@LAC failed too; BOS@NYK came back empty.
+    const slate = pickemSlate([minOkc, denLac, bosNyk], listed, [], [1, "2"], NOW)
+    expect(slate).toEqual({ games: 3, started: 1, unlisted: 0, failed: 1 })
+    const note = pickemNoteFor(0, [{ error: "404" }, { error: "404" }], slate)!
+    expect(note).toContain("1 of the 3 games has started")
+    expect(note).toContain("no open pick'em lines for the other game yet")
+  })
+
+  it("still says which games have no lines when the only failure is a started game", () => {
+    const listed = [
+      { ...minOkc, id: 1 },
+      { ...denLac, id: 2 },
+    ]
+    const slate = pickemSlate([minOkc, denLac], listed, [], [1], NOW)
+    expect(pickemNoteFor(0, [{ error: "404" }], slate)).toContain("no open pick'em lines for the other game yet")
+  })
+
+  it("counts only games still to start as unlisted", () => {
+    expect(pickemSlate([minOkc, denLac, bosNyk], [minOkc], [], [], NOW)).toEqual({ games: 3, started: 1, unlisted: 2, failed: 0 })
+  })
+})
+
+import { normalizeProplineMany } from "@/lib/odds-feed/propline"
+import { buildDfsTargets as targetsFor, buildPickemEntry as entryFor } from "@/lib/today/build"
+import { DEFAULT_VALUE_SETTINGS } from "@/lib/quant/valuebets"
+import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
+import { DEFAULT_CONSTRAINTS } from "@/lib/quant/optimizer"
+
+describe("a closed or pulled game never comes back into the entry at the books' line", () => {
+  // Two games: MIN@OKC tips at 00:10Z, DEN@LAC at 03:00Z. The books make
+  // Edwards' over a strong favourite; PrizePicks posts both players.
+  const side = (player: string, point: number, over: number, under: number) => [
+    { name: "Over", description: player, price: over, point },
+    { name: "Under", description: player, price: under, point },
+  ]
+  const books = (player: string, point: number) => [
+    { key: "pinnacle", title: "Pinnacle", markets: [{ key: "player_points", outcomes: side(player, point, -220, 175) }] },
+    { key: "betonlineag", title: "BetOnline", markets: [{ key: "player_points", outcomes: side(player, point, -230, 180) }] },
+  ]
+  const prizepicks = (player: string, point: number, extra: { suspended_at?: string } = {}) => ({
+    key: "prizepicks",
+    title: "PrizePicks",
+    markets: [
+      {
+        key: "player_points",
+        ...extra,
+        outcomes: [
+          { name: "Over", description: player, price: 100, point, dfs_odds_type: "standard" as const },
+          { name: "Under", description: player, price: 100, point, dfs_odds_type: "standard" as const },
+        ],
+      },
+    ],
+  })
+  const minOkc = (pp: object): ProplineEventOdds => ({
+    id: 1,
+    sport_key: "basketball_nba",
+    commence_time: "2026-01-16T00:10:00Z",
+    home_team: "Oklahoma City Thunder",
+    away_team: "Minnesota Timberwolves",
+    bookmakers: [...books("Anthony Edwards", 31.5), pp as ProplineEventOdds["bookmakers"][number]],
+  })
+  const denLac: ProplineEventOdds = {
+    id: 2,
+    sport_key: "basketball_nba",
+    commence_time: "2026-01-16T03:00:00Z",
+    home_team: "LA Clippers",
+    away_team: "Denver Nuggets",
+    bookmakers: [
+      { key: "pinnacle", title: "Pinnacle", markets: [{ key: "player_points", outcomes: side("Nikola Jokic", 27.5, -200, 165) }] },
+      { key: "betonlineag", title: "BetOnline", markets: [{ key: "player_points", outcomes: side("Nikola Jokic", 27.5, -205, 170) }] },
+      prizepicks("Nikola Jokic", 27.5),
+    ],
+  }
+  const entryAt = (events: ProplineEventOdds[], now: number) => {
+    const n = normalizeProplineMany(events, "basketball", { now })
+    const targets = targetsFor(n.quotes, {
+      value: DEFAULT_VALUE_SETTINGS,
+      correlation: DEFAULT_CORRELATION,
+      constraints: DEFAULT_CONSTRAINTS,
+      dfsBreakEven: 0.562,
+      pickemLines: n.pickemLines,
+      pickemGames: n.pickemGames,
+      now,
+    })
+    return { targets, entry: entryFor(targets, 1, 0.562, 2, "prizepicks", now) }
+  }
+
+  it("leaves out a game that has started, though its live prices still price the slate", () => {
+    const { targets, entry } = entryAt([minOkc(prizepicks("Anthony Edwards", 25.5)), denLac], Date.parse("2026-01-16T01:00:00Z"))
+    const edwards = targets.find((t) => t.player === "Anthony Edwards")!
+    expect(edwards.appCoverage).toEqual(["prizepicks"])
+    expect(entry!.map((l) => [l.target.player, l.source])).toEqual([["Nikola Jokic", "app"]])
+  })
+
+  it("leaves out a game whose every market the app pulled before the start", () => {
+    const { targets, entry } = entryAt(
+      [minOkc(prizepicks("Anthony Edwards", 31.5, { suspended_at: "2026-01-15T23:00:00Z" })), denLac],
+      Date.parse("2026-01-15T23:30:00Z"),
+    )
+    expect(targets.find((t) => t.player === "Anthony Edwards")!.appCoverage).toEqual(["prizepicks"])
+    expect(entry!.map((l) => [l.target.player, l.source])).toEqual([["Nikola Jokic", "app"]])
+  })
+
+  it("still plays the game at the app's line when nothing was closed", () => {
+    const { entry } = entryAt([minOkc(prizepicks("Anthony Edwards", 31.5)), denLac], Date.parse("2026-01-15T23:30:00Z"))
+    expect(entry!.map((l) => [l.target.player, l.line, l.source])).toEqual([["Anthony Edwards", 31.5, "app"]])
   })
 })
