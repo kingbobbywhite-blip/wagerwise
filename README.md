@@ -96,23 +96,24 @@ in Settings instead keeps it in your own browser.
 ### The API key
 
 The app needs sportsbook prices. Get a key from
-[the-odds-api.com](https://the-odds-api.com) (the free tier is 500 requests a month) and
-put the **real key** in a `.env.local` file:
+[the-odds-api.com](https://the-odds-api.com) (the free tier is 500 requests a month).
+
+The simplest place for it is **Settings → Odds feed** in the running app: paste it there and
+it is kept in your browser. To keep it in a file instead, copy the example file and put the
+**real key** after the `=` in a text editor:
 
 ```bash
-echo "ODDS_API_KEY=paste_your_real_key_here" > .env.local
+cp .env.example .env.local        # Windows: copy .env.example .env.local
 ```
 
-You can paste it into Settings instead if you prefer; the environment variable takes
-precedence. Without a working key the app has no prices, and it will say so rather than
-invent an edge.
+Restart the app after editing `.env.local` so it picks the key up; a key there takes
+precedence over one in Settings. Avoid `echo KEY=... > .env.local` in Windows
+PowerShell 5: it writes the file as UTF-16, and the key in it is never read. Without a
+working key the app has no prices, and it will say so rather than invent an edge.
 
 Optionally add a [PropLine](https://prop-line.com) key (free, 1,000 requests a day) to read the
-pick'em apps' own lines, or to price the whole slate from PropLine instead:
-
-```bash
-echo "PROPLINE_API_KEY=paste_your_propline_key_here" >> .env.local
-```
+pick'em apps' own lines, or to price the whole slate from PropLine instead. It goes in the
+same Settings tab, or on the `PROPLINE_API_KEY=` line of `.env.local`.
 
 The same caution about public deployments applies: leave `PROPLINE_API_KEY` unset on an
 unprotected URL and enter the key in Settings instead.
