@@ -10,6 +10,7 @@ import {
   resolveProplineKey,
   type PickemLine,
 } from "@/lib/odds-feed/propline"
+import { feedErrorText, fetchOddsApi, noneCouldBePriced, notStarted } from "@/lib/odds-feed/http"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
 import { DEFAULT_LEAGUE, LEAGUE_IDS, creditWarning, inSeason, isLeagueId, leagueFor, type LeagueId } from "@/lib/leagues"
 
@@ -64,19 +65,15 @@ function resolveKey(body: RequestBody): string | null {
   return null
 }
 
-async function fetchJson<T>(url: string): Promise<{ data: T; remaining: number | null; used: number | null }> {
-  const res = await fetch(url, { cache: "no-store" })
-  if (!res.ok) {
-    const text = await res.text().catch(() => "")
-    throw new Error(`Feed returned ${res.status}. ${text.slice(0, 300)}`)
+/** The empty-slate note, naming games that were skipped for having started. */
+function emptyNote(leagueId: LeagueId, started: number): string {
+  const label = leagueFor(leagueId).label
+  if (started > 0) {
+    return `${started === 1 ? "The only" : `All ${started}`} ${label} game${started === 1 ? "" : "s"} in this window ${started === 1 ? "has" : "have"} already started. Live games are not priced: their lines move with the score and the pick'em apps have closed them.`
   }
-  const remaining = Number(res.headers.get("x-requests-remaining"))
-  const used = Number(res.headers.get("x-requests-used"))
-  return {
-    data: (await res.json()) as T,
-    remaining: Number.isFinite(remaining) ? remaining : null,
-    used: Number.isFinite(used) ? used : null,
-  }
+  return inSeason(leagueId)
+    ? `No ${label} games tip in this window.`
+    : `No ${label} games tip in this window, and ${label} is out of season right now, so an empty slate is expected rather than a fault.`
 }
 
 export async function POST(request: Request) {
@@ -135,22 +132,29 @@ export async function POST(request: Request) {
 
   // Default window: from now to 30 hours out, which covers a whole slate
   // regardless of the caller's timezone.
-  const fromMs = body.from ? Date.parse(body.from) : Date.now()
+  const now = Date.now()
+  const fromMs = body.from ? Date.parse(body.from) : now
   const toMs = body.to ? Date.parse(body.to) : fromMs + 30 * 3600 * 1000
 
   if (provider === "propline") {
-    return fromPropline({ apiKey: proplineKey!, leagueId, markets, maxGames, fromMs, toMs, eventsOnly: !!body.eventsOnly })
+    return fromPropline({ apiKey: proplineKey!, leagueId, markets, maxGames, fromMs, toMs, now, eventsOnly: !!body.eventsOnly })
   }
 
   try {
     // The events listing is free, so the game list never costs a credit.
-    const events = await fetchJson<FeedEvent[]>(eventsUrl(apiKey!, leagueId))
-    const todays = events.data
+    const events = await fetchOddsApi<FeedEvent[]>(eventsUrl(apiKey!, leagueId))
+    if (!Array.isArray(events.data)) throw new SyntaxError("events listing is not a list")
+    const listed = events.data
       .filter((e) => {
         const t = Date.parse(e.commence_time)
         return Number.isFinite(t) && t >= fromMs && t <= toMs
       })
       .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
+    // The window opens at the caller's midnight, so it holds games already
+    // under way. Those are skipped before the cap, so a live game never takes
+    // a slot from one that can still be played.
+    const todays = listed.filter((e) => notStarted(e.commence_time, now))
+    const started = listed.length - todays.length
 
     const selected = todays.slice(0, maxGames)
     const estimatedCredits = estimateCredits(selected.length, markets.length)
@@ -166,6 +170,7 @@ export async function POST(request: Request) {
         events: todays,
         selected: selected.length,
         cappedOut,
+        startedCount: started,
         estimatedCredits,
         costWarning: cost.message,
         costSevere: cost.severe,
@@ -178,9 +183,7 @@ export async function POST(request: Request) {
       // Distinguish "wrong time of year" from "something is broken". An empty
       // WNBA slate in January is the off-season; an empty one in July is a
       // problem worth chasing.
-      const note = inSeason(leagueId)
-        ? `No ${league.label} games tip in this window.`
-        : `No ${league.label} games tip in this window, and ${league.label} is out of season right now, so an empty slate is expected rather than a fault.`
+      const note = emptyNote(leagueId, started)
       // The listing is already paid for (it is free), so say when the next game
       // is. "Nothing today, next one Tuesday" is an answer; a blank page is not.
       const next = events.data
@@ -195,6 +198,7 @@ export async function POST(request: Request) {
         requestsRemaining: events.remaining,
         requestsUsed: events.used,
         inSeason: inSeason(leagueId),
+        startedCount: started,
         nextEvent: next
           ? { commence_time: next.commence_time, home_team: next.home_team, away_team: next.away_team }
           : null,
@@ -209,7 +213,7 @@ export async function POST(request: Request) {
 
     for (const e of selected) {
       try {
-        const r = await fetchJson<FeedEventOdds>(eventOddsUrl(apiKey!, e.id, { markets, regions, bookmakers, league: leagueId }))
+        const r = await fetchOddsApi<FeedEventOdds>(eventOddsUrl(apiKey!, e.id, { markets, regions, bookmakers, league: leagueId }))
         payloads.push(r.data)
         if (r.remaining != null) remaining = r.remaining
         if (r.used != null) used = r.used
@@ -217,9 +221,17 @@ export async function POST(request: Request) {
         failures.push({
           eventId: e.id,
           matchup: `${e.away_team} at ${e.home_team}`,
-          error: err instanceof Error ? err.message : String(err),
+          error: feedErrorText(err, "The Odds API"),
         })
       }
+    }
+
+    const failed = noneCouldBePriced(selected.length, payloads.length, failures)
+    if (failed) {
+      return NextResponse.json(
+        { error: failed, failures, requestsRemaining: remaining, requestsUsed: used },
+        { status: 502 },
+      )
     }
 
     const normalized = normalizeMany(payloads, league.sport)
@@ -235,6 +247,7 @@ export async function POST(request: Request) {
             maxGames,
             fromMs,
             toMs,
+            now,
             games: selected,
             quotes: normalized.quotes,
           })
@@ -255,16 +268,14 @@ export async function POST(request: Request) {
       costWarning: cost.message,
       costSevere: cost.severe,
       cappedOut,
+      startedCount: started,
       inSeason: inSeason(leagueId),
       requestsRemaining: remaining,
       requestsUsed: used,
       fetchedAt: new Date().toISOString(),
     })
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Could not reach the odds feed." },
-      { status: 502 },
-    )
+    return NextResponse.json({ error: feedErrorText(err, "The Odds API") }, { status: 502 })
   }
 }
 
@@ -275,6 +286,7 @@ interface PullArgs {
   maxGames: number
   fromMs: number
   toMs: number
+  now: number
 }
 
 /** The whole slate from PropLine: prices and pick'em lines in the same requests. */
@@ -295,6 +307,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       requestsUsed: pull.quota?.used ?? null,
       quotaPeriod: "day" as const,
       inSeason: inSeason(args.leagueId),
+      startedCount: pull.started,
     }
 
     if (args.eventsOnly) {
@@ -302,9 +315,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
     }
 
     if (pull.selected.length === 0) {
-      const note = inSeason(args.leagueId)
-        ? `No ${league.label} games tip in this window.`
-        : `No ${league.label} games tip in this window, and ${league.label} is out of season right now, so an empty slate is expected rather than a fault.`
+      const note = emptyNote(args.leagueId, pull.started)
       const next = pull.nextEvent
       return NextResponse.json({
         ...base,
@@ -315,6 +326,9 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
         note,
       })
     }
+
+    const failed = noneCouldBePriced(pull.selected.length, pull.payloads.length, pull.failures)
+    if (failed) return NextResponse.json({ ...base, error: failed, failures: pull.failures }, { status: 502 })
 
     const normalized = normalizeProplineMany(pull.payloads, league.sport)
     return NextResponse.json({
@@ -330,10 +344,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       fetchedAt: new Date().toISOString(),
     })
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Could not reach PropLine." },
-      { status: 502 },
-    )
+    return NextResponse.json({ error: feedErrorText(err, "PropLine") }, { status: 502 })
   }
 }
 
@@ -359,7 +370,7 @@ async function pickemFromPropline(
   } catch (err) {
     return {
       lines: [],
-      note: `Pick'em lines unavailable: ${err instanceof Error ? err.message : String(err)}`,
+      note: `Pick'em lines unavailable: ${feedErrorText(err, "PropLine")}`,
       remaining: null,
     }
   }

@@ -3,6 +3,7 @@ import { DEFAULT_LEAGUE, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 import type { PickType } from "@/lib/store/schema"
 import { feedMarketFor, normalizeEventOdds, sportOfFeedKey, type NormalizeResult } from "./theoddsapi"
+import { feedErrorText, notStarted } from "./http"
 import type { FeedBookmaker, FeedEvent, FeedEventOdds, FeedOutcome } from "./types"
 
 /**
@@ -445,8 +446,10 @@ export function pickemNoteFor(lineCount: number, failures: { error: string }[], 
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 
 export interface ProplinePull {
-  /** Every game in the window, sorted by start. */
+  /** Every game in the window, sorted by start, less any that had started by `now`. */
   inWindow: FeedEvent[]
+  /** Games in the window left out because they had already started. */
+  started: number
   /** The games actually priced, after the cap. */
   selected: FeedEvent[]
   /** Games wanted (in the window, and in eventIds when given) but left out by the cap. */
@@ -483,6 +486,8 @@ export async function pullPropline(opts: {
   games?: GameRef[]
   /** Return after the listing, without pulling odds. */
   eventsOnly?: boolean
+  /** When given, games that started by this instant are left out of the window and counted in `started`. */
+  now?: number
   fetcher?: Fetcher
 }): Promise<ProplinePull> {
   const doFetch: Fetcher = opts.fetcher ?? ((url, init) => fetch(url, init))
@@ -500,12 +505,13 @@ export async function pullPropline(opts: {
     away_team: e.away_team,
   }))
 
-  const inWindow = events
+  const listed = events
     .filter((e) => {
       const t = Date.parse(e.commence_time)
       return Number.isFinite(t) && t >= opts.fromMs && t <= opts.toMs
     })
     .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
+  const inWindow = opts.now == null ? listed : listed.filter((e) => notStarted(e.commence_time, opts.now!))
   const nextEvent =
     events
       .filter((e) => Date.parse(e.commence_time) > opts.toMs)
@@ -540,11 +546,21 @@ export async function pullPropline(opts: {
         failures.push({
           eventId: e.id,
           matchup: `${e.away_team} at ${e.home_team}`,
-          error: err instanceof Error ? err.message : String(err),
+          error: feedErrorText(err, "PropLine"),
         })
       }
     }
   }
 
-  return { inWindow, selected, cappedOut: chosen.length - selected.length, nextEvent, payloads, failures, quota, requests }
+  return {
+    inWindow,
+    started: listed.length - inWindow.length,
+    selected,
+    cappedOut: chosen.length - selected.length,
+    nextEvent,
+    payloads,
+    failures,
+    quota,
+    requests,
+  }
 }

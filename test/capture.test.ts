@@ -505,7 +505,10 @@ describe("typed and pasted text", () => {
 })
 
 describe("/api/odds", () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
 
   function stubFeed(events: { id: string; commence_time: string }[]) {
     const urls: string[] = []
@@ -546,6 +549,10 @@ describe("/api/odds", () => {
   it("prices only games in the window, capped, instead of every game the feed lists", async () => {
     // The regression: with no window, a press priced weeks of games at once.
     const now = Date.parse("2026-10-20T16:00:00Z")
+    // The route skips games that have started, so the clock is pinned to the
+    // slate rather than left to drift past it.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(now)
     const at = (h: number) => new Date(now + h * 3600 * 1000).toISOString()
     const events = [
       ...Array.from({ length: 12 }, (_, i) => ({ id: `today-${i}`, commence_time: at(3 + i * 0.25) })),

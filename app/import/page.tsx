@@ -226,8 +226,22 @@ export default function ImportPage() {
       if (attached.matched > 0) {
         toast.success(`Priced ${attached.matched} of ${drafts.length} props`)
       } else if ((data.events ?? []).length === 0) {
-        toast.error(`No ${leagueFor(league).label} games today`, {
-          description: "Check the league picker matches the players you captured.",
+        toast.error(
+          data.startedCount > 0
+            ? `Every ${leagueFor(league).label} game today has already started`
+            : `No ${leagueFor(league).label} games today`,
+          {
+            description:
+              data.startedCount > 0
+                ? "Live games are not priced: their lines move with the score."
+                : "Check the league picker matches the players you captured.",
+          },
+        )
+      } else if (data.failures?.length) {
+        // Some games failed. Their players are unmatched for that reason, not
+        // because of a spelling, so say what the feed said.
+        toast.warning(`${data.failures.length} of ${data.events.length} games could not be priced`, {
+          description: data.failures[0].error,
         })
       } else {
         toast.warning("No prices matched", { description: "Names are matched exactly. Check spelling in the table." })

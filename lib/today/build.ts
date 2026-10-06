@@ -4,6 +4,7 @@ import { probToAmerican } from "@/lib/quant/odds"
 import { optimizeSlips, type BuiltSlip, type CandidateLeg, type OptimizerConstraints } from "@/lib/quant/optimizer"
 import { normalizeName, type CorrelationSettings } from "@/lib/quant/correlation"
 import type { PickemLine } from "@/lib/odds-feed/propline"
+import { notStarted } from "@/lib/odds-feed/http"
 import type { PickType } from "@/lib/store/schema"
 import {
   bestPerSelection,
@@ -520,6 +521,15 @@ export function valueBetsToCandidates(bets: ValueBet[]): CandidateLeg[] {
       (b.side === "OVER" ? b.consensusMean - b.line : b.line - b.consensusMean) / Math.max(b.consensusSd, 1e-9),
     app: b.bookName,
   }))
+}
+
+/**
+ * The quotes from games that have not started. A cached pull outlives tip-off,
+ * and once a game is live its pregame prices are stale and the pick'em apps have
+ * closed it, so nothing from it should still be offered as a pick.
+ */
+export function upcomingQuotes<Q extends { commenceTime?: string | null }>(quotes: Q[], now: number): Q[] {
+  return quotes.filter((q) => notStarted(q.commenceTime, now))
 }
 
 export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyPicks {
