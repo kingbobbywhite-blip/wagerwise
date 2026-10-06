@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { crossSiteRejection } from "@/lib/odds-feed/same-origin"
 import {
   marketsForLeague,
   estimateCredits,
@@ -58,6 +59,10 @@ function resolveKey(body: RequestBody): string | null {
 }
 
 export async function POST(request: Request) {
+  // Before any key is read: another site's page must not spend this server's quota.
+  const refused = crossSiteRejection(request)
+  if (refused) return refused
+
   let body: RequestBody
   try {
     body = (await request.json()) as RequestBody

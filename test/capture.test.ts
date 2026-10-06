@@ -530,7 +530,14 @@ describe("/api/odds", () => {
 
   const post = async (body: object) => {
     const { POST } = await import("@/app/api/odds/route")
-    return POST(new Request("http://t/api/odds", { method: "POST", body: JSON.stringify({ apiKey: "k", ...body }) }))
+    // As the Import page sends it: the route refuses anything that is not JSON.
+    return POST(
+      new Request("http://t/api/odds", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ apiKey: "k", ...body }),
+      }),
+    )
   }
 
   it("queries the requested league's feed", async () => {

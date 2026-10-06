@@ -394,6 +394,35 @@ export function appPlay(
   return best
 }
 
+/**
+ * The answer for a target at an app's own line, by the same rule the entry
+ * uses: a side is named only if the app offers it as a standard 1.0 pick and
+ * it clears the bar. Otherwise it is a pass, with the reason, because a side
+ * Underdog discounts to 0.85x needs a far higher hit rate than the standard
+ * bar, and a side the app does not offer cannot be played at all. Null when
+ * the app has no standard line for this prop.
+ */
+export function appVerdict(
+  t: Pick<DfsTarget, "appLines">,
+  app: string,
+  bar: number,
+): { line: number; side: "OVER" | "UNDER" | null; prob: number | null; reason: string | null } | null {
+  const lines = (t.appLines ?? []).filter((l) => l.app === app && l.pickType === "standard")
+  if (lines.length === 0) return null
+  const play = appPlay(t, app)
+  if (play && play.prob >= bar) return { line: play.line, side: play.side, prob: play.prob, reason: null }
+  const l = lines.find((x) => x.line === play?.line) ?? lines[0]
+  const favoured = l.over >= l.under ? "over" : "under"
+  const offered = favoured === "over" ? l.overOffered : l.underOffered
+  const multiplier = favoured === "over" ? l.overMultiplier : l.underMultiplier
+  const reason = !offered
+    ? `the ${favoured} is not offered`
+    : multiplier != null
+      ? `the ${favoured} pays ×${multiplier}, which needs its own bar`
+      : "neither side clears"
+  return { line: l.line, side: null, prob: null, reason }
+}
+
 /** True when the pull carried any lines from this app, so a missing line means "not offered". */
 export function hasAppLines(targets: Pick<DfsTarget, "appLines">[], app: string | null | undefined): boolean {
   return !!app && targets.some((t) => (t.appLines ?? []).some((l) => l.app === app))
@@ -422,10 +451,15 @@ export function buildPickemEntry(
   bar: number,
   maxPerGame = 2,
   app?: string | null,
+  now: number = Date.now(),
 ): PickemLeg[] | null {
   const live = hasAppLines(targets, app)
   const plays: PickemLeg[] = []
   for (const t of targets) {
+    // A pick'em app stops taking picks once a game starts. The books may still
+    // be pricing it in play, but no line from a started game can be entered.
+    const starts = t.commenceTime ? Date.parse(t.commenceTime) : NaN
+    if (Number.isFinite(starts) && starts <= now) continue
     const p = live ? appPlay(t, app!) : null
     if (p) {
       plays.push({ target: t, ...p, source: "app" })
@@ -532,12 +566,13 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
   }
 
   const parlays: BuiltSlip[] = []
-  for (const [, bets] of perBook) {
+  for (const [book, bets] of perBook) {
     const candidates = valueBetsToCandidates(bestPerSelection(bets))
     if (candidates.length < parlayConstraints.picks) continue
     parlays.push(
       ...optimizeSlips(candidates, {
-        parlay: { commission: opts.parlayCommission ?? 0 },
+        // Each ticket is placed at one book, so it pays that book's commission.
+        parlay: { commission: opts.value.commission?.[book] ?? opts.parlayCommission ?? 0 },
         constraints: parlayConstraints,
         correlation: opts.correlation,
         objectives: ["ev", "growth"],

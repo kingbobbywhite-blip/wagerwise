@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
+import { crossSiteRejection } from "@/lib/odds-feed/same-origin"
 import { estimateCredits, eventOddsUrl, eventsUrl, marketsForLeague, normalizeMany } from "@/lib/odds-feed/theoddsapi"
 import {
   PICKEM_BOOKS,
   normalizeProplineMany,
+  onlyPricedPlayers,
   pickemNoteFor,
   pullPropline,
   resolveProplineKey,
@@ -75,6 +77,10 @@ function emptyNote(leagueId: LeagueId, started: number): string {
 }
 
 export async function POST(request: Request) {
+  // Before any key is read: another site's page must not spend this server's quota.
+  const refused = crossSiteRejection(request)
+  if (refused) return refused
+
   let body: RequestBody
   try {
     body = (await request.json()) as RequestBody
@@ -234,7 +240,17 @@ export async function POST(request: Request) {
     // and never costs the prices already pulled.
     const pickem =
       body.pickemLines && proplineKey
-        ? await pickemFromPropline({ apiKey: proplineKey, leagueId, markets, maxGames, fromMs, toMs, now, games: selected })
+        ? await pickemFromPropline({
+            apiKey: proplineKey,
+            leagueId,
+            markets,
+            maxGames,
+            fromMs,
+            toMs,
+            now,
+            games: selected,
+            quotes: normalized.quotes,
+          })
         : { lines: [] as PickemLine[], note: null, remaining: null }
 
     return NextResponse.json({
@@ -319,8 +335,8 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       ...base,
       events: pull.selected,
       quotes: normalized.quotes,
-      pickemLines: normalized.pickemLines,
-      pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures),
+      pickemLines: onlyPricedPlayers(normalized.pickemLines, normalized.quotes),
+      pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length),
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures: pull.failures,
@@ -337,15 +353,16 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
  * prices, for exactly the games The Odds API priced.
  */
 async function pickemFromPropline(
-  args: PullArgs & { games: FeedEvent[] },
+  args: PullArgs & { games: FeedEvent[]; quotes: { player: string; playerKey?: string }[] },
 ): Promise<{ lines: PickemLine[]; note: string | null; remaining: number | null }> {
   const league = leagueFor(args.leagueId)
   try {
     const pull = await pullPropline({ ...args, league: args.leagueId, bookmakers: PICKEM_BOOKS })
-    const lines = normalizeProplineMany(pull.payloads, league.sport).pickemLines
+    const normalized = normalizeProplineMany(pull.payloads, league.sport)
+    const lines = onlyPricedPlayers(normalized.pickemLines, args.quotes)
     const unlisted = args.games.length - pull.selected.length
     const note =
-      pickemNoteFor(lines.length, pull.failures) ??
+      pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length) ??
       (unlisted > 0
         ? `PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`
         : null)

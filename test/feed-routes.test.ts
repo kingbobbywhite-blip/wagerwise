@@ -50,14 +50,22 @@ function stubOddsApi(events: { id: string; commence_time: string }[], odds: (id:
   }
 }
 
+// As the app's pages send them: the routes refuse anything that is not JSON.
+const post = (url: string, body: object) =>
+  new Request(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ apiKey: "k", ...body }),
+  })
+
 const today = async (body: object) => {
   const { POST } = await import("@/app/api/today/route")
-  return POST(new Request("http://t/api/today", { method: "POST", body: JSON.stringify({ apiKey: "k", ...body }) }))
+  return POST(post("http://t/api/today", body))
 }
 
 const odds = async (body: object) => {
   const { POST } = await import("@/app/api/odds/route")
-  return POST(new Request("http://t/api/odds", { method: "POST", body: JSON.stringify({ apiKey: "k", ...body }) }))
+  return POST(post("http://t/api/odds", body))
 }
 
 describe("feed request helpers", () => {
