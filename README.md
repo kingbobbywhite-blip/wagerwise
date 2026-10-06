@@ -45,39 +45,48 @@ supplies the pick'em apps' lines, and the pick'em entry is built at the line you
 
 ## Running it
 
+**Node 22 or newer is required.** Check with `node -v`; if it says v20 or lower, install the
+current LTS from [nodejs.org](https://nodejs.org) (or `nvm install 22`, since `.nvmrc` pins it).
+Node 20 reached end of life in April 2026 and no longer gets security fixes, so npm is set to
+stop with an `EBADENGINE` error rather than install on it.
+
 ```bash
 git clone https://github.com/kingbobbywhite-blip/wagerwise.git
 cd wagerwise
-npm install
+npm ci
 npm run dev
 ```
 
 Open **http://localhost:3000**, pick a league tab, and press **Get today's picks**.
 
-**Node 22 or newer is required** (`.nvmrc` pins it; `nvm use` picks it up). Node 20 will
-install and appear to work, but CI builds on 22 and some transitive dependencies refuse to
-run below it.
+`npm ci` installs exactly the versions in `package-lock.json`, the ones CI has checked, and
+never rewrites that file. `npm audit` should report 0 vulnerabilities.
+
+The dev server only answers on this computer (127.0.0.1). It holds any key in `.env.local`,
+so other devices on your Wi-Fi are kept out. To open it from your phone on the same network
+anyway, start it with `npx next dev -H 0.0.0.0`, and only on a network you trust.
 
 ### Updating an existing clone
 
 ```bash
 git pull origin main
-npm install
+npm ci
 npm run dev
 ```
 
-If a pull ever aborts complaining about local changes to a generated file, discard it and
-retry — nothing generated is worth keeping:
+If a pull aborts with "Your local changes to the following files would be overwritten" and
+names `package-lock.json`, an `npm install` rewrote it. Nothing in it is worth keeping, so
+discard it and retry:
 
 ```bash
-git checkout -- next-env.d.ts && git pull origin main
+git checkout -- package-lock.json && git pull origin main
 ```
 
-If `npm install` reports packages that are not in `package.json` (Supabase, for example),
-the `node_modules` directory is stale from something else. Wipe and reinstall:
+If `npm ci` reports packages that are not in `package.json` (Supabase, for example), or
+anything else odd, the `node_modules` directory is stale. Wipe and reinstall:
 
 ```bash
-rm -rf node_modules && npm install
+rm -rf node_modules && npm ci
 ```
 
 ### Deploying

@@ -17,6 +17,11 @@ export default defineConfig(
   ]),
   tseslint.configs.recommended,
   reactHooks.configs.flat.recommended,
+  // package.json overrides this plugin's fast-glob with tinyglobby, because
+  // fast-glob pulls in braces, which has an advisory and no patched release.
+  // The plugin's only glob runs when settings.next.rootDir is set, which it is
+  // not here. If it is ever set, note tinyglobby expands a bare directory name
+  // to its subdirectories as well.
   nextPlugin.configs["core-web-vitals"],
   {
     rules: {
