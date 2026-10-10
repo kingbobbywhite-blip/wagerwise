@@ -121,8 +121,8 @@ export interface DailySettings {
    *
    * Null means "use whatever this league posts", which is almost always the
    * right answer: basketball and the NFL post entirely different markets, and
-   * paying for a market that comes back empty is the easiest way to waste a
-   * quota. Entries from the wrong sport for a league are ignored.
+   * asking for one a league never posts buys nothing and may cost a credit.
+   * Entries from the wrong sport for a league are ignored.
    */
   markets: string[] | null
 }
@@ -273,6 +273,12 @@ export interface DailyCache {
   pickemLines?: PickemLine[]
   /** Why the pick'em lines are missing or partial, when they are. */
   pickemNote?: string | null
+  /**
+   * What choosing which games to price did, when a competition's slate was
+   * bigger than its cap and the games were ranked by market depth rather than
+   * start time. A thin board has to read as expected rather than broken.
+   */
+  depthNote?: string | null
 }
 
 export interface AppState {

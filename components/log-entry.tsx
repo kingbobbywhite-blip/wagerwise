@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { LEAGUES, LEAGUE_IDS, type LeagueId } from "@/lib/leagues"
 import { MARKETS, MARKET_KEYS, marketForSport, marketSport, type MarketKey } from "@/lib/nba/markets"
-import { extractProps, isUnmodelledStat, mergeReads, readEntryHeader } from "@/lib/ocr/extract"
+import { extractProps, isUnmodelledStat, leagueFromScreen, mergeReads, readEntryHeader } from "@/lib/ocr/extract"
 import { normalizeName } from "@/lib/quant/correlation"
 import { breakEvenLegProb, findApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_VALUE_SETTINGS } from "@/lib/quant/valuebets"
@@ -142,8 +142,14 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
     try {
       const { readImage } = await import("@/lib/ocr/engine")
       const out = await readImage(file)
-      const raw = extractProps(out.lines)
-      const cleaned = extractProps(out.cleanedLines)
+      // Read the league off the screen BEFORE extracting, because it decides
+      // which team codes count as a team rather than a person. The league
+      // already selected is the previous entry's and would be a worse guess
+      // than none: a stray college code would cost a real NFL name.
+      const screen = [...out.lines, ...out.cleanedLines].map((l) => l.text).join(" ")
+      const named = leagueFromScreen(screen)
+      const raw = extractProps(out.lines, { league: named })
+      const cleaned = extractProps(out.cleanedLines, { league: named })
       const merged = mergeReads(raw.candidates, cleaned.candidates)
       let found: Row[] = merged.map((c) => toRow(draftFromCandidate(c)))
       const seen = new Set(found.map((l) => normalizeName(l.player)))
@@ -166,10 +172,8 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       if (mode === "power" && header?.paid != null && header.paid > 0) {
         found = found.map((l) => (l.result === "VOID" ? l : { ...l, result: "WIN" }))
       }
-      // Each game on an entry screen is headed by its league: "NHL MIN 2 vs
-      // NYL 87". Failing that, a football stat means an NFL entry.
-      const screen = [...out.lines, ...out.cleanedLines].map((l) => l.text).join(" ")
-      const named = LEAGUE_IDS.find((id) => new RegExp(`\\b${id}\\b`, "i").test(screen))
+      // Failing a league named on the screen, a football stat means an NFL
+      // entry. College is never inferred that way: its stats are the NFL's.
       const sportSeen = (sport: string) => found.some((l) => l.marketKey && marketSport(l.marketKey) === sport)
       const leagueRead = named ?? (sportSeen("football") ? "nfl" : sportSeen("hockey") ? "nhl" : null)
       if (leagueRead) setLeague(leagueRead)

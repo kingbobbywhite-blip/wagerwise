@@ -510,7 +510,7 @@ export default function SettingsPage() {
                       ...p,
                       // Empty means "follow the league", which is the right
                       // default: each league posts different markets, and a
-                      // market that comes back empty still costs a credit.
+                      // market that comes back empty buys nothing.
                       daily: { ...p.daily, markets: parsed.length > 0 ? parsed : null },
                     }))
                   }}

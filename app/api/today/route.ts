@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 import { crossSiteRejection } from "@/lib/odds-feed/same-origin"
 import {
+  BLOWOUT_MARGIN,
   estimateCredits,
   eventOddsUrl,
   eventsUrl,
   marketsForCompetition,
   normalizeMany,
+  rankByDepth,
+  sportOddsUrl,
+  type DepthRanking,
 } from "@/lib/odds-feed/theoddsapi"
 import {
   PICKEM_BOOKS,
@@ -205,7 +209,10 @@ export async function POST(request: Request) {
     const cappedOut = pulls.reduce((a, p) => a + p.cappedOut, 0)
     // Billed per market per event, and each competition can be asked for a
     // different market list, so the cost is summed per competition.
-    const estimatedCredits = pulls.reduce((a, p) => a + estimateCredits(p.selected.length, p.markets.length), 0)
+    const estimatedCredits = pulls.reduce(
+      (a, p) => a + estimateCredits(p.selected.length, p.markets.length) + p.depthCredits,
+      0,
+    )
     const cost = creditPlan(leagueId, estimatedCredits)
     const remaining = lastFinite(pulls.map((p) => p.remaining))
     const used = lastFinite(pulls.map((p) => p.used))
@@ -305,6 +312,7 @@ export async function POST(request: Request) {
       costSevere: cost.severe,
       cappedOut,
       startedCount: started,
+      depthNote: depthNote(pulls),
       inSeason: inSeason(leagueId, new Date(), { companions }),
       requestsRemaining: remaining,
       requestsUsed: used,
@@ -313,6 +321,35 @@ export async function POST(request: Request) {
   } catch (err) {
     return NextResponse.json({ error: feedErrorText(err, "The Odds API") }, { status: 502 })
   }
+}
+
+/**
+ * What the depth ranking did, in a sentence, so a thin board reads as expected
+ * rather than broken.
+ */
+function depthNote(pulls: CompetitionPull[]): string | null {
+  const parts: string[] = []
+  for (const p of pulls) {
+    if (p.depthError) {
+      parts.push(`${p.comp.label}: ${p.depthError}`)
+      continue
+    }
+    if (!p.depth) continue
+    const listed = p.depth.ranked.length + p.depth.blowouts.length + p.depth.unpriced.length
+    const bits = [
+      `${p.selected.length} of ${listed} ${p.comp.label} games priced, chosen by how many books price the spread`,
+    ]
+    if (p.depth.blowouts.length > 0) {
+      bits.push(
+        `${p.depth.blowouts.length} skipped as likely blowouts (over ${BLOWOUT_MARGIN} points), where the starters a prop is on do not finish`,
+      )
+    }
+    if (p.depth.unpriced.length > 0) {
+      bits.push(`${p.depth.unpriced.length} had no spread priced at all, so no book is likely to post props`)
+    }
+    parts.push(`${bits.join("; ")}.`)
+  }
+  return parts.length > 0 ? parts.join(" ") : null
 }
 
 /** The last number in a list of per-competition readings, ignoring absent ones. */
@@ -325,6 +362,12 @@ function lastFinite(values: (number | null)[]): number | null {
 interface CompetitionPull {
   comp: LeagueConfig
   markets: string[]
+  /** Credits this competition spent on choosing which games to price. */
+  depthCredits: number
+  /** What the depth ranking found, or null when it was not used or failed. */
+  depth: DepthRanking | null
+  /** Why the ranking is missing, when it was wanted and did not arrive. */
+  depthError: string | null
   /** Games in the window that have not started. */
   upcoming: FeedEvent[]
   /** The games actually priced, after the cap. */
@@ -368,7 +411,43 @@ async function pullCompetition(
   // under way. Those are skipped before the cap, so a live game never takes
   // a slot from one that can still be played.
   const upcoming = listed.filter((e) => notStarted(e.commence_time, opts.now))
-  const selected = opts.eventsOnly ? [] : upcoming.slice(0, opts.maxGames)
+  let remaining: number | null = events.remaining
+  let used: number | null = events.used
+
+  // Which games to spend the cap on. A college Saturday lists fifty and only a
+  // few are priced deeply enough to be worth a credit, so start time is the
+  // wrong order: one sport-level call for spreads costs a single credit and
+  // says who the books are actually pricing. It is an enhancement, never a
+  // dependency — if it fails, the slate falls back to start order and says so.
+  let depth: DepthRanking | null = null
+  let depthError: string | null = null
+  let depthCredits = 0
+  let ordered = upcoming
+  if (comp.depthRanked && !opts.eventsOnly && upcoming.length > opts.maxGames) {
+    try {
+      const bulk = await fetchOddsApi<FeedEventOdds[]>(
+        sportOddsUrl(apiKey, comp.id, { markets: ["spreads"], fromMs: opts.fromMs, toMs: opts.toMs }),
+      )
+      depthCredits = 1
+      if (bulk.remaining != null) remaining = bulk.remaining
+      if (bulk.used != null) used = bulk.used
+      depth = rankByDepth(Array.isArray(bulk.data) ? bulk.data : [])
+      const rank = new Map(depth.ranked.map((g, i) => [g.id, i]))
+      ordered = upcoming
+        .filter((e) => rank.has(e.id))
+        .sort((a, b) => rank.get(a.id)! - rank.get(b.id)!)
+      // A ranking that excluded everything is a ranking that learnt nothing
+      // useful; fall back rather than price an empty slate.
+      if (ordered.length === 0) {
+        ordered = upcoming
+        depthError = "No college game in this window had a spread priced, so the slate is in start order."
+      }
+    } catch (err) {
+      depthError = feedErrorText(err, "The Odds API")
+      ordered = upcoming
+    }
+  }
+  const selected = opts.eventsOnly ? [] : ordered.slice(0, opts.maxGames)
   const nextEvent =
     events.data
       .filter((e) => Date.parse(e.commence_time) > opts.toMs)
@@ -376,8 +455,6 @@ async function pullCompetition(
 
   const payloads: FeedEventOdds[] = []
   const failures: CompetitionPull["failures"] = []
-  let remaining: number | null = events.remaining
-  let used: number | null = events.used
 
   for (const e of selected) {
     try {
@@ -404,6 +481,9 @@ async function pullCompetition(
   return {
     comp,
     markets: opts.markets,
+    depthCredits,
+    depth,
+    depthError,
     upcoming,
     selected,
     started: listed.length - upcoming.length,

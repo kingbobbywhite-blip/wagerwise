@@ -25,8 +25,8 @@ import type { MarketKey, Sport } from "@/lib/nba/markets"
  *   Market depth. The NBA has props on every book at every game. The NFL is the
  *   deepest prop market there is, but posts a week ahead and moves hard on
  *   injury news. College football is priced for the games on television and
- *   barely at all for the rest. Asking for markets a league does not post burns
- *   feed credits for nothing.
+ *   barely at all for the rest. Asking for markets a league does not post is at
+ *   best a wasted request and may be a wasted credit.
  *
  * COMPANIONS. A league can carry other competitions that are pulled in the
  * same press and priced in the same tables, because they are the same sport
@@ -79,6 +79,16 @@ export interface LeagueConfig {
   companions?: LeagueId[]
   /** True when this league is only ever shown inside another league's section. */
   companionOnly?: boolean
+  /**
+   * Choose which games to price by how deep their market is, rather than by
+   * who starts first.
+   *
+   * Worth one extra credit only where the slate is far bigger than the cap and
+   * the games differ wildly in whether anyone prices them: a college Saturday
+   * lists fifty games and a handful carry real props. On a 13-game NFL Sunday
+   * the cap takes nearly everything anyway, so there is nothing to rank.
+   */
+  depthRanked?: boolean
 }
 
 const NBA_BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel", "betmgm", "caesars", "espnbet"]
@@ -90,9 +100,10 @@ const FOOTBALL_MARKETS = ["player_pass_yds", "player_rush_yds", "player_receptio
  *
  * The college prop market is thin away from the televised games: receptions
  * and receiving yards are posted for a handful of players at the games anyone
- * is watching and for nobody at the rest. Four markets per game was paying a
- * credit each for empty responses. Passing and rushing yards are the two that
- * come back filled.
+ * is watching and for nobody at the rest, so two of the four markets came back
+ * empty and padded the board with props nothing could price. Whether they also
+ * cost a credit each is NOT settled: see UNVERIFIED_EMPTY_MARKET_COST in
+ * lib/odds-feed/theoddsapi. The board-quality reason stands either way.
  */
 const CFB_MARKETS = ["player_pass_yds", "player_rush_yds"]
 
@@ -175,6 +186,7 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
       RUSH_YDS: 400, RUSH_ATT: 45, REC: 20, REC_YDS: 350, RUSH_REC_YDS: 450,
     },
     companionOnly: true,
+    depthRanked: true,
     note: "Priced inside the NFL section with its own, wider numbers. Only the games on television carry real prop pricing, so most of a Saturday slate comes back unpriced and is correctly left out. Blowouts are routine and starters sit: treat a projection here as less certain than the same number in the NFL.",
   },
   nhl: {

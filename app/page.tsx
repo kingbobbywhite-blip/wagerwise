@@ -291,6 +291,7 @@ export default function TodayPage() {
         // Only kept when they will be used: each pull lives in this browser's storage.
         pickemLines: wantPickem ? (data.pickemLines ?? undefined) : undefined,
         pickemNote: data.pickemNote ?? null,
+        depthNote: data.depthNote ?? null,
       })
       const n = (data.quotes ?? []).length
       toast.success(
@@ -320,6 +321,7 @@ export default function TodayPage() {
       if (data.pickemNote && wantPickem) {
         toast.info(data.pickemNote)
       }
+      if (data.depthNote) toast.info(data.depthNote)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -781,6 +783,9 @@ export default function TodayPage() {
 
             <section className="rounded-lg border border-border/60 bg-card/40 p-4">
               <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Games</h2>
+              {daily?.depthNote ? (
+                <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-muted-foreground">{daily.depthNote}</p>
+              ) : null}
               <div className="mt-2 flex flex-wrap gap-2">
                 {picks.games.map((g) => (
                   <Badge key={g.gameId} variant="outline" className="max-w-full whitespace-normal font-mono text-[11px]">
