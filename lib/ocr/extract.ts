@@ -104,7 +104,7 @@ const STAT_WORDS = [
 const NOT_NAMES = new Set([
   "higher", "lower", "more", "less", "over", "under", "final", "live", "today", "tonight",
   "power", "flex", "play", "entry", "lineup", "picks", "pick", "board", "all", "sports",
-  "nba", "wnba", "nfl", "mlb", "nhl", "ncaa", "quick", "demon", "goblin", "boost", "boosted",
+  "nba", "wnba", "nfl", "cfb", "mlb", "nhl", "ncaa", "ncaaf", "quick", "demon", "goblin", "boost", "boosted",
   "my", "promo", "special", "combo", "vs", "at", "home", "away", "projection", "proj",
 ])
 
@@ -112,7 +112,10 @@ const TEAM_CODES = new Set([
   // NBA
   "atl","bos","bkn","bkl","cha","chi","cle","dal","den","det","gsw","hou","ind","lac","lal",
   "mem","mia","mil","min","nop","nyk","okc","orl","phi","phx","por","sac","sas","tor","uta","was",
-  // WNBA codes that are not already NBA codes
+  // WNBA codes that are not already NBA codes. The WNBA is no longer one of the
+  // leagues Today prices, but these stay: a logged WNBA entry still has to read
+  // back off a screenshot, and settled history is the only thing that can tell
+  // you the model was wrong.
   "lva","lv","nyl","ny","sea","con","conn","las","la","gsv",
   // NFL codes that are not already NBA or WNBA codes
   "ari","bal","buf","car","cin","gb","jax","jac","kc","lar","lv","lvr","ne","no","nyg","nyj","pit",

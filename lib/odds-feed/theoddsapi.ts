@@ -126,6 +126,11 @@ export interface NormalizedQuote extends BookQuote {
   homeTeam: string
   awayTeam: string
   commenceTime: string
+  /**
+   * Which competition the quote came from, set when a league's section covers
+   * more than one. The pricing engine reads it to pick the right priors.
+   */
+  competition?: LeagueId
 }
 
 export interface NormalizeResult {
@@ -144,7 +149,7 @@ export interface NormalizeResult {
  * price is worth something, but the projection layer marks it as having an
  * assumed rather than measured margin.
  */
-export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport): NormalizeResult {
+export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport, competition?: LeagueId): NormalizeResult {
   // The league asked for decides what "player_points" means; failing that, the payload's own sport.
   const inSport = sport ?? sportOfFeedKey(event.sport_key)
   const quotes: NormalizedQuote[] = []
@@ -204,6 +209,7 @@ export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport): Normali
           homeTeam: event.home_team,
           awayTeam: event.away_team,
           commenceTime: event.commence_time,
+          competition,
         })
       }
     }
@@ -212,11 +218,11 @@ export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport): Normali
   return { quotes, unknownMarkets: Array.from(unknownMarkets), dropped }
 }
 
-export function normalizeMany(events: FeedEventOdds[], sport?: Sport): NormalizeResult {
+export function normalizeMany(events: FeedEventOdds[], sport?: Sport, competition?: LeagueId): NormalizeResult {
   const all: NormalizeResult = { quotes: [], unknownMarkets: [], dropped: [] }
   const unknown = new Set<string>()
   for (const e of events) {
-    const r = normalizeEventOdds(e, sport)
+    const r = normalizeEventOdds(e, sport, competition)
     all.quotes.push(...r.quotes)
     all.dropped.push(...r.dropped)
     for (const m of r.unknownMarkets) unknown.add(m)

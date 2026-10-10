@@ -220,6 +220,98 @@ describe("/api/today", () => {
   })
 })
 
+describe("/api/today with a companion competition", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /** A feed that answers per sport, so the NFL and college listings differ. */
+  function stubFootballFeed(now: number) {
+    const bySport: Record<string, { id: string; commence_time: string; home_team: string; away_team: string }[]> = {
+      americanfootball_nfl: [
+        { id: "nfl1", commence_time: iso(now + 3 * HOUR), home_team: "Chiefs", away_team: "Bills" },
+      ],
+      americanfootball_ncaaf: [
+        { id: "cfb1", commence_time: iso(now + 4 * HOUR), home_team: "Buckeyes", away_team: "Nittany Lions" },
+        { id: "cfb2", commence_time: iso(now + 5 * HOUR), home_team: "Tigers", away_team: "Crimson Tide" },
+      ],
+    }
+    const urls: string[] = []
+    const book = (key: string) => ({
+      key,
+      title: key,
+      markets: [
+        {
+          key: "player_pass_yds",
+          outcomes: [
+            { name: "Over", description: "Some Passer", price: -110, point: 245.5 },
+            { name: "Under", description: "Some Passer", price: -110, point: 245.5 },
+          ],
+        },
+      ],
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(url)
+        const sport = url.match(/\/sports\/([^/]+)\//)![1]
+        const ev = url.match(/\/events\/([^/?]+)\/odds/)
+        if (ev) {
+          const e = bySport[sport].find((x) => x.id === ev[1])!
+          return json({ ...e, sport_key: sport, bookmakers: [book("pinnacle"), book("fanduel")] }, 200, QUOTA)
+        }
+        return json(bySport[sport].map((e) => ({ ...e, sport_key: sport })), 200, QUOTA)
+      }),
+    )
+    return { urls, oddsCalls: () => urls.filter((u) => u.includes("/odds?")) }
+  }
+
+  it("pulls college football with the NFL in one press and tags its props", async () => {
+    const now = Date.now()
+    const feed = stubFootballFeed(now)
+    const res = await today({
+      league: "nfl",
+      markets: ["player_pass_yds"],
+      from: iso(now - HOUR),
+      to: iso(now + 12 * HOUR),
+      maxGames: 5,
+    })
+    const data = await res.json()
+    expect(res.status).toBe(200)
+    // Both listings were asked for, and both competitions' games were priced.
+    expect(feed.urls.some((u) => u.includes("/sports/americanfootball_nfl/events?"))).toBe(true)
+    expect(feed.urls.some((u) => u.includes("/sports/americanfootball_ncaaf/events?"))).toBe(true)
+    expect(feed.oddsCalls()).toHaveLength(3)
+    expect(data.events.map((e: { id: string }) => e.id).sort()).toEqual(["cfb1", "cfb2", "nfl1"])
+    // Three games at one market: billed as three, not as one league's worth.
+    expect(data.estimatedCredits).toBe(3)
+    const comps = data.quotes.map((q: { competition?: string }) => q.competition ?? "nfl")
+    expect(new Set(comps)).toEqual(new Set(["nfl", "cfb"]))
+  })
+
+  it("keeps the companion's own game cap rather than the dial on the Today screen", async () => {
+    const now = Date.now()
+    // One NFL game allowed by the dial; the college cap is the config's, not 1.
+    const feed = stubFootballFeed(now)
+    await today({
+      league: "nfl",
+      markets: ["player_pass_yds"],
+      from: iso(now - HOUR),
+      to: iso(now + 12 * HOUR),
+      maxGames: 1,
+    })
+    expect(feed.oddsCalls().filter((u) => u.includes("ncaaf"))).toHaveLength(2)
+    expect(feed.oddsCalls().filter((u) => u.includes("_nfl"))).toHaveLength(1)
+  })
+
+  it("asks the NBA for one listing only, because it has no companion", async () => {
+    const now = Date.now()
+    const feed = stubOddsApi([{ id: "g1", commence_time: iso(now + 3 * HOUR) }], (id) =>
+      json(oddsFor({ ...feed.listing.find((e) => e.id === id)! }), 200, QUOTA),
+    )
+    await today({ league: "nba", markets: ["player_points"], from: iso(now - HOUR), to: iso(now + 12 * HOUR) })
+    expect(feed.urls.filter((u) => u.includes("/events?"))).toHaveLength(1)
+  })
+})
+
 describe("/api/odds", () => {
   afterEach(() => vi.unstubAllGlobals())
 

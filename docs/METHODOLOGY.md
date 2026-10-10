@@ -126,14 +126,28 @@ Dispersion is a per-market ratio of variance to mean:
 | 3-Pointers Made | 1.15 | ≈ 5.4 |
 | Steals | 1.05 | ≈ 5.1 |
 
-These are priors fitted to typical NBA game-log behaviour, not measured constants. The WNBA
-scales them by 1.05, because a shorter game with shorter rotations makes a player's minutes a
-little less knowable. NFL markets have their own ratios (passing yards 19, rushing yards 13,
-receiving yards 16, receptions 1.1, passing touchdowns 0.8) and are not scaled. Note that
-holding the ratio fixed while the mean falls already widens the relative spread, since
+These are priors fitted to typical NBA game-log behaviour, not measured constants. NFL markets
+have their own ratios (passing yards 19, rushing yards 13, receiving yards 16, receptions 1.1,
+passing touchdowns 0.8) and are not scaled. College football scales the football ratios by 1.2,
+because a blowout, a benched starter and an unknowable backfield split all widen the outcome.
+Note that holding the ratio fixed while the mean falls already widens the relative spread, since
 variance/mean = r implies sd/mean = sqrt(r/mean); the multipliers sit on top of that. They are
 the single largest modelling assumption in the app, and the outcome-spread slider in
 settings scales all of them at once.
+
+**Yardage markets also carry a floor on the relative spread**, because that same identity cuts
+the wrong way at the top of the range: sd/mean = sqrt(r/mean) means the ratio prior makes a big
+projection look more predictable than it is. At ratio 19 a 235-yard passing line gets a standard
+deviation of 67 (28% of the mean, about right) and a 340-yard line gets 80 (24%, far too
+confident). Passing, rushing, receiving and rush+rec yards therefore take the wider of the ratio
+prior and a coefficient of variation of 0.27, 0.45, 0.52 and 0.45. The outcome-spread slider
+scales the floor too, so widening uncertainty still widens the answer.
+
+**A line priced before kickoff is widened for the wait.** Four percent of variance per day until
+the game starts, capped at twelve percent. Football props post days ahead and move on injury,
+depth-chart and weather news; the price was correct for what was known when it was posted, and
+the rest is uncertainty that belongs in the distribution. Under four percent on a slate pulled
+the same evening, so it is a football correction in practice.
 
 Uncertainty about the projection is folded into the outcome spread. A shaky projection
 produces probabilities closer to 50%, which is the honest response to not knowing.

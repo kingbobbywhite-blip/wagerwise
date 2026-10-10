@@ -41,6 +41,22 @@ export interface MarketConfig {
   dispersion: number
   /** Continuous stats use a normal marginal instead of a count distribution. */
   continuous?: boolean
+  /**
+   * Floor on the coefficient of variation (sd / mean), where the stat has one.
+   *
+   * The dispersion ratio above sets variance = ratio x mean, which implies
+   * sd/mean = sqrt(ratio/mean): the relative spread SHRINKS as the projection
+   * rises. That is right for counting stats, where a bigger mean really is
+   * more predictable, and wrong for yardage, where it is not. Fitted to the
+   * typical mean, ratio 19 gives a 235-yard passer sd 67 (a realistic 28%) but
+   * a 340-yard passer sd 80, which is 24% and far too confident: a line that
+   * far out moves on a single explosive play. The floor keeps the relative
+   * spread from collapsing at the top of the range, where overconfidence turns
+   * into a phantom edge. Below the crossover the ratio still governs, because
+   * a low-volume receiver genuinely is more erratic than a proportional
+   * spread would allow.
+   */
+  cv?: number
   /** Component stats, used by the correlation model for combo markets. */
   components: MarketKey[]
   /** Typical league-wide mean, used only for sanity checks on imported data. */
@@ -74,17 +90,19 @@ export const MARKETS: Record<MarketKey, MarketConfig> = {
   // sits near sd 70 (ratio ~19), a lead back at 65 rushing yards near sd 29
   // (~13), a WR1 at 60 receiving yards near sd 31 (~16). Passing touchdowns
   // and interceptions are UNDER-dispersed relative to Poisson, which the
-  // binomial branch of the count model handles.
-  PASS_YDS:     { key: "PASS_YDS",     label: "Passing Yards",         short: "PaYd", dispersion: 19,   components: ["PASS_YDS"], typicalMean: 235 },
+  // binomial branch of the count model handles. Yardage also carries a
+  // coefficient-of-variation floor, because a ratio alone makes a big
+  // projection look far more predictable than it is; see MarketConfig.cv.
+  PASS_YDS:     { key: "PASS_YDS",     label: "Passing Yards",         short: "PaYd", dispersion: 19,   cv: 0.27, components: ["PASS_YDS"], typicalMean: 235 },
   PASS_TDS:     { key: "PASS_TDS",     label: "Passing TDs",           short: "PaTD", dispersion: 0.80, components: ["PASS_TDS"], typicalMean: 1.5 },
   PASS_COMP:    { key: "PASS_COMP",    label: "Pass Completions",      short: "Cmp",  dispersion: 1.15, components: ["PASS_COMP"], typicalMean: 21 },
   PASS_ATT:     { key: "PASS_ATT",     label: "Pass Attempts",         short: "Att",  dispersion: 1.10, components: ["PASS_ATT"], typicalMean: 33 },
   PASS_INT:     { key: "PASS_INT",     label: "Interceptions",         short: "INT",  dispersion: 0.95, components: ["PASS_INT"], typicalMean: 0.8 },
-  RUSH_YDS:     { key: "RUSH_YDS",     label: "Rushing Yards",         short: "RuYd", dispersion: 13,   components: ["RUSH_YDS"], typicalMean: 55 },
+  RUSH_YDS:     { key: "RUSH_YDS",     label: "Rushing Yards",         short: "RuYd", dispersion: 13,   cv: 0.45, components: ["RUSH_YDS"], typicalMean: 55 },
   RUSH_ATT:     { key: "RUSH_ATT",     label: "Rush Attempts",         short: "Car",  dispersion: 1.60, components: ["RUSH_ATT"], typicalMean: 14 },
   REC:          { key: "REC",          label: "Receptions",            short: "Rec",  dispersion: 1.10, components: ["REC"], typicalMean: 4 },
-  REC_YDS:      { key: "REC_YDS",      label: "Receiving Yards",       short: "ReYd", dispersion: 16,   components: ["REC_YDS"], typicalMean: 48 },
-  RUSH_REC_YDS: { key: "RUSH_REC_YDS", label: "Rush + Rec Yards",      short: "R+R",  dispersion: 14,   components: ["RUSH_YDS", "REC_YDS"], typicalMean: 75 },
+  REC_YDS:      { key: "REC_YDS",      label: "Receiving Yards",       short: "ReYd", dispersion: 16,   cv: 0.52, components: ["REC_YDS"], typicalMean: 48 },
+  RUSH_REC_YDS: { key: "RUSH_REC_YDS", label: "Rush + Rec Yards",      short: "R+R",  dispersion: 14,   cv: 0.45, components: ["RUSH_YDS", "REC_YDS"], typicalMean: 75 },
 
   // NHL. Small counts on half-point lines, which is the point: a skater who
   // averages 2.9 shots goes over 2.5 about 56% of the time and under 3.5 about
@@ -244,7 +262,7 @@ export function normalizeMarket(raw: string): NormalizedMarket {
   // numbers such as the posted line. The word boundaries matter: an unanchored
   // digit strip would eat the 3 in "3PM".
   const stripped = protectThreePoint(original)
-    .replace(/\b(over|under|o\/u|ou|line|prop|player|nba|wnba|nfl|ncaab|ncaa|cbb|cfb)\b/gi, " ")
+    .replace(/\b(over|under|o\/u|ou|line|prop|player|nba|nfl|ncaab|ncaaf|ncaa|cbb|cfb)\b/gi, " ")
     .replace(/\b\d+(?:\.\d+)?\b/g, " ")
   const token = canonicalToken(stripped) || canonicalToken(protectThreePoint(original))
 
@@ -315,9 +333,13 @@ export function distributionFor(
   const cfg = marketKey ? MARKETS[marketKey] : null
   const baseRatio = cfg?.dispersion ?? 1.8
   const perMarket = (marketKey && overrides?.perMarket?.[marketKey]) || 1
-  const ratio = baseRatio * (overrides?.global ?? 1) * perMarket
+  const dial = (overrides?.global ?? 1) * perMarket
+  const ratio = baseRatio * dial
   const m = Math.max(mean, 0.01)
-  const variance = Math.max(m * ratio, 1e-6)
+  // The ratio prior, but never tighter than the stat's own relative spread.
+  // The dial scales both, so widening uncertainty still widens the result.
+  const floor = cfg?.cv ? Math.pow(cfg.cv * m, 2) * dial : 0
+  const variance = Math.max(m * ratio, floor, 1e-6)
   if (cfg?.continuous) return normalDistribution(m, variance)
   return countDistribution(m, variance)
 }

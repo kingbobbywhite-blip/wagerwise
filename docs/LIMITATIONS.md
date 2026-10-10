@@ -161,7 +161,8 @@ legal everywhere. Nothing here is financial advice.
 
 ## League coverage
 
-Four leagues are supported: NBA, WNBA, NFL and NHL. What is NOT modelled per league:
+Three sections are supported: NBA, NFL (with college football inside it) and NHL. What is NOT
+modelled per league:
 
 **NHL goalies and line combinations are not known.** Saves depend on who starts in net and on
 the other team's shot volume, and points depend on power-play units. The feed knows neither, so
@@ -169,19 +170,30 @@ a late goalie change makes every save line, and the other side's shots, stale un
 The hockey dispersion values are reasoned from typical game logs, not fitted, like every other
 league's.
 
-**College basketball was removed.** It was replaced by the NFL. Re-adding it is a data entry in
-`lib/leagues`, but its tests and notes went with it.
+**College basketball and the WNBA were removed.** Re-adding either is a data entry in
+`lib/leagues`, but their tests and notes went with them. A stored pull or a phone still set to
+one of them opens on the NBA. WNBA team codes stay in the screenshot reader, so a settled WNBA
+entry in the tracker still reads back.
 
-**The dispersion values are judgement, not fits.** The WNBA volatility multiplier (1.05) and
-every NFL market's spread (for example 19 for passing yards, 13 for rushing yards, 16 for
-receiving yards, as variance / mean) are reasoned from typical game logs. They have not been
+**College football is thin and barely priced away from television.** Only the games on a
+network carry real prop pricing; the rest of a Saturday comes back unpriced and is left out,
+which is the correct outcome but means the section covers a fraction of the slate. Its game cap
+is six for that reason and because a Saturday lists fifty games. Its wider volatility prior
+(1.2 on the NFL's ratios) is reasoned from blowouts, benched starters and unknowable backfield
+splits — it is not fitted. The feed's college player names collide more often than the NFL's
+(two players of the same name across 130 teams), and a name is matched exactly rather than
+fuzzily, so a collision shows up as an unmatched prop rather than a wrong price.
+
+**The dispersion values are judgement, not fits.** The college football multiplier (1.2), every
+NFL market's spread (for example 19 for passing yards, 13 for rushing yards, 16 for receiving
+yards, as variance / mean) and the yardage spread floors (27% of the mean for passing yards,
+45% rushing, 52% receiving) are reasoned from typical game logs. They have not been
 fitted against realised results, because that needs a season of settled bets per league. Treat
 them as starting points and retune them from the tracker.
 
 **Minutes projections do not know league rules.** The rest and absence adjustments in the
-game-log estimator were built for an 82-game NBA schedule. A WNBA team on a 44-game schedule,
-or an NFL team playing weekly, has a different rest profile that is not modelled. Game-log
-import is basketball-only.
+game-log estimator were built for an 82-game NBA schedule. A football team playing weekly has a
+different rest profile that is not modelled. Game-log import is basketball-only.
 
 **NFL same-team correlation is invisible.** The feed does not say which team a player is on,
 so a quarterback and his own receiver are linked only as players in the same game. That
@@ -193,4 +205,12 @@ rushing yards in the same game.
 prices with no line, which this pipeline does not model.
 
 **Correlation is otherwise league-blind.** Same-game and same-player correlation is applied
-identically in both basketball leagues, and it is the least-tested assumption in the league work.
+identically in every league, including between an NFL leg and a college leg in the same
+section (they are never in the same game, so the effect is nil), and it is the least-tested
+assumption in the league work.
+
+**The pick'em ceiling is a prior about boards, not a measurement.** A prop whose every posted
+line leaves the favoured side above 80% is dropped from the pick'em targets, on the reasoning
+that a pick'em app cannot offer a pick that lopsided and still pay a flat multiplier. That
+threshold is judgement. If an app does post one, this hides it; with PropLine attached the
+app's real lines are used instead and the question does not arise.

@@ -412,7 +412,8 @@ export default function SettingsPage() {
                   </Label>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
                     When on, Today prices nothing unless Pinnacle, BetOnline, LowVig or another sharp book posted the
-                    prop. WNBA props are often retail-only, so Today stays empty. Turn off to price against
+                    prop. College football props outside the televised games are often retail-only or unpriced, so
+                    Today leaves them out. Turn off to price against
                     the retail consensus instead: weaker, and every result says so.
                   </p>
                 </div>

@@ -1,4 +1,5 @@
 import { MARKETS, type MarketKey } from "@/lib/nba/markets"
+import type { LeagueId } from "@/lib/leagues"
 import { resolveLine } from "@/lib/quant/distributions"
 import { probToAmerican } from "@/lib/quant/odds"
 import { optimizeSlips, type BuiltSlip, type CandidateLeg, type OptimizerConstraints } from "@/lib/quant/optimizer"
@@ -69,6 +70,12 @@ export interface DfsTarget {
   market: MarketKey
   marketLabel: string
   gameId: string
+  /**
+   * The competition the prop belongs to, when its league's section covers more
+   * than one: college football priced inside the NFL section arrives as "cfb".
+   * Absent on a slate pulled before companions existed.
+   */
+  competition?: LeagueId
   commenceTime: string | null
   /** Consensus projection for the stat. */
   mean: number
@@ -184,6 +191,13 @@ export function dfsTargetsFor(
   mean: number,
   distribution: { pAtLeast(k: number): number; pmf(k: number): number; variance?: number },
   breakEven: number,
+  opts: {
+    /**
+     * The lines the books are actually hanging for this prop. Given these, the
+     * search covers the board rather than the whole number line: see below.
+     */
+    postedLines?: number[]
+  } = {},
 ): {
   fairLine: number
   overAt: number | null
@@ -194,15 +208,38 @@ export function dfsTargetsFor(
 } {
   // Walk actual half-point lines. Pick'em apps post x.5 almost universally, and
   // a whole number would introduce a push the targets do not account for.
-  // The window is 15 either side, widened to 1.5 standard deviations where
-  // that is larger. 15 covers every basketball stat (which is why basketball
-  // targets are unchanged), but a 250-yard passing line has a standard
-  // deviation near 70, and a fixed 15 would cut the search off before the
-  // target. 1.5 sd reaches any bar up to about 93%, far beyond any payout table.
+  //
+  // WHICH half-point lines matters as much as the maths. Sweeping a fixed
+  // window around the projection produces numbers no board has ever shown:
+  // a hockey assist market whose mean is 0.4 got lines up to 16.5, a goalie
+  // whose mean is 27 got 11.5, and a 250-yard passing line got two hundred
+  // rows at one-yard steps. Every one of those is a line you cannot find on
+  // PrizePicks, Underdog or FanDuel, so a threshold placed there is advice
+  // nobody can act on.
+  //
+  // So the search covers the BOARD: the lines the books are posting, widened
+  // by half a standard deviation to allow for a pick'em app hanging a slightly
+  // different number, and capped at 25 units so a yardage market stays a
+  // readable ladder. Without posted lines (a caller pricing a hypothetical)
+  // it falls back to the old fixed window.
   const sd = Math.sqrt(Math.max(distribution.variance ?? 0, 0))
-  const reach = Math.max(15, Math.ceil(1.5 * sd))
-  const start = Math.max(0.5, Math.floor(mean - reach) + 0.5)
-  const end = Math.ceil(mean + reach) + 0.5
+  const posted = (opts.postedLines ?? []).filter((l) => Number.isFinite(l))
+  let lo: number
+  let hi: number
+  if (posted.length > 0) {
+    const pad = Math.min(25, Math.max(1, Math.ceil(0.5 * sd)))
+    lo = Math.min(...posted) - pad
+    hi = Math.max(...posted) + pad
+  } else {
+    const reach = Math.max(15, Math.ceil(1.5 * sd))
+    lo = mean - reach
+    hi = mean + reach
+  }
+  const start = Math.max(0.5, Math.floor(lo) + 0.5)
+  // Snap to the half-point grid without reaching past the window: a posted
+  // line is already an x.5, so an unconditional round up added a line nobody
+  // hangs on the far end of every ladder.
+  const end = Math.ceil(hi - 0.5) + 0.5
 
   let fairLine = Math.round(mean - 0.5) + 0.5
   let bestGap = Infinity
@@ -236,6 +273,24 @@ export function dfsTargetsFor(
 
   return { fairLine, overAt, overProb, underAt, underProb, ladder }
 }
+
+/**
+ * The most lopsided a pick'em pick can be and still exist.
+ *
+ * A pick'em app makes its money on the payout table, which only works if both
+ * sides of every pick are plausible. It therefore does not post a prop whose
+ * favoured side is a near-certainty: there is no NHL "goals 0.5" on PrizePicks
+ * for a player who scores 0.25 a game, no matter that a sportsbook will happily
+ * price that at -400.
+ *
+ * Without this bar the targets sorted by hit rate, so those were exactly the
+ * props that came out on top, and the NHL board filled with 80-90% unders on
+ * goals, power-play points and third-line assists: correct arithmetic, and not
+ * a single one of them a pick you could place anywhere. The sportsbook side of
+ * the app is untouched by this; it is a fact about pick'em boards, not about
+ * the price being wrong.
+ */
+export const PICKEM_MAX_PROB = 0.8
 
 /**
  * The line most of the books are hanging: the one a pick'em app copies. Ties
@@ -318,6 +373,37 @@ function pickemCoverage(quotes: FeedQuote[], lines: PickemLine[] | undefined): M
   return byGame
 }
 
+/**
+ * The posted line a pick'em app would actually copy, or null when none of them
+ * is a line a board would show. See PICKEM_MAX_PROB.
+ */
+export function boardLine(
+  postedLines: number[],
+  mean: number,
+  distribution: { pAtLeast(k: number): number; pmf(k: number): number },
+): { line: number; prob: number } | null {
+  if (postedLines.length === 0) return null
+  const probOf = (line: number) => {
+    const p = resolveLine(distribution as never, line)
+    return Math.max(p.over, p.under)
+  }
+  const modal = marketLineOf(postedLines, mean)
+  const atModal = probOf(modal)
+  if (atModal <= PICKEM_MAX_PROB) return { line: modal, prob: atModal }
+  // The modal line is one no app would post. Fall back to the posted line
+  // closest to a coin flip, which is the one a board would choose.
+  let best = modal
+  let bestProb = atModal
+  for (const line of postedLines) {
+    const p = probOf(line)
+    if (p < bestProb) {
+      best = line
+      bestProb = p
+    }
+  }
+  return bestProb <= PICKEM_MAX_PROB ? { line: best, prob: bestProb } : null
+}
+
 export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTarget[] {
   const now = opts.now ?? Date.now()
   const out: DfsTarget[] = []
@@ -328,11 +414,22 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
     const ref = referenceProjection(group, group.quotes, opts.value, now)
     if (!ref || ref.status !== "priced") continue
 
-    const t = dfsTargetsFor(ref.mean, ref.distribution, opts.dfsBreakEven)
+    const postedLines = Array.from(new Set(group.quotes.map((q) => q.line)))
+    const t = dfsTargetsFor(ref.mean, ref.distribution, opts.dfsBreakEven, { postedLines })
     // A prop where neither side clears is not a target, it is a pass.
     if (t.overAt == null && t.underAt == null) continue
 
-    const marketLine = marketLineOf(group.quotes.map((q) => q.line), ref.mean)
+    const appLines = priceAppLines(appIndex.get(`${normalizeName(group.player)}|${group.market}`) ?? [], ref.distribution)
+
+    // The line a pick'em app would hang: the one the books post most often,
+    // unless that one is so lopsided no app would offer the prop at all, in
+    // which case the best-balanced posted line is the one they would copy.
+    // If no posted line is one a board could plausibly show, this is not a
+    // pick'em target at any line — unless an app is demonstrably posting one,
+    // because a real line beats a prior about what the line would be.
+    const board = boardLine(postedLines, ref.mean, ref.distribution)
+    if (!board && appLines.length === 0) continue
+    const marketLine = board?.line ?? marketLineOf(postedLines, ref.mean)
     const atMarket = resolveLine(ref.distribution as never, marketLine)
     const marketSide = atMarket.over >= atMarket.under ? "OVER" : "UNDER"
 
@@ -342,6 +439,7 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
       market: group.market,
       marketLabel: MARKETS[group.market].label,
       gameId: group.gameId,
+      competition: group.competition,
       commenceTime: group.commenceTime,
       mean: ref.mean,
       sd: ref.sd,
@@ -351,7 +449,7 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
       marketLine,
       marketSide,
       marketProb: Math.max(atMarket.over, atMarket.under),
-      appLines: priceAppLines(appIndex.get(`${normalizeName(group.player)}|${group.market}`) ?? [], ref.distribution),
+      appLines,
       appCoverage: Array.from(coverage.get(group.gameId) ?? []).sort(),
       ...t,
     })

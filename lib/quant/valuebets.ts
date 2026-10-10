@@ -1,4 +1,5 @@
 import { MARKETS, type MarketKey } from "@/lib/nba/markets"
+import type { LeagueId } from "@/lib/leagues"
 import { resolveLine } from "./distributions"
 import { bookProfile, isSharp } from "./books"
 import { americanToDecimal, probToAmerican } from "./odds"
@@ -40,6 +41,13 @@ export interface FeedQuote extends BookQuote {
   homeTeam?: string
   awayTeam?: string
   commenceTime?: string
+  /**
+   * Which competition the prop belongs to, when a league's section covers more
+   * than one. College football is pulled inside the NFL section and arrives
+   * as "cfb", and it is priced with CFB priors and CFB plausibility ceilings
+   * rather than the section's. Absent means the section's own league.
+   */
+  competition?: LeagueId
 }
 
 export type ValueSide = "OVER" | "UNDER"
@@ -50,6 +58,8 @@ export interface ValueBet {
   market: MarketKey
   marketLabel: string
   gameId: string
+  /** Set when the pull covered more than one competition: "cfb" inside the NFL section. */
+  competition?: LeagueId
   commenceTime: string | null
 
   book: string
@@ -116,6 +126,8 @@ export interface PropGroup {
   market: MarketKey
   gameId: string
   commenceTime: string | null
+  /** The competition these quotes came from, when the pull covered more than one. */
+  competition?: LeagueId
   quotes: FeedQuote[]
 }
 
@@ -133,6 +145,7 @@ export function groupQuotes(quotes: FeedQuote[]): PropGroup[] {
         market: q.market,
         gameId: q.gameId,
         commenceTime: q.commenceTime ?? null,
+        competition: q.competition,
         quotes: [q],
       })
   }
@@ -143,6 +156,30 @@ export function groupQuotes(quotes: FeedQuote[]): PropGroup[] {
  * Build a reference projection from a set of quotes.
  * Returns null when the set cannot support one.
  */
+/**
+ * How much wider a projection should be for a line priced days before kickoff.
+ *
+ * Returns a multiplier on variance. This is the NFL's and college football's
+ * particular trap: props post on Tuesday for a Sunday game, and between those
+ * two days a starter is ruled out, a backfield split changes, or a weather
+ * forecast turns over. The price you pulled was correct for what was known
+ * then, and the uncertainty about what will be known by kickoff is real
+ * uncertainty that belongs in the distribution rather than in a footnote.
+ *
+ * Four percent of variance per day, capped at twelve percent, which is three
+ * days out. On an NBA or NHL slate pulled the same evening it is under four
+ * percent and changes nothing; on a passing line pulled midweek it widens the
+ * spread about six percent and pulls every probability back toward a coin flip.
+ * Deliberately modest: it is a known unknown, not a reason to stop pricing.
+ */
+export function kickoffVarianceFactor(commenceTime: string | null | undefined, now: number): number {
+  const t = commenceTime ? Date.parse(commenceTime) : NaN
+  if (!Number.isFinite(t)) return 1
+  const days = (t - now) / 86_400_000
+  if (!(days > 0)) return 1
+  return 1 + Math.min(0.12, 0.04 * days)
+}
+
 export function referenceProjection(
   group: PropGroup,
   quotes: FeedQuote[],
@@ -156,6 +193,19 @@ export function referenceProjection(
   // the projection is inverted back into a mean either way.
   const lines = quotes.map((q) => q.line).sort((a, b) => a - b)
   const median = lines[Math.floor(lines.length / 2)]
+
+  // Price each competition with its own priors and ceilings. A college game
+  // pulled inside the NFL section is a college game: wider, and with room for
+  // a 500-yard passer in the plausibility check.
+  const projection: ProjectionSettings = {
+    ...settings.projection,
+    league: group.competition ?? settings.projection.league,
+    dispersion: {
+      ...settings.projection.dispersion,
+      global:
+        (settings.projection.dispersion.global ?? 1) * kickoffVarianceFactor(group.commenceTime, now),
+    },
+  }
 
   return projectProp(
     {
@@ -171,7 +221,7 @@ export function referenceProjection(
         fetchedAt: q.fetchedAt ?? null,
       })),
     },
-    settings.projection,
+    projection,
     `|ref`,
     now,
   )
@@ -238,6 +288,7 @@ export function findValueBets(
           market: group.market,
           marketLabel: MARKETS[group.market].label,
           gameId: group.gameId,
+          competition: group.competition,
           commenceTime: group.commenceTime,
           book: offer.book,
           bookName: bookProfile(offer.book).name,

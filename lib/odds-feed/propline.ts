@@ -35,8 +35,8 @@ export const PROPLINE_FREE_DAILY = 1000
  */
 const SPORT_KEYS: Record<LeagueId, string> = {
   nba: "basketball_nba",
-  wnba: "basketball_wnba",
   nfl: "football_nfl",
+  cfb: "football_ncaaf",
   nhl: "hockey_nhl",
 }
 
@@ -200,7 +200,7 @@ function multiplierOf(o: ProplineOutcome): number | null {
 export function normalizeProplineEvent(
   event: ProplineEventOdds,
   sport?: Sport,
-  opts: { minLiquidity?: number; now?: number } = {},
+  opts: { minLiquidity?: number; now?: number; competition?: LeagueId } = {},
 ): ProplineNormalizeResult {
   const inSport = sport ?? sportOfFeedKey(event.sport_key)
   const minLiquidity = opts.minLiquidity ?? MIN_EXCHANGE_LIQUIDITY
@@ -288,7 +288,7 @@ export function normalizeProplineEvent(
     away_team: event.away_team,
     bookmakers: books,
   }
-  const priced = normalizeEventOdds(feedEvent, inSport)
+  const priced = normalizeEventOdds(feedEvent, inSport, opts.competition)
 
   return {
     quotes: priced.quotes,
@@ -302,7 +302,7 @@ export function normalizeProplineEvent(
 export function normalizeProplineMany(
   events: ProplineEventOdds[],
   sport?: Sport,
-  opts?: { minLiquidity?: number; now?: number },
+  opts?: { minLiquidity?: number; now?: number; competition?: LeagueId },
 ): ProplineNormalizeResult {
   const all: ProplineNormalizeResult = { quotes: [], unknownMarkets: [], dropped: [], pickemLines: [], closedGames: [] }
   const unknown = new Set<string>()

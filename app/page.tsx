@@ -9,6 +9,7 @@ import { StatTile } from "@/components/stat-tile"
 import { ValueBetRow } from "@/components/value-bet-row"
 import { DfsTargetRow } from "@/components/dfs-target-row"
 import { SideBadge } from "@/components/side-badge"
+import { CompetitionBadge } from "@/components/competition-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -23,7 +24,7 @@ import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
 import { NO_SERVER_KEYS, hasFeedKey, parseServerKeys, type ServerKeys } from "@/lib/odds-feed/keys"
 import { notStarted } from "@/lib/odds-feed/http"
 import { useStore } from "@/lib/store/provider"
-import { LEAGUES, LEAGUE_IDS, creditWarning, inSeason, leagueFor, type LeagueId } from "@/lib/leagues"
+import { LEAGUES, TAB_LEAGUE_IDS, competitionsFor, creditWarning, inSeason, leagueFor, plannedGames, type LeagueId } from "@/lib/leagues"
 import { pct, possessive, shortDate, signedPct } from "@/lib/format"
 
 /** "Minnesota Lynx at New York Liberty, Tue, Sep 29, 8:00 PM" in the viewer's own timezone. */
@@ -88,7 +89,7 @@ export default function TodayPage() {
   const leagueId = s.daily.league
   const league = leagueFor(leagueId)
   // Only ever show the cache belonging to the league on screen. Rendering an
-  // NBA pull under a WNBA heading would be worse than showing nothing.
+  // NBA pull under an NHL heading would be worse than showing nothing.
   const daily = state.daily[leagueId] ?? null
   // Only games still to start are worth a pick; the rest of the pull is kept,
   // so this undoes itself if the clock was wrong.
@@ -106,13 +107,15 @@ export default function TodayPage() {
   // one per game whatever the markets, so a slate is never a quota event there.
   const cost = usePropline
     ? { message: null, severe: false }
-    : creditWarning(leagueId, Math.min(s.daily.maxGames, league.maxGames), markets.length)
+    : // Companions are pulled in the same press: the NFL button also pays for
+      // the college games, and the cost shown has to say so.
+      creditWarning(leagueId, plannedGames(leagueId, Math.min(s.daily.maxGames, league.maxGames)), markets.length)
 
   function selectLeague(next: LeagueId) {
     setSettings((prev) => ({
       ...prev,
-      // The game cap travels with the league: a WNBA cap on an NBA slate
-      // misses half of it, and each league's cap is sized to its own slate.
+      // The game cap travels with the league: an NHL cap on an NBA slate
+      // misses part of it, and each league's cap is sized to its own slate.
       daily: { ...prev.daily, league: next, maxGames: LEAGUES[next].maxGames },
     }))
     setError(null)
@@ -308,7 +311,7 @@ export default function TodayPage() {
               aria-label="League"
               className="flex items-center gap-1 rounded-lg border border-border/60 bg-card/40 p-1"
             >
-              {LEAGUE_IDS.map((id) => {
+              {TAB_LEAGUE_IDS.map((id) => {
                 const l = LEAGUES[id]
                 const active = id === leagueId
                 return (
@@ -330,6 +333,11 @@ export default function TodayPage() {
                 )
               })}
             </div>
+            {league.companions?.length ? (
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                incl. {competitionsFor(leagueId).slice(1).map((l) => l.short).join(", ")}
+              </span>
+            ) : null}
             {!inSeason(leagueId) ? (
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
                 out of season
@@ -546,8 +554,9 @@ export default function TodayPage() {
                     <ul className="divide-y divide-border/40 text-sm">
                       {entry.map((l) => (
                         <li key={l.target.key} className="flex items-center justify-between gap-2 py-1.5">
-                          <span className="min-w-0">
-                            <span className="font-medium">{l.target.player}</span>{" "}
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="font-medium">{l.target.player}</span>
+                            <CompetitionBadge competition={l.target.competition} />
                             <span className="font-mono text-[10px] text-muted-foreground">{l.target.marketLabel}</span>
                           </span>
                           <span className="flex items-center gap-1.5 font-mono text-xs">

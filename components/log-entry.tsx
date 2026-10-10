@@ -166,7 +166,7 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       if (mode === "power" && header?.paid != null && header.paid > 0) {
         found = found.map((l) => (l.result === "VOID" ? l : { ...l, result: "WIN" }))
       }
-      // Each game on an entry screen is headed by its league: "WNBA MIN 71 vs
+      // Each game on an entry screen is headed by its league: "NHL MIN 2 vs
       // NYL 87". Failing that, a football stat means an NFL entry.
       const screen = [...out.lines, ...out.cleanedLines].map((l) => l.text).join(" ")
       const named = LEAGUE_IDS.find((id) => new RegExp(`\\b${id}\\b`, "i").test(screen))

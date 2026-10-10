@@ -8,9 +8,10 @@ Sportsbook bets and parlays are only ever recommended at FanDuel. Pinnacle, BetO
 DraftKings and the rest are pulled to price the market and never shown as the place to bet.
 Add a book under Settings if you open an account there.
 
-Four leagues: **NBA**, **WNBA**, **NFL** and **NHL**. Pick one with the tabs on
-the Today screen. Each keeps its own cached pull, so switching leagues never throws away a
-slate you already paid feed credits for.
+Three tabs: **NBA**, **NFL** and **NHL**. **College football rides inside the NFL tab**: one
+press pulls both, each priced with its own numbers, and a college row is badged CFB wherever it
+appears. Each tab keeps its own cached pull, so switching never throws away a slate you already
+paid feed credits for.
 
 **It does not create an edge. It stops you acting on edges that are not there.**
 
@@ -255,17 +256,20 @@ market profitable by itself.
 
 ## Leagues
 
-| | NBA | WNBA | NFL | NHL |
+| | NBA | NFL | CFB | NHL |
 |---|---|---|---|---|
-| Feed sport key | `basketball_nba` | `basketball_wnba` | `americanfootball_nfl` | `icehockey_nhl` |
-| Default markets | pts, reb, ast, 3pm | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions | shots on goal, points, saves, assists |
-| Default game cap | 14 | 8 | 14 | 12 |
-| Volatility prior | baseline | +5% | its own markets | its own markets |
+| Tab | NBA | NFL | inside NFL | NHL |
+| Feed sport key | `basketball_nba` | `americanfootball_nfl` | `americanfootball_ncaaf` | `icehockey_nhl` |
+| Default markets | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions | same as NFL | shots on goal, points, saves, blocked shots |
+| Default game cap | 14 | 14 | 6 | 12 |
+| Volatility prior | baseline | its own markets | +20% on the NFL's | its own markets |
 
-For the two basketball leagues, the **prior mean** is scaled for the WNBA's shorter, slower
-game, and it is used only when no book has priced the prop: a real market price always wins.
-The WNBA **volatility prior** widens the distribution slightly, which pulls probabilities toward
-a coin flip.
+The **prior mean** is used only when no book has priced the prop: a real market price always
+wins. A **volatility prior** above baseline widens the distribution, which pulls probabilities
+toward a coin flip — the honest response to a less predictable league.
+
+The WNBA was removed. A phone that still has it selected opens on the NBA, and a settled WNBA
+entry in the tracker still reads back off a screenshot.
 
 The NFL uses its own markets rather than scaled basketball ones. Yardage is modelled as a
 right-skewed count (a 70-yard catch happens, a minus-70 one does not), with a spread near 70
@@ -284,11 +288,45 @@ moved the number would be inventing an edge.
 Most days have no NFL games. The slate is Sunday, plus Thursday and Monday nights, and the
 Today screen names the next game when today has none. Props are posted days ahead and move
 hard on injury and weather news, so pull on game day. A full Sunday at the default four
-markets is about 56 credits, the same as a full NBA night.
+markets is about 56 credits, plus 24 for the college games pulled with it, and the Today screen
+shows that total before you press the button.
+
+Two things make the numbers here more honest than a dispersion ratio alone:
+
+**Yardage carries a floor on its relative spread.** A ratio prior implies that the spread
+grows with the square root of the projection, so a 340-yard passing line came out with a
+standard deviation of 80 yards — 24% of the mean, where a real passing line sits near 28%.
+Every probability built on that was too confident, and an overconfident probability is a
+phantom edge. Passing, rushing, receiving and rush+rec yards now get the wider of the ratio
+prior and a floor of 27%, 45%, 52% and 45% of the projection. Below the crossover the ratio
+still governs, because a low-volume receiver really is more erratic than a proportional
+spread allows.
+
+**A line priced days before kickoff is widened for the days in between.** Four percent of
+variance a day, capped at twelve percent. The price was right for what was known on Tuesday;
+what Sunday's injury report will say is real uncertainty and belongs in the distribution
+rather than in a footnote. On a slate pulled the same evening it changes nothing.
 
 The feed does not say which team a player is on. A quarterback and his own receiver are
 therefore linked only as players in the same game, not as a stack, so the correlation between
 them is understated for same-team legs and overstated for opponents.
+
+### College football notes
+
+CFB is a companion of the NFL tab, not a tab of its own: same sport, same markets, same
+weekend, and the pick'em apps put both on one board. It is pulled in the same press, capped at
+six games because a Saturday lists fifty and only the televised ones carry real prop pricing,
+and priced with its own numbers rather than the NFL's:
+
+- **20% wider at the same projected mean.** The talent gap between the two rosters is often
+  enormous, starters sit out the fourth quarter of a blowout, and the backfield split is far
+  less knowable than in the NFL. All three widen the outcome, and a wider outcome means a
+  probability closer to a coin flip.
+- **Its own plausibility ceilings**, because a 500-yard passing game and a 300-yard rushing
+  game both happen in college football and NFL ceilings would flag real outcomes as impossible.
+
+Most of a Saturday slate comes back unpriced and is correctly left out: no sportsbook price,
+no expected value, no exceptions.
 
 ### NHL notes
 
@@ -306,4 +344,22 @@ a PrizePicks NHL screen are read as the hockey stats when the entry is an NHL on
 goalies are confirmed late, and a backup in net moves every save line and the other team's
 shots, so pull close to puck drop. Hits, faceoffs and time on ice are logged but not priced.
 
-College basketball was removed. A phone that still has it selected opens on the NBA.
+**The NHL board used to fill with picks you could not place anywhere.** Two causes, both fixed:
+
+1. **Markets no pick'em app posts.** Goals and power-play points are priced by the books at
+   0.5 against a mean near 0.25, so the favoured side is an 80% under. Sorted by hit rate,
+   those came out on top of every NHL board. No pick'em app offers a prop that lopsided — the
+   payout table only works if both sides are plausible — so the default pull is now the four
+   markets PrizePicks, Underdog and FanDuel all post: shots on goal, points, goalie saves and
+   blocked shots. Goals and power-play points stay mapped for reading a logged entry, and can
+   be added back under Settings → Markets. A target whose every posted line is more lopsided
+   than 80/20 is dropped from the pick'em section whatever the league, and the value-bet side
+   of the app still prices it.
+2. **Lines no board has ever shown.** The thresholds and the probability ladder used to sweep
+   a fixed window around the projection, which gave a 0.4-assist market lines up to 16.5 and a
+   27-save goalie lines down to 11.5. The search now covers the lines the books are actually
+   hanging, widened half a standard deviation for an app that hangs a slightly different
+   number. The same fix cuts a 250-yard passing ladder from two hundred rows to fifty.
+
+College basketball and the WNBA were removed. A phone that still has one selected opens on
+the NBA.

@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Input } from "@/components/ui/input"
 import { SideBadge } from "@/components/side-badge"
+import { CompetitionBadge } from "@/components/competition-badge"
 import { pct, possessive } from "@/lib/format"
 import { DEFAULT_APPS, findApp } from "@/lib/quant/payouts"
 import { appVerdict, dfsVerdict, probAt, type AppLine, type DfsTarget } from "@/lib/today/build"
@@ -60,7 +61,10 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
   return (
     <tr className="border-b border-border/40 last:border-0 hover:bg-card/40">
       <td className="px-3 py-2">
-        <div className="font-medium leading-tight">{t.player}</div>
+        <div className="flex items-center gap-1.5 font-medium leading-tight">
+          {t.player}
+          <CompetitionBadge competition={t.competition} />
+        </div>
         <div className="font-mono text-[10px] text-muted-foreground">{t.gameId.replace("@", " at ")}</div>
         {t.appLines && t.appLines.length > 0 ? (
           <ul className="mt-1 space-y-0.5 font-mono text-[10px] text-muted-foreground">
