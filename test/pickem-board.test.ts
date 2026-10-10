@@ -4,7 +4,16 @@ import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { DEFAULT_CONSTRAINTS } from "@/lib/quant/optimizer"
 import { DEFAULT_PROJECTION_SETTINGS } from "@/lib/quant/projection"
 import { DEFAULT_VALUE_SETTINGS, kickoffVarianceFactor, type FeedQuote } from "@/lib/quant/valuebets"
-import { PICKEM_MAX_PROB, boardLine, buildDfsTargets, buildPickemEntry, dfsTargetsFor, probAt } from "@/lib/today/build"
+import {
+  PICKEM_MAX_PROB,
+  boardLine,
+  buildDailyPicks,
+  buildDfsBoard,
+  buildDfsTargets,
+  buildPickemEntry,
+  dfsTargetsFor,
+  probAt,
+} from "@/lib/today/build"
 import type { LeagueId } from "@/lib/leagues"
 
 /**
@@ -128,6 +137,34 @@ describe("a pick'em app does not post a pick it cannot lose", () => {
     expect(targets[0].marketLine).toBe(0.5)
   })
 
+  it("counts and names what the ceiling removed instead of just dropping it", () => {
+    const slate = [
+      ...priced("Auston Matthews", "SOG", 3.5, -125, 105),
+      ...priced("Fourth Liner", "HKY_PPP", 0.5, 600, -900),
+    ]
+    const board = buildDfsBoard(slate, optsFor("nhl"))
+    expect(board.targets.map((t) => t.player)).toEqual(["Auston Matthews"])
+    expect(board.lopsided).toHaveLength(1)
+    const [out] = board.lopsided
+    expect(out.player).toBe("Fourth Liner")
+    expect(out.marketLabel).toBe("Power Play Points")
+    expect(out.line).toBe(0.5)
+    expect(out.prob).toBeGreaterThan(PICKEM_MAX_PROB)
+    // And buildDailyPicks carries it to the screen.
+    const picks = buildDailyPicks(slate, optsFor("nhl"))
+    expect(picks.lopsided.map((l) => l.player)).toEqual(["Fourth Liner"])
+  })
+
+  it("keeps everything when the dial is opened all the way", () => {
+    const slate = priced("Fourth Liner", "HKY_PPP", 0.5, 600, -900)
+    expect(buildDfsBoard(slate, { ...optsFor("nhl"), pickemMaxProb: 1 }).lopsided).toHaveLength(0)
+    expect(buildDfsBoard(slate, { ...optsFor("nhl"), pickemMaxProb: 1 }).targets).toHaveLength(1)
+    // And tightening it removes a prop the default keeps.
+    const ordinary = priced("Depth Forward", "HKY_PTS", 0.5, 145, -175)
+    expect(buildDfsBoard(ordinary, optsFor("nhl")).targets).toHaveLength(1)
+    expect(buildDfsBoard(ordinary, { ...optsFor("nhl"), pickemMaxProb: 0.55 }).lopsided).toHaveLength(1)
+  })
+
   it("keeps a prop an app is really posting, whatever the prior says", () => {
     // The ceiling is a prior about what a board offers. When PropLine has told
     // us the board's actual line, the prior has nothing left to say.
@@ -160,8 +197,14 @@ describe("a pick'em app does not post a pick it cannot lose", () => {
     const chosen = boardLine([0.5, 0.5, 3.5], 3.2, dist)
     expect(chosen!.line).toBe(3.5)
     expect(chosen!.prob).toBeLessThan(PICKEM_MAX_PROB)
-    // When nothing on offer is playable there is no board line at all.
-    expect(boardLine([0.5, 0.5], 3.2, dist)).toBeNull()
+    expect(chosen!.overCeiling).toBe(false)
+    // When nothing on offer is playable it still reports the closest line it
+    // found, flagged, so the prop can be named rather than silently dropped.
+    const unplayable = boardLine([0.5, 0.5], 3.2, dist)!
+    expect(unplayable.overCeiling).toBe(true)
+    expect(unplayable.prob).toBeGreaterThan(PICKEM_MAX_PROB)
+    // A dial of 1 keeps everything.
+    expect(boardLine([0.5], 3.2, dist, 1)!.overCeiling).toBe(false)
     expect(boardLine([], 3.2, dist)).toBeNull()
   })
 

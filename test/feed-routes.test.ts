@@ -264,11 +264,30 @@ describe("/api/today with a companion competition", () => {
     return { urls, oddsCalls: () => urls.filter((u) => u.includes("/odds?")) }
   }
 
+  it("leaves college football out unless the press asks for it", async () => {
+    const now = Date.now()
+    const feed = stubFootballFeed(now)
+    const data = await (
+      await today({
+        league: "nfl",
+        markets: ["player_pass_yds"],
+        from: iso(now - HOUR),
+        to: iso(now + 12 * HOUR),
+        maxGames: 5,
+      })
+    ).json()
+    // No college listing was even asked for, so nothing was billed for it.
+    expect(feed.urls.some((u) => u.includes("ncaaf"))).toBe(false)
+    expect(data.events.map((e: { id: string }) => e.id)).toEqual(["nfl1"])
+    expect(data.estimatedCredits).toBe(1)
+  })
+
   it("pulls college football with the NFL in one press and tags its props", async () => {
     const now = Date.now()
     const feed = stubFootballFeed(now)
     const res = await today({
       league: "nfl",
+      companions: true,
       markets: ["player_pass_yds"],
       from: iso(now - HOUR),
       to: iso(now + 12 * HOUR),
@@ -281,8 +300,11 @@ describe("/api/today with a companion competition", () => {
     expect(feed.urls.some((u) => u.includes("/sports/americanfootball_ncaaf/events?"))).toBe(true)
     expect(feed.oddsCalls()).toHaveLength(3)
     expect(data.events.map((e: { id: string }) => e.id).sort()).toEqual(["cfb1", "cfb2", "nfl1"])
-    // Three games at one market: billed as three, not as one league's worth.
-    expect(data.estimatedCredits).toBe(3)
+    // The NFL game is billed for the one market asked for; the college games
+    // ignore that list and use their own two. One plus two twos is five.
+    expect(data.estimatedCredits).toBe(5)
+    const cfbCall = feed.oddsCalls().find((u) => u.includes("ncaaf"))!
+    expect(cfbCall).toContain("markets=player_pass_yds%2Cplayer_rush_yds")
     const comps = data.quotes.map((q: { competition?: string }) => q.competition ?? "nfl")
     expect(new Set(comps)).toEqual(new Set(["nfl", "cfb"]))
   })
@@ -293,6 +315,7 @@ describe("/api/today with a companion competition", () => {
     const feed = stubFootballFeed(now)
     await today({
       league: "nfl",
+      companions: true,
       markets: ["player_pass_yds"],
       from: iso(now - HOUR),
       to: iso(now + 12 * HOUR),

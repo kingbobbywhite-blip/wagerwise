@@ -1,6 +1,10 @@
 import type { Sport, MarketKey } from "@/lib/nba/markets"
 import { DEFAULT_LEAGUE, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
+// Re-exported: both were defined here before the odds adapter needed them too,
+// and callers (and tests) still reach for them from this module.
+export { sameGameId, teamNickname } from "./games"
+import { teamNickname } from "./games"
 import type { PickType } from "@/lib/store/schema"
 import { feedMarketFor, normalizeEventOdds, sportOfFeedKey, type NormalizeResult } from "./theoddsapi"
 import { feedErrorText, notStarted } from "./http"
@@ -321,16 +325,6 @@ export function normalizeProplineMany(
 // ---------------------------------------------------------------------------
 // Matching games across feeds
 // ---------------------------------------------------------------------------
-
-/**
- * "Minnesota Timberwolves" to "timberwolves". The nickname is unique within a
- * league and survives the differences between feeds ("LA Clippers" against
- * "Los Angeles Clippers"), where the full name does not.
- */
-export function teamNickname(name: string): string {
-  const words = normalizeName(name).split(" ").filter(Boolean)
-  return words[words.length - 1] ?? ""
-}
 
 type GameRef = { home_team: string; away_team: string; commence_time: string }
 

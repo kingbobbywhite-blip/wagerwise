@@ -11,6 +11,7 @@ import {
   type ProjectionSettings,
 } from "./projection"
 import { clamp } from "./math"
+import { normalizeName, playerKeyIn } from "./correlation"
 
 /**
  * Finding bets that are priced wrong.
@@ -131,11 +132,19 @@ export interface PropGroup {
   quotes: FeedQuote[]
 }
 
-/** Group feed quotes by player and market. */
+/**
+ * Group feed quotes by player, market and game.
+ *
+ * The game is in the key because a name is not an identity: see playerKeyIn.
+ * It was left out on the reasoning that a player has one game a day, which is
+ * true of a person and false of a name once the slate holds 130 college teams.
+ * Without it, two players sharing a normalised name had their books pooled
+ * into one consensus, and whichever line came back was wrong for both.
+ */
 export function groupQuotes(quotes: FeedQuote[]): PropGroup[] {
   const map = new Map<string, PropGroup>()
   for (const q of quotes) {
-    const key = `${q.player.toLowerCase()}|${q.market}`
+    const key = `${playerKeyIn(q.player, q.gameId)}|${q.market}`
     const g = map.get(key)
     if (g) g.quotes.push(q)
     else
@@ -150,6 +159,27 @@ export function groupQuotes(quotes: FeedQuote[]): PropGroup[] {
       })
   }
   return Array.from(map.values())
+}
+
+/**
+ * Normalised player names that appear in more than one game in this pull.
+ *
+ * These are the names where any match made on the name alone — a pick'em line
+ * from the other feed, a row on an imported board — can land on the wrong
+ * person. Nothing is dropped for being ambiguous; it is reported, because a
+ * silently wrong price is the one failure this app exists to prevent.
+ */
+export function ambiguousPlayers(quotes: FeedQuote[]): Set<string> {
+  const games = new Map<string, Set<string>>()
+  for (const q of quotes) {
+    const who = normalizeName(q.player)
+    const set = games.get(who) ?? new Set<string>()
+    set.add(q.gameId)
+    games.set(who, set)
+  }
+  const out = new Set<string>()
+  for (const [who, set] of games) if (set.size > 1) out.add(who)
+  return out
 }
 
 /**
@@ -245,6 +275,7 @@ export function findValueBets(
   now: number = Date.now(),
 ): ValueBet[] {
   const out: ValueBet[] = []
+  const ambiguous = ambiguousPlayers(quotes)
 
   for (const group of groupQuotes(quotes)) {
     // A single price has nothing to be measured against.
@@ -280,6 +311,11 @@ export function findValueBets(
         }
         if (ref.isStale) {
           warnings.unshift("Reference prices are stale. Re-pull before acting on this.")
+        }
+        if (ambiguous.has(normalizeName(group.player))) {
+          warnings.unshift(
+            `Another player on this slate has the same name. This price is from ${group.gameId.replace("@", " at ")} only, but check the app is showing you the right player before betting it.`,
+          )
         }
 
         out.push({
@@ -337,7 +373,9 @@ export function bestPerSelection(bets: ValueBet[]): ValueBet[] {
   const best = new Map<string, ValueBet>()
   const bestOther = new Map<string, ValueBet>()
   for (const b of bets) {
-    const key = `${b.player.toLowerCase()}|${b.market}`
+    // Keyed by game as well, so two same-named players in different games are
+    // two decisions rather than one that silently discards the other.
+    const key = `${playerKeyIn(b.player, b.gameId)}|${b.market}`
     const existing = best.get(key)
     if (!existing || b.edge > existing.edge) {
       if (existing && existing.side !== b.side) bestOther.set(key, existing)

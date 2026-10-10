@@ -10,6 +10,16 @@ import { ValueBetRow } from "@/components/value-bet-row"
 import { DfsTargetRow } from "@/components/dfs-target-row"
 import { SideBadge } from "@/components/side-badge"
 import { CompetitionBadge } from "@/components/competition-badge"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -19,12 +29,21 @@ import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/p
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import { buildDailyPicks, buildPickemEntry, hasAppLines, upcomingQuotes } from "@/lib/today/build"
 import { entryExpectation } from "@/lib/tracker/entries"
-import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
+import { marketsForCompetition } from "@/lib/odds-feed/theoddsapi"
 import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
 import { NO_SERVER_KEYS, hasFeedKey, parseServerKeys, type ServerKeys } from "@/lib/odds-feed/keys"
 import { notStarted } from "@/lib/odds-feed/http"
 import { useStore } from "@/lib/store/provider"
-import { LEAGUES, TAB_LEAGUE_IDS, competitionsFor, creditWarning, inSeason, leagueFor, plannedGames, type LeagueId } from "@/lib/leagues"
+import {
+  LEAGUES,
+  TAB_LEAGUE_IDS,
+  companionsOf,
+  creditPlan,
+  inSeason,
+  leagueFor,
+  pullPlan,
+  type LeagueId,
+} from "@/lib/leagues"
 import { pct, possessive, shortDate, signedPct } from "@/lib/format"
 
 /** "Minnesota Lynx at New York Liberty, Tue, Sep 29, 8:00 PM" in the viewer's own timezone. */
@@ -49,6 +68,8 @@ export default function TodayPage() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [needsKey, setNeedsKey] = React.useState(false)
+  // The spend the button is waiting to be told to make, or null.
+  const [confirmSpend, setConfirmSpend] = React.useState<string | null>(null)
   // Which keys the server holds in its environment, which the routes use
   // before any key from Settings. Null until the server has answered.
   const [serverKeys, setServerKeys] = React.useState<ServerKeys | null>(null)
@@ -88,28 +109,51 @@ export default function TodayPage() {
 
   const leagueId = s.daily.league
   const league = leagueFor(leagueId)
+  // Companions are opt-in, and the switch only means something where the
+  // league has one. College football rides inside the NFL section.
+  const companions = companionsOf(leagueId)
+  const wantCompanions = s.daily.companions && companions.length > 0
   // Only ever show the cache belonging to the league on screen. Rendering an
   // NBA pull under an NHL heading would be worse than showing nothing.
   const daily = state.daily[leagueId] ?? null
   // Only games still to start are worth a pick; the rest of the pull is kept,
   // so this undoes itself if the clock was wrong.
-  const upcoming = React.useMemo(
-    () => (daily ? upcomingQuotes(daily.quotes as FeedQuote[], now) : []),
-    [daily, now],
-  )
+  const upcoming = React.useMemo(() => {
+    if (!daily) return []
+    const live = upcomingQuotes(daily.quotes as FeedQuote[], now)
+    // With the switch off, a companion's games from an earlier pull stay in
+    // the cache but out of the picks, so the screen matches the setting and
+    // turning the switch back on costs nothing.
+    return wantCompanions ? live : live.filter((q) => !q.competition || q.competition === leagueId)
+  }, [daily, now, wantCompanions, leagueId])
+  // Companion games held back that way, counted rather than silently dropped.
+  const companionHeld = React.useMemo(() => {
+    if (!daily || wantCompanions) return 0
+    return new Set(
+      daily.quotes.filter((q) => q.competition && q.competition !== leagueId).map((q) => q.gameId),
+    ).size
+  }, [daily, wantCompanions, leagueId])
   const startedSincePull = daily
     ? new Set(daily.quotes.filter((q) => !notStarted(q.commenceTime, now)).map((q) => q.gameId)).size
     : 0
   // A PropLine pull carries the lines whatever the switch says; it is honoured here.
   const pickemLines = wantPickem ? daily?.pickemLines : undefined
-  const markets = marketsForLeague(leagueId, s.daily.markets)
   // Credits are The Odds API's monthly quota. PropLine counts requests per day,
   // one per game whatever the markets, so a slate is never a quota event there.
+  // What the next press would spend, per competition. Each competition can be
+  // asked for a different market list, and credits are billed per market per
+  // game, so a combined game count times one market count is the wrong sum.
+  const plannedCredits = React.useMemo(
+    () =>
+      pullPlan(leagueId, Math.min(s.daily.maxGames, league.maxGames), { companions: wantCompanions }).reduce(
+        (a, p) => a + p.games * marketsForCompetition(p.league, s.daily.markets).length,
+        0,
+      ),
+    [leagueId, s.daily.maxGames, s.daily.markets, league.maxGames, wantCompanions],
+  )
   const cost = usePropline
-    ? { message: null, severe: false }
-    : // Companions are pulled in the same press: the NFL button also pays for
-      // the college games, and the cost shown has to say so.
-      creditWarning(leagueId, plannedGames(leagueId, Math.min(s.daily.maxGames, league.maxGames)), markets.length)
+    ? { message: null, severe: false, confirm: false, prompt: null, credits: 0 }
+    : creditPlan(leagueId, plannedCredits)
 
   function selectLeague(next: LeagueId) {
     setSettings((prev) => ({
@@ -146,6 +190,7 @@ export default function TodayPage() {
       correlation: s.correlation ?? DEFAULT_CORRELATION,
       constraints: { ...s.constraints, picks: s.daily.parlayLegs },
       dfsBreakEven,
+      pickemMaxProb: s.daily.pickemMaxProb,
       parlayCount: 4,
       bettableBooks: s.oddsFeed.bettable,
       pickemLines,
@@ -185,7 +230,18 @@ export default function TodayPage() {
   const noSharpBook =
     !!picks && s.daily.requireSharpReference && picks.stats.pricedProps === 0 && !picks.stats.booksSeen.some(isSharp)
 
+  // A spend big enough to matter is a question the button asks, not a note it
+  // prints: a note beside the button is read after the credits are gone.
+  function requestRefresh() {
+    if (cost.confirm && cost.prompt) {
+      setConfirmSpend(cost.prompt)
+      return
+    }
+    void refresh()
+  }
+
   async function refresh() {
+    setConfirmSpend(null)
     setBusy(true)
     setError(null)
     setNeedsKey(false)
@@ -205,6 +261,7 @@ export default function TodayPage() {
           proplineKey: s.oddsFeed.proplineKey || undefined,
           pickemLines: wantPickem,
           league: leagueId,
+          companions: wantCompanions,
           from: start.toISOString(),
           to: end.toISOString(),
           markets: s.daily.markets ?? undefined,
@@ -299,7 +356,7 @@ export default function TodayPage() {
                   : `Pull today's ${league.label} slate and price it.`}
               </p>
             </div>
-            <Button onClick={refresh} disabled={busy || !hasKey}>
+            <Button onClick={requestRefresh} disabled={busy || !hasKey}>
               {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : <RefreshCw className="mr-1 size-3.5" />}
               {daily ? "Refresh" : "Get today's picks"}
             </Button>
@@ -333,12 +390,16 @@ export default function TodayPage() {
                 )
               })}
             </div>
-            {league.companions?.length ? (
+            {wantCompanions ? (
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-primary/80">
+                incl. {companions.map((l) => l.short).join(", ")}
+              </span>
+            ) : companions.length > 0 ? (
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                incl. {competitionsFor(leagueId).slice(1).map((l) => l.short).join(", ")}
+                {companions.map((l) => l.short).join(", ")} off
               </span>
             ) : null}
-            {!inSeason(leagueId) ? (
+            {!inSeason(leagueId, new Date(), { companions: wantCompanions }) ? (
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
                 out of season
               </span>
@@ -359,6 +420,38 @@ export default function TodayPage() {
 
           <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">{league.note}</p>
         </header>
+
+        <AlertDialog open={confirmSpend != null} onOpenChange={(open) => !open && setConfirmSpend(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="font-mono text-sm">
+                Spend {cost.credits} feed credits?
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-xs leading-relaxed">
+                {confirmSpend}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="font-mono text-xs">Cancel</AlertDialogCancel>
+              <AlertDialogAction className="font-mono text-xs" onClick={() => void refresh()}>
+                Pull anyway
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {companionHeld > 0 ? (
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {companionHeld} {companions.map((l) => l.label).join(" and ")} game
+            {companionHeld === 1 ? "" : "s"} from an earlier pull {companionHeld === 1 ? "is" : "are"} held back
+            while the companion switch is off. They are still in this browser&apos;s cache, so turning the switch
+            back on in{" "}
+            <Link href="/settings" className="text-primary underline underline-offset-2">
+              Settings
+            </Link>{" "}
+            shows them again without spending a credit.
+          </p>
+        ) : null}
 
         {needsSetup ? (
           <div className="rounded-xl border border-accent/40 bg-accent/5 p-5">
@@ -589,12 +682,24 @@ export default function TodayPage() {
               </section>
             ) : null}
 
-            {picks.dfsTargets.length > 0 ? (
+            {picks.dfsTargets.length > 0 || picks.lopsided.length > 0 ? (
               <section className="space-y-3">
                 <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Pick'em targets
                 </h2>
-                <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
+                {picks.dfsTargets.length === 0 ? (
+                  <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
+                    Nothing on this slate is a pick&apos;em target. Every prop that priced was more lopsided than a
+                    board would post, and they are all listed below rather than left unmentioned.
+                  </p>
+                ) : null}
+                <p
+                  className={
+                    picks.dfsTargets.length > 0
+                      ? "max-w-3xl text-[11px] leading-relaxed text-muted-foreground"
+                      : "hidden"
+                  }
+                >
                   Most likely to hit first. Chance is the side the books favour, at the line they hang, which is
                   the line a pick&apos;em app almost always copies.{" "}
                   {!wantPickem
@@ -616,7 +721,11 @@ export default function TodayPage() {
                   its own bar.
                   {wantPickem && daily?.pickemNote ? ` ${daily.pickemNote}` : ""}
                 </p>
-                <div className="overflow-x-auto rounded-lg border border-border/60">
+                <div
+                  className={
+                    picks.dfsTargets.length > 0 ? "overflow-x-auto rounded-lg border border-border/60" : "hidden"
+                  }
+                >
                   <table className="w-full min-w-[760px] border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-border/60 bg-card/40 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
@@ -636,6 +745,37 @@ export default function TodayPage() {
                     </tbody>
                   </table>
                 </div>
+                {picks.lopsided.length > 0 ? (
+                  <details className="rounded-lg border border-dashed border-border/60 p-3 text-[11px] leading-relaxed text-muted-foreground">
+                    <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.12em]">
+                      {picks.lopsided.length} prop{picks.lopsided.length === 1 ? "" : "s"} left out as too lopsided
+                      for a pick&apos;em board
+                    </summary>
+                    <p className="mt-2 max-w-3xl">
+                      The books price these, and the favoured side clears{" "}
+                      {pct(s.daily.pickemMaxProb, 0)}, which is the ceiling set in Settings. A flat payout table only
+                      works if both sides are plausible, so an app is assumed not to post them at all. That is a
+                      judgement about boards rather than a fault in the price: the single bets above still price
+                      them, and a line PropLine shows an app really posting is never removed this way. Raise the
+                      ceiling in{" "}
+                      <Link href="/settings" className="text-primary underline underline-offset-2">
+                        Settings
+                      </Link>{" "}
+                      to see them as targets.
+                    </p>
+                    <ul className="mt-2 space-y-0.5 font-mono text-[10px]">
+                      {picks.lopsided.map((l) => (
+                        <li key={l.key} className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-foreground/80">{l.player}</span>
+                          <CompetitionBadge competition={l.competition} />
+                          <span>
+                            {l.marketLabel} {l.line} · {pct(l.prob, 0)} one way · {l.gameId.replace("@", " at ")}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
               </section>
             ) : null}
 

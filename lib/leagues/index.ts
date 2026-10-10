@@ -85,6 +85,17 @@ const NBA_BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel",
 
 const FOOTBALL_MARKETS = ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"]
 
+/**
+ * College football's own market list, and it is two rather than four.
+ *
+ * The college prop market is thin away from the televised games: receptions
+ * and receiving yards are posted for a handful of players at the games anyone
+ * is watching and for nobody at the rest. Four markets per game was paying a
+ * credit each for empty responses. Passing and rushing yards are the two that
+ * come back filled.
+ */
+const CFB_MARKETS = ["player_pass_yds", "player_rush_yds"]
+
 export const LEAGUES: Record<LeagueId, LeagueConfig> = {
   nba: {
     id: "nba",
@@ -149,12 +160,12 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     // in the NFL. All three widen the outcome and pull every probability back
     // toward a coin flip, which is the honest answer here.
     dispersionScale: 1.2,
-    markets: FOOTBALL_MARKETS,
+    markets: CFB_MARKETS,
     books: NBA_BOOKS,
-    // A Saturday has 50 or more games. Only the televised ones carry real prop
-    // pricing, and the listing is sorted by start time, so the cap is small on
-    // purpose: six games at four markets is 24 credits on top of the NFL pull.
-    maxGames: 6,
+    // A Saturday has 50 or more games and only the televised ones carry real
+    // prop pricing, so the cap is small on purpose: four games at two markets
+    // is 8 credits on top of the NFL pull.
+    maxGames: 4,
     typicalSlate: 45,
     season: [8, 9, 10, 11, 12, 1],
     // A 500-yard passing game and a 300-yard rushing game both happen in
@@ -223,10 +234,21 @@ export function sportKeyFor(id: unknown): string | null {
  * Every competition one press of this league's button pulls: the league itself
  * first, then its companions. One entry for a league with no companions, so
  * callers can always loop.
+ *
+ * Companions are OPT-IN and off unless asked for. A companion costs real feed
+ * credits, and the default for anything that spends money is not to. A caller
+ * that forgets the flag therefore under-pulls rather than over-bills, which is
+ * the cheaper mistake of the two.
  */
-export function competitionsFor(id: LeagueId): LeagueConfig[] {
+export function competitionsFor(id: LeagueId, opts: { companions?: boolean } = {}): LeagueConfig[] {
   const league = LEAGUES[id]
+  if (!opts.companions) return [league]
   return [league, ...(league.companions ?? []).map((c) => LEAGUES[c])]
+}
+
+/** The companions this league would add, which is nothing unless it has any. */
+export function companionsOf(id: LeagueId): LeagueConfig[] {
+  return (LEAGUES[id].companions ?? []).map((c) => LEAGUES[c])
 }
 
 /**
@@ -238,9 +260,9 @@ export function competitionsFor(id: LeagueId): LeagueConfig[] {
  * league whose companion is in season counts as in season, because the press
  * will still return a slate.
  */
-export function inSeason(id: LeagueId, when: Date = new Date()): boolean {
+export function inSeason(id: LeagueId, when: Date = new Date(), opts: { companions?: boolean } = {}): boolean {
   const month = when.getUTCMonth() + 1
-  return competitionsFor(id).some((l) => l.season.includes(month))
+  return competitionsFor(id, opts).some((l) => l.season.includes(month))
 }
 
 /**
@@ -253,43 +275,93 @@ export function inSeason(id: LeagueId, when: Date = new Date()): boolean {
  * available in the app, so it is computed up front and shown before the button
  * is pressed rather than discovered afterwards.
  */
-/**
- * Games one press of this league's button pulls, companions included.
- *
- * The companion's games are billed on top of the league's own, so they belong
- * in the cost shown before the button is pressed rather than in the surprise
- * afterwards.
- */
-export function plannedGames(id: LeagueId, primaryCap: number): number {
-  return competitionsFor(id).reduce((a, l) => a + (l.id === id ? Math.max(0, primaryCap) : l.maxGames), 0)
+export interface CompetitionPlan {
+  league: LeagueConfig
+  /** Games this competition would be asked for. */
+  games: number
 }
 
-export function creditWarning(
-  id: LeagueId,
-  games: number,
-  markets: number,
-  monthlyQuota = 500,
-): { credits: number; pctOfQuota: number; severe: boolean; message: string | null } {
-  const credits = Math.max(0, games) * Math.max(0, markets)
-  const pctOfQuota = monthlyQuota > 0 ? credits / monthlyQuota : 0
-  if (credits === 0) return { credits, pctOfQuota, severe: false, message: null }
+/**
+ * What one press of this league's button would pull, per competition.
+ *
+ * The league's own cap is the dial on the Today screen; a companion keeps the
+ * cap sized to its own slate. Returned per competition rather than as a single
+ * number because each competition can be asked for a different market list,
+ * and credits are billed per market per game: multiplying a combined game
+ * count by one market count overstates the cheap competition and understates
+ * the expensive one.
+ */
+export function pullPlan(id: LeagueId, primaryCap: number, opts: { companions?: boolean } = {}): CompetitionPlan[] {
+  return competitionsFor(id, opts).map((league) => ({
+    league,
+    games: league.id === id ? Math.max(0, primaryCap) : league.maxGames,
+  }))
+}
+
+/** Games one press would pull, across every competition in the plan. */
+export function plannedGames(id: LeagueId, primaryCap: number, opts: { companions?: boolean } = {}): number {
+  return pullPlan(id, primaryCap, opts).reduce((a, p) => a + p.games, 0)
+}
+
+/**
+ * Share of a month one pull may spend before the button has to ask first.
+ *
+ * Seven presses at this size empty the month, which is a fortnight of casual
+ * refreshing. Above it the spend stops being a note beside the button and
+ * becomes a question the button asks, because a note is read after the credits
+ * are gone and a question is answered before.
+ */
+export const CONFIRM_PCT_OF_QUOTA = 0.15
+
+export interface CreditPlan {
+  credits: number
+  pctOfQuota: number
+  /** Worth shouting about: a quarter of the month in one press. */
+  severe: boolean
+  /** The button must ask before spending this. */
+  confirm: boolean
+  /** Shown beside the button. Null when the spend is unremarkable. */
+  message: string | null
+  /** Shown in the confirm dialog. Null when no confirm is needed. */
+  prompt: string | null
+}
+
+/** The cost of a pull whose credits are already totted up across competitions. */
+export function creditPlan(id: LeagueId, credits: number, monthlyQuota = 500): CreditPlan {
+  const spend = Math.max(0, Math.round(credits))
+  const pctOfQuota = monthlyQuota > 0 ? spend / monthlyQuota : 0
+  const pct = Math.round(pctOfQuota * 100)
+  const confirm = pctOfQuota >= CONFIRM_PCT_OF_QUOTA
+  const prompt = confirm
+    ? `This pull spends about ${spend} feed credits, ${pct}% of a 500-request month, and about ${Math.floor(1 / Math.max(pctOfQuota, 1e-9))} presses like it would empty the month. Lower the game cap or the market count in Settings to spend less. Pull anyway?`
+    : null
+  if (spend === 0) return { credits: spend, pctOfQuota, severe: false, confirm: false, message: null, prompt: null }
   if (pctOfQuota >= 0.25) {
     return {
-      credits,
+      credits: spend,
       pctOfQuota,
       severe: true,
-      message: `This pull costs about ${credits} feed credits, roughly ${Math.round(pctOfQuota * 100)}% of a 500-request month. ${LEAGUES[id].label} slates are large; lower the game cap or the market count before refreshing often.`,
+      confirm,
+      message: `This pull costs about ${spend} feed credits, roughly ${pct}% of a 500-request month. ${LEAGUES[id].label} slates are large; lower the game cap or the market count before refreshing often.`,
+      prompt,
     }
   }
   if (pctOfQuota >= 0.1) {
     return {
-      credits,
+      credits: spend,
       pctOfQuota,
       severe: false,
-      message: `About ${credits} feed credits, ${Math.round(pctOfQuota * 100)}% of a 500-request month.`,
+      confirm,
+      message: `About ${spend} feed credits, ${pct}% of a 500-request month.`,
+      prompt,
     }
   }
-  return { credits, pctOfQuota, severe: false, message: null }
+  return { credits: spend, pctOfQuota, severe: false, confirm: false, message: null, prompt: null }
+}
+
+/** The same, for a pull whose every competition shares one market list. */
+export function creditWarning(id: LeagueId, games: number, markets: number, monthlyQuota = 500): CreditPlan {
+  return creditPlan(id, Math.max(0, games) * Math.max(0, markets), monthlyQuota)
 }
 
 /**

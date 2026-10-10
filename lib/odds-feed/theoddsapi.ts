@@ -1,6 +1,7 @@
 import { marketSport, type MarketKey, type Sport } from "@/lib/nba/markets"
-import { DEFAULT_LEAGUE, leagueFor, type LeagueId } from "@/lib/leagues"
+import { DEFAULT_LEAGUE, leagueFor, type LeagueConfig, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
+import { sameGameId } from "./games"
 import type { BookQuote } from "@/lib/quant/projection"
 import type { FeedEventOdds } from "./types"
 
@@ -109,6 +110,19 @@ export function marketsForLeague(league: LeagueId, requested?: string[] | null):
     return !!m && marketSport(m) === sport
   })
   return kept.length > 0 ? kept : leagueFor(league).markets
+}
+
+/**
+ * The markets to ask a competition for.
+ *
+ * A companion always uses its own list and ignores the Markets box in
+ * Settings. That box belongs to the league you selected, and the whole reason
+ * college football asks for two markets rather than four is that the other two
+ * come back empty there: letting a four-market NFL list travel across would
+ * quietly undo the saving and bill for the empty responses again.
+ */
+export function marketsForCompetition(competition: LeagueConfig, requested?: string[] | null): string[] {
+  return competition.companionOnly ? competition.markets : marketsForLeague(competition.id, requested)
 }
 
 /** Reverse lookup, used when requesting only the markets on your board. */
@@ -241,7 +255,19 @@ export interface MatchTarget {
 }
 
 export interface QuoteIndex {
-  get(player: string, market: MarketKey | null): NormalizedQuote[]
+  /**
+   * Prices for a player's market. Given the row's fixture, prices from that
+   * fixture win; without one, everything the name returns comes back and
+   * `ambiguous` says whether that spans more than one game.
+   */
+  get(player: string, market: MarketKey | null, gameId?: string | null): NormalizedQuote[]
+  /**
+   * True when the name and market match prices from more than one game and the
+   * row gave nothing to tell them apart. An imported board carries a name and
+   * a stat, often with no fixture, so this is the one place the ambiguity
+   * cannot be resolved — only reported.
+   */
+  ambiguous(player: string, market: MarketKey | null, gameId?: string | null): boolean
   size: number
   players: string[]
 }
@@ -254,10 +280,22 @@ export function indexQuotes(quotes: NormalizedQuote[]): QuoteIndex {
     if (arr) arr.push(q)
     else byKey.set(k, [q])
   }
+  const lookup = (player: string, market: MarketKey | null): NormalizedQuote[] => {
+    if (!market) return []
+    return byKey.get(`${normalizeName(player)}|${market}`) ?? []
+  }
+  const narrow = (found: NormalizedQuote[], gameId?: string | null): NormalizedQuote[] => {
+    if (!gameId) return found
+    const same = found.filter((q) => sameGameId(q.gameId, gameId))
+    return same.length > 0 ? same : found
+  }
   return {
-    get(player, market) {
-      if (!market) return []
-      return byKey.get(`${normalizeName(player)}|${market}`) ?? []
+    get(player, market, gameId) {
+      return narrow(lookup(player, market), gameId)
+    },
+    ambiguous(player, market, gameId) {
+      const found = narrow(lookup(player, market), gameId)
+      return new Set(found.map((q) => q.gameId)).size > 1
     },
     size: quotes.length,
     players: Array.from(new Set(quotes.map((q) => q.playerKey))),
@@ -268,6 +306,13 @@ export interface AttachResult<T> {
   rows: T[]
   matched: number
   unmatched: { player: string; market: string }[]
+  /**
+   * Rows whose name and stat matched prices from more than one game, so the
+   * prices attached may belong to a different player of the same name. Named
+   * rather than guessed at: a wrong price is worse than no price, and this is
+   * the whole reason the app refuses to match approximately.
+   */
+  ambiguous: { player: string; market: string; games: string[] }[]
 }
 
 /**
@@ -277,25 +322,29 @@ export interface AttachResult<T> {
  * reported rather than fuzzily guessed: attaching Jalen Williams' price to
  * Jaylin Williams would be worse than leaving the prop unpriced.
  */
-export function attachQuotes<T extends { player: string; marketKey: MarketKey | null; marketLabel?: string }>(
-  rows: T[],
-  index: QuoteIndex,
-): AttachResult<T & { quotes: BookQuote[] }> {
+export function attachQuotes<
+  T extends { player: string; marketKey: MarketKey | null; marketLabel?: string; gameId?: string | null },
+>(rows: T[], index: QuoteIndex): AttachResult<T & { quotes: BookQuote[] }> {
   const out: (T & { quotes: BookQuote[] })[] = []
   const unmatched: { player: string; market: string }[] = []
+  const ambiguous: AttachResult<T>["ambiguous"] = []
   let matched = 0
 
   for (const row of rows) {
-    const found = index.get(row.player, row.marketKey)
+    const found = index.get(row.player, row.marketKey, row.gameId)
+    const market = row.marketLabel ?? String(row.marketKey)
     if (found.length > 0) matched++
-    else unmatched.push({ player: row.player, market: row.marketLabel ?? String(row.marketKey) })
+    else unmatched.push({ player: row.player, market })
+    if (index.ambiguous(row.player, row.marketKey, row.gameId)) {
+      ambiguous.push({ player: row.player, market, games: Array.from(new Set(found.map((q) => q.gameId))).sort() })
+    }
     out.push({
       ...row,
       quotes: found.map((q) => ({ book: q.book, line: q.line, overOdds: q.overOdds, underOdds: q.underOdds, fetchedAt: q.fetchedAt })),
     })
   }
 
-  return { rows: out, matched, unmatched }
+  return { rows: out, matched, unmatched, ambiguous }
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import type { MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import type { PickemLine } from "@/lib/odds-feed/propline"
 import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId } from "@/lib/leagues"
+import { PICKEM_MAX_PROB } from "@/lib/today/build"
 
 export const STATE_VERSION = 1
 
@@ -96,6 +97,26 @@ export interface DailySettings {
   /** Cap on games pulled in one refresh, to protect the feed quota. */
   maxGames: number
   /**
+   * Pull the selected league's companion competitions too: college football
+   * inside the NFL section.
+   *
+   * Off by default, because a companion costs feed credits on top of the
+   * league's own slate and the default for anything that spends money is not
+   * to. With it off, a companion's games from an earlier pull are kept in the
+   * cache but left out of the picks, so turning it back on costs nothing.
+   */
+  companions: boolean
+  /**
+   * The most lopsided a pick'em pick can be and still be assumed to exist.
+   *
+   * A pick'em app makes its money on a flat payout table, which only works if
+   * both sides of every pick are plausible, so it does not post a prop whose
+   * favoured side is a near-certainty however happily a sportsbook prices one.
+   * Props above this are left out of the targets and listed under them, so the
+   * judgement is visible and yours to move. 1 keeps everything.
+   */
+  pickemMaxProb: number
+  /**
    * Feed market keys to request. Fewer markets means fewer credits.
    *
    * Null means "use whatever this league posts", which is almost always the
@@ -113,6 +134,8 @@ export const DEFAULT_DAILY: DailySettings = {
   parlayLegs: 3,
   maxGames: LEAGUES[DEFAULT_LEAGUE].maxGames,
   markets: null,
+  companions: false,
+  pickemMaxProb: PICKEM_MAX_PROB,
 }
 
 export interface AppSettings {

@@ -1,6 +1,6 @@
 import type { CandidateLeg } from "./optimizer"
 import type { PricingStatus, ProjectedProp } from "./projection"
-import { normalizeName } from "./correlation"
+import { playerKeyIn } from "./correlation"
 import { probToAmerican } from "./odds"
 
 /**
@@ -79,7 +79,8 @@ export interface BoardRow {
 }
 
 function groupKey(p: ProjectedProp): string {
-  return `${normalizeName(p.player)}|${p.marketKey ?? p.marketLabel}`
+  // The game when the slate carried one, because two players can share a name.
+  return `${playerKeyIn(p.player, p.gameId)}|${p.marketKey ?? p.marketLabel}`
 }
 
 export function buildBoard(props: ProjectedProp[]): BoardRow[] {

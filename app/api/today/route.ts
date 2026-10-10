@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { crossSiteRejection } from "@/lib/odds-feed/same-origin"
-import { estimateCredits, eventOddsUrl, eventsUrl, marketsForLeague, normalizeMany } from "@/lib/odds-feed/theoddsapi"
+import {
+  estimateCredits,
+  eventOddsUrl,
+  eventsUrl,
+  marketsForCompetition,
+  normalizeMany,
+} from "@/lib/odds-feed/theoddsapi"
 import {
   PICKEM_BOOKS,
   normalizeProplineMany,
@@ -17,7 +23,7 @@ import {
   DEFAULT_LEAGUE,
   LEAGUE_IDS,
   competitionsFor,
-  creditWarning,
+  creditPlan,
   inSeason,
   isLeagueId,
   leagueFor,
@@ -56,6 +62,11 @@ interface RequestBody {
   pickemLines?: boolean
   /** Which league to pull. Defaults to the NBA. */
   league?: string
+  /**
+   * Pull this league's companion competitions too (college football inside the
+   * NFL section). Off unless asked for: a companion costs credits.
+   */
+  companions?: boolean
   /** ISO instant for the start of the caller's local day. */
   from?: string
   /** ISO instant for the end of the window. */
@@ -77,14 +88,14 @@ function resolveKey(body: RequestBody): string | null {
 }
 
 /** The empty-slate note, naming games that were skipped for having started. */
-function emptyNote(leagueId: LeagueId, started: number): string {
-  // A section that pulls a companion has nothing only when both are empty, so
+function emptyNote(leagueId: LeagueId, started: number, companions: boolean): string {
+  // A section that pulled a companion has nothing only when both are empty, so
   // the note names both rather than blaming the parent league alone.
-  const label = competitionsFor(leagueId).map((l) => l.label).join(" or ")
+  const label = competitionsFor(leagueId, { companions }).map((l) => l.label).join(" or ")
   if (started > 0) {
     return `${started === 1 ? "The only" : `All ${started}`} ${label} game${started === 1 ? "" : "s"} in this window ${started === 1 ? "has" : "have"} already started. Live games are not priced: their lines move with the score and the pick'em apps have closed them.`
   }
-  return inSeason(leagueId)
+  return inSeason(leagueId, new Date(), { companions })
     ? `No ${label} games tip in this window.`
     : `No ${label} games tip in this window, and ${label} is out of season right now, so an empty slate is expected rather than a fault.`
 }
@@ -134,11 +145,13 @@ export async function POST(request: Request) {
   }
   const leagueId = isLeagueId(body.league) ? body.league : DEFAULT_LEAGUE
   const league = leagueFor(leagueId)
+  // Opt-in, and only where there is something to opt into.
+  const companions = !!body.companions && (league.companions?.length ?? 0) > 0
 
   // Each league's defaults come from its own config: the markets it actually
   // posts, the books that price it, and a game cap sized to its slate. A market
-  // list from settings is kept only where it fits the league's sport.
-  const markets = marketsForLeague(leagueId, body.markets)
+  // list from settings is kept only where it fits the league's sport, and a
+  // companion always uses its own list. Resolved per competition below.
   const bookmakers = body.bookmakers?.length ? body.bookmakers : league.books
   const regions = body.regions || "us,us2,eu"
   const maxGames = Math.max(1, Math.min(body.maxGames ?? league.maxGames, 20))
@@ -150,7 +163,17 @@ export async function POST(request: Request) {
   const toMs = body.to ? Date.parse(body.to) : fromMs + 30 * 3600 * 1000
 
   if (provider === "propline") {
-    return fromPropline({ apiKey: proplineKey!, leagueId, markets, maxGames, fromMs, toMs, now, eventsOnly: !!body.eventsOnly })
+    return fromPropline({
+      apiKey: proplineKey!,
+      leagueId,
+      markets: body.markets ?? null,
+      maxGames,
+      fromMs,
+      toMs,
+      now,
+      companions,
+      eventsOnly: !!body.eventsOnly,
+    })
   }
 
   try {
@@ -158,14 +181,14 @@ export async function POST(request: Request) {
     // pulled and priced inside the NFL section. Each is listed, capped and
     // billed separately, then merged into one slate.
     const pulls: CompetitionPull[] = []
-    for (const comp of competitionsFor(leagueId)) {
+    for (const comp of competitionsFor(leagueId, { companions })) {
       pulls.push(
         await pullCompetition(apiKey!, comp, {
           // The league's own cap is the dial on the Today screen; a companion
           // keeps the cap sized to its own slate, because a Saturday lists
           // fifty college games and only a handful carry real prop pricing.
           maxGames: comp.id === leagueId ? maxGames : comp.maxGames,
-          markets: marketsForLeague(comp.id, body.markets),
+          markets: marketsForCompetition(comp, body.markets),
           regions,
           bookmakers,
           fromMs,
@@ -183,8 +206,7 @@ export async function POST(request: Request) {
     // Billed per market per event, and each competition can be asked for a
     // different market list, so the cost is summed per competition.
     const estimatedCredits = pulls.reduce((a, p) => a + estimateCredits(p.selected.length, p.markets.length), 0)
-    const markets = Array.from(new Set(pulls.flatMap((p) => p.markets)))
-    const cost = creditWarning(leagueId, selected.length, markets.length)
+    const cost = creditPlan(leagueId, estimatedCredits)
     const remaining = lastFinite(pulls.map((p) => p.remaining))
     const used = lastFinite(pulls.map((p) => p.used))
 
@@ -208,7 +230,7 @@ export async function POST(request: Request) {
       // Distinguish "wrong time of year" from "something is broken". An empty
       // NFL slate on a Wednesday is the schedule; an empty one on a Sunday is a
       // problem worth chasing.
-      const note = emptyNote(leagueId, started)
+      const note = emptyNote(leagueId, started, companions)
       // The listing is already paid for (it is free), so say when the next game
       // is. "Nothing today, next one Tuesday" is an answer; a blank page is not.
       const next = pulls
@@ -223,7 +245,7 @@ export async function POST(request: Request) {
         estimatedCredits: 0,
         requestsRemaining: remaining,
         requestsUsed: used,
-        inSeason: inSeason(leagueId),
+        inSeason: inSeason(leagueId, new Date(), { companions }),
         startedCount: started,
         nextEvent: next
           ? { commence_time: next.commence_time, home_team: next.home_team, away_team: next.away_team }
@@ -256,11 +278,12 @@ export async function POST(request: Request) {
         ? await pickemFromPropline({
             apiKey: proplineKey,
             leagueId,
-            markets,
+            markets: body.markets ?? null,
             maxGames,
             fromMs,
             toMs,
             now,
+            companions,
             pulls,
             quotes,
           })
@@ -282,7 +305,7 @@ export async function POST(request: Request) {
       costSevere: cost.severe,
       cappedOut,
       startedCount: started,
-      inSeason: inSeason(leagueId),
+      inSeason: inSeason(leagueId, new Date(), { companions }),
       requestsRemaining: remaining,
       requestsUsed: used,
       fetchedAt: new Date().toISOString(),
@@ -396,11 +419,13 @@ async function pullCompetition(
 interface PullArgs {
   apiKey: string
   leagueId: LeagueId
-  markets: string[]
+  /** The market list from Settings, or null to follow each competition's own. */
+  markets: string[] | null
   maxGames: number
   fromMs: number
   toMs: number
   now: number
+  companions: boolean
 }
 
 /** The whole slate from PropLine: prices and pick'em lines in the same requests. */
@@ -409,14 +434,14 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
     // Every book: PropLine bills per request, not per book, so narrowing the
     // list saves nothing and loses prices. One pull per competition, since the
     // NFL section covers college football too.
-    const comps = competitionsFor(args.leagueId)
+    const comps = competitionsFor(args.leagueId, { companions: args.companions })
     const pulls = await Promise.all(
       comps.map(async (comp) => ({
         comp,
         pull: await pullPropline({
           ...args,
           league: comp.id,
-          markets: marketsForLeague(comp.id, args.markets),
+          markets: marketsForCompetition(comp, args.markets),
           maxGames: comp.id === args.leagueId ? args.maxGames : comp.maxGames,
         }),
       })),
@@ -446,7 +471,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       requestsRemaining: pull.quota?.remaining ?? null,
       requestsUsed: pull.quota?.used ?? null,
       quotaPeriod: "day" as const,
-      inSeason: inSeason(args.leagueId),
+      inSeason: inSeason(args.leagueId, new Date(), { companions: args.companions }),
       startedCount: pull.started,
     }
 
@@ -455,7 +480,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
     }
 
     if (pull.selected.length === 0) {
-      const note = emptyNote(args.leagueId, pull.started)
+      const note = emptyNote(args.leagueId, pull.started, args.companions)
       const next = pull.nextEvent
       return NextResponse.json({
         ...base,

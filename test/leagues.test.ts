@@ -5,9 +5,13 @@ import {
   type LeagueId,
   LEAGUE_IDS,
   TAB_LEAGUE_IDS,
+  CONFIRM_PCT_OF_QUOTA,
   competitionsFor,
+  companionsOf,
+  creditPlan,
   creditWarning,
   plannedGames,
+  pullPlan,
   inSeason,
   isLeagueId,
   leagueFor,
@@ -41,10 +45,28 @@ describe("league config", () => {
     expect(TAB_LEAGUE_IDS).toEqual(["nba", "nfl", "nhl"])
     expect(LEAGUES.cfb.companionOnly).toBe(true)
     expect(LEAGUES.nfl.companions).toEqual(["cfb"])
-    expect(competitionsFor("nfl").map((l) => l.id)).toEqual(["nfl", "cfb"])
+    expect(companionsOf("nfl").map((l) => l.id)).toEqual(["cfb"])
+    expect(competitionsFor("nfl", { companions: true }).map((l) => l.id)).toEqual(["nfl", "cfb"])
     // A league with no companion still answers with itself, so callers can loop.
-    expect(competitionsFor("nba").map((l) => l.id)).toEqual(["nba"])
-    expect(competitionsFor("nhl").map((l) => l.id)).toEqual(["nhl"])
+    expect(competitionsFor("nba", { companions: true }).map((l) => l.id)).toEqual(["nba"])
+    expect(companionsOf("nba")).toEqual([])
+  })
+
+  it("leaves the companion out unless it is asked for", () => {
+    // A companion costs credits, so a caller that forgets the flag has to
+    // under-pull rather than over-bill. That is the cheaper mistake.
+    expect(competitionsFor("nfl").map((l) => l.id)).toEqual(["nfl"])
+    expect(competitionsFor("nfl", {}).map((l) => l.id)).toEqual(["nfl"])
+    expect(competitionsFor("nfl", { companions: false }).map((l) => l.id)).toEqual(["nfl"])
+    expect(plannedGames("nfl", 14)).toBe(14)
+  })
+
+  it("asks college football for two markets, not the NFL's four", () => {
+    // Receptions and receiving yards are posted for a handful of players at
+    // the televised games and nobody at the rest, so the other two markets
+    // were a credit each for an empty response.
+    expect(LEAGUES.cfb.markets).toEqual(["player_pass_yds", "player_rush_yds"])
+    expect(LEAGUES.cfb.markets.length).toBeLessThan(LEAGUES.nfl.markets.length)
   })
 
   it("no longer supports college basketball or the WNBA, and falls back rather than guessing", () => {
@@ -105,11 +127,13 @@ describe("season awareness", () => {
     expect(inSeason("cfb", new Date("2026-09-15T00:00:00Z"))).toBe(true)
   })
 
-  it("counts the NFL section as in season while its companion is playing", () => {
-    // College football starts in August and the NFL section pulls it, so the
-    // off-season notice would be wrong for a slate that really does exist.
-    expect(inSeason("nfl", new Date("2026-08-29T00:00:00Z"))).toBe(true)
-    expect(inSeason("nfl", new Date("2026-06-15T00:00:00Z"))).toBe(false)
+  it("counts the NFL section as in season while a companion it pulls is playing", () => {
+    // College football starts in August. With the companion on, the NFL
+    // section really does have a slate then and the off-season notice would be
+    // wrong; with it off there is nothing to pull and the notice is right.
+    expect(inSeason("nfl", new Date("2026-08-29T00:00:00Z"), { companions: true })).toBe(true)
+    expect(inSeason("nfl", new Date("2026-08-29T00:00:00Z"))).toBe(false)
+    expect(inSeason("nfl", new Date("2026-06-15T00:00:00Z"), { companions: true })).toBe(false)
   })
 
   it("knows the NFL does not play in July but does in October and January", () => {
@@ -132,6 +156,7 @@ describe("credit warning", () => {
     const w = creditWarning("nfl", LEAGUES.nfl.maxGames, LEAGUES.nfl.markets.length)
     expect(w.credits).toBe(56)
     expect(w.severe).toBe(false)
+    expect(w.confirm).toBe(false)
     expect(w.message).toContain("56")
   })
 
@@ -149,11 +174,41 @@ describe("credit warning", () => {
   it("counts the companion's games in what one press will cost", () => {
     // The NFL button also pays for the college games. Discovering that after
     // the press is the single most expensive surprise in the app.
-    expect(plannedGames("nfl", 14)).toBe(14 + LEAGUES.cfb.maxGames)
-    expect(plannedGames("nba", 14)).toBe(14)
-    const w = creditWarning("nfl", plannedGames("nfl", LEAGUES.nfl.maxGames), LEAGUES.nfl.markets.length)
-    expect(w.credits).toBe(80)
-    expect(w.message).toContain("80")
+    expect(plannedGames("nfl", 14, { companions: true })).toBe(14 + LEAGUES.cfb.maxGames)
+    expect(plannedGames("nba", 14, { companions: true })).toBe(14)
+  })
+
+  it("prices each competition's own market list rather than one count for both", () => {
+    // 14 NFL games at four markets plus four college games at two is 64, not
+    // the 72 a combined game count times four markets would claim.
+    const plan = pullPlan("nfl", LEAGUES.nfl.maxGames, { companions: true })
+    const credits = plan.reduce((a, p) => a + p.games * p.league.markets.length, 0)
+    expect(credits).toBe(56 + 8)
+    expect(creditWarning("nfl", plannedGames("nfl", 14, { companions: true }), 4).credits).toBe(72)
+  })
+
+  it("asks before a pull that would empty the month in seven presses", () => {
+    // A note beside the button is read after the credits are gone.
+    const quiet = creditPlan("nfl", 64)
+    expect(quiet.confirm).toBe(false)
+    expect(quiet.prompt).toBeNull()
+    const gate = creditPlan("nfl", 76)
+    expect(gate.pctOfQuota).toBeGreaterThan(CONFIRM_PCT_OF_QUOTA)
+    expect(gate.confirm).toBe(true)
+    expect(gate.prompt).toContain("76")
+    expect(gate.prompt).toContain("Pull anyway?")
+    // The boundary itself asks: 15% of 500 is 75.
+    expect(creditPlan("nfl", 75).confirm).toBe(true)
+    expect(creditPlan("nfl", 74).confirm).toBe(false)
+    // And a severe pull is always a confirm, never only a note.
+    const severe = creditPlan("nfl", 140)
+    expect(severe.severe).toBe(true)
+    expect(severe.confirm).toBe(true)
+  })
+
+  it("never asks about a free or empty pull", () => {
+    expect(creditPlan("nba", 0).confirm).toBe(false)
+    expect(creditPlan("nba", 0).message).toBeNull()
   })
 })
 
@@ -437,7 +492,12 @@ describe("end-to-end daily pipeline per league", () => {
 // ---------------------------------------------------------------------------
 
 import { normalizeMarket, distributionFor } from "@/lib/nba/markets"
-import { FEED_MARKET_MAP, HOCKEY_FEED_MARKET_MAP, marketsForLeague } from "@/lib/odds-feed/theoddsapi"
+import {
+  FEED_MARKET_MAP,
+  HOCKEY_FEED_MARKET_MAP,
+  marketsForCompetition,
+  marketsForLeague,
+} from "@/lib/odds-feed/theoddsapi"
 
 describe("NFL markets", () => {
   it("reads the ways boards and books write football stats", () => {
@@ -498,6 +558,11 @@ describe("NFL markets", () => {
     // basketball one falls back to its own defaults rather than being billed.
     expect(marketsForLeague("cfb", ["player_pass_yds"])).toEqual(["player_pass_yds"])
     expect(marketsForLeague("cfb", ["player_points"])).toEqual(LEAGUES.cfb.markets)
+    // But a companion ignores the Markets box entirely: that box belongs to
+    // the league you selected, and letting a four-market NFL list travel
+    // across would undo the saving college football's own list exists for.
+    expect(marketsForCompetition(LEAGUES.cfb, ["player_pass_yds", "player_receptions"])).toEqual(LEAGUES.cfb.markets)
+    expect(marketsForCompetition(LEAGUES.nfl, ["player_receptions"])).toEqual(["player_receptions"])
   })
 
   it("holds the whole of a passing-yards distribution, not a truncated one", () => {

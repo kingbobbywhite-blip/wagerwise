@@ -3,11 +3,13 @@ import type { LeagueId } from "@/lib/leagues"
 import { resolveLine } from "@/lib/quant/distributions"
 import { probToAmerican } from "@/lib/quant/odds"
 import { optimizeSlips, type BuiltSlip, type CandidateLeg, type OptimizerConstraints } from "@/lib/quant/optimizer"
-import { normalizeName, type CorrelationSettings } from "@/lib/quant/correlation"
+import { normalizeName, playerKeyIn, type CorrelationSettings } from "@/lib/quant/correlation"
 import type { PickemLine } from "@/lib/odds-feed/propline"
+import { sameGameId } from "@/lib/odds-feed/games"
 import { notStarted } from "@/lib/odds-feed/http"
 import type { PickType } from "@/lib/store/schema"
 import {
+  ambiguousPlayers,
   bestPerSelection,
   findValueBets,
   groupQuotes,
@@ -109,6 +111,11 @@ export interface DfsTarget {
    * one from a game the app's lines never arrived for is simply unknown.
    */
   appCoverage?: string[]
+  /**
+   * Anything about this row the screen must say out loud, such as another
+   * player on the slate normalising to the same name.
+   */
+  warnings?: string[]
 }
 
 export interface DailyPicks {
@@ -116,6 +123,11 @@ export interface DailyPicks {
   valueBets: ValueBet[]
   parlays: BuiltSlip[]
   dfsTargets: DfsTarget[]
+  /**
+   * Props left out of the targets because no posted line was one a pick'em
+   * board would show. Shown on screen, never only dropped.
+   */
+  lopsided: LopsidedProp[]
   stats: {
     quotes: number
     props: number
@@ -134,6 +146,11 @@ export interface BuildOptions {
   constraints: OptimizerConstraints
   /** Per-leg hit rate a pick'em entry needs, used to place the DFS targets. */
   dfsBreakEven: number
+  /**
+   * The most lopsided a pick'em pick can be and still be assumed to exist.
+   * See PICKEM_MAX_PROB, which is the default. 1 keeps everything.
+   */
+  pickemMaxProb?: number
   /**
    * Minimum leg probability for parlay construction.
    *
@@ -293,6 +310,27 @@ export function dfsTargetsFor(
 export const PICKEM_MAX_PROB = 0.8
 
 /**
+ * A prop the pick'em ceiling left out, named so it can be shown.
+ *
+ * The brief is that nothing disappears without being counted. A prop dropped
+ * for being too lopsided is a judgement about what a board offers, and a
+ * judgement the user can check is worth more than a silently shorter list —
+ * particularly since the dial that made it is theirs to move.
+ */
+export interface LopsidedProp {
+  key: string
+  player: string
+  market: MarketKey
+  marketLabel: string
+  gameId: string
+  competition?: LeagueId
+  /** The posted line that came closest to a coin flip. */
+  line: number
+  /** The favoured side's chance at that line, which is above the ceiling. */
+  prob: number
+}
+
+/**
  * The line most of the books are hanging: the one a pick'em app copies. Ties
  * go to the line nearest the projection.
  */
@@ -311,8 +349,12 @@ export function marketLineOf(lines: number[], mean: number): number {
 }
 
 /**
- * Index pick'em lines by player and market. The game is left out on purpose:
- * a player has one game a day, and two feeds rarely spell a team the same way.
+ * Index pick'em lines by player and market, with the game kept to one side.
+ *
+ * The key cannot be the game, because the lines come from a different feed
+ * than the prices and two feeds rarely spell a team the same way. So the
+ * lookup is still by name, and the game is used to CHOOSE among what the name
+ * returns: see pickemLinesFor.
  */
 function indexPickemLines(lines: PickemLine[] | undefined): Map<string, PickemLine[]> {
   const map = new Map<string, PickemLine[]>()
@@ -323,6 +365,37 @@ function indexPickemLines(lines: PickemLine[] | undefined): Map<string, PickemLi
     else map.set(k, [l])
   }
   return map
+}
+
+/**
+ * The app lines that belong to THIS prop, and anything the row must say.
+ *
+ * A line from the same fixture always wins, matched on team nicknames so the
+ * two feeds' spellings still meet. Failing that, a name that is unique on the
+ * slate can only mean one person, so the line is used and the mismatch is the
+ * feeds disagreeing about a team's name rather than a doubt about who played.
+ *
+ * When the name is NOT unique and no line can be tied to this fixture, nothing
+ * is shown. Guessing there is how one player's entry gets built at another
+ * player's line, which is a wrong price rather than a missing one, and the row
+ * says so instead.
+ */
+export function pickemLinesFor(
+  candidates: PickemLine[],
+  gameId: string,
+  nameIsAmbiguous: boolean,
+): { lines: PickemLine[]; warning: string | null } {
+  if (candidates.length === 0) return { lines: [], warning: null }
+  const sameGame = candidates.filter((l) => sameGameId(l.gameId, gameId))
+  if (sameGame.length > 0) return { lines: sameGame, warning: null }
+  if (nameIsAmbiguous) {
+    return {
+      lines: [],
+      warning:
+        "Another player on this slate has the same name, and no pick'em line could be tied to this game, so none is shown. Check the app yourself before entering this one.",
+    }
+  }
+  return { lines: candidates, warning: null }
 }
 
 /** Price each app line off the target's own distribution. */
@@ -351,24 +424,34 @@ export function priceAppLines(
 
 /**
  * Which apps' lines arrived for each game, read off every prop on the slate
- * rather than only the targets, and matched on player so that two feeds
- * spelling a team differently still agree on the game.
+ * rather than only the targets.
+ *
+ * Matched on player, because two feeds spelling a team differently would
+ * otherwise never agree on the game — but a name that belongs to two games on
+ * the slate is attributed to the fixture its line actually names, and to
+ * neither when that cannot be established. Coverage decides whether a missing
+ * line means "the app is not offering this prop" or merely "we never heard",
+ * so attributing it to the wrong game would quietly drop a playable prop.
  */
 function pickemCoverage(quotes: FeedQuote[], lines: PickemLine[] | undefined): Map<string, Set<string>> {
-  const appsByPlayer = new Map<string, Set<string>>()
-  for (const l of lines ?? []) {
-    const k = l.playerKey || normalizeName(l.player)
-    const set = appsByPlayer.get(k) ?? new Set<string>()
-    set.add(l.app)
-    appsByPlayer.set(k, set)
+  const gamesByPlayer = new Map<string, Set<string>>()
+  for (const q of quotes) {
+    const who = normalizeName(q.player)
+    const set = gamesByPlayer.get(who) ?? new Set<string>()
+    set.add(q.gameId)
+    gamesByPlayer.set(who, set)
   }
   const byGame = new Map<string, Set<string>>()
-  for (const q of quotes) {
-    const apps = appsByPlayer.get(normalizeName(q.player))
-    if (!apps) continue
-    const set = byGame.get(q.gameId) ?? new Set<string>()
-    for (const a of apps) set.add(a)
-    byGame.set(q.gameId, set)
+  for (const l of lines ?? []) {
+    const games = gamesByPlayer.get(l.playerKey || normalizeName(l.player))
+    if (!games) continue
+    const matched = Array.from(games).filter((g) => sameGameId(l.gameId, g))
+    const targets = matched.length > 0 ? matched : games.size === 1 ? Array.from(games) : []
+    for (const g of targets) {
+      const set = byGame.get(g) ?? new Set<string>()
+      set.add(l.app)
+      byGame.set(g, set)
+    }
   }
   return byGame
 }
@@ -381,7 +464,8 @@ export function boardLine(
   postedLines: number[],
   mean: number,
   distribution: { pAtLeast(k: number): number; pmf(k: number): number },
-): { line: number; prob: number } | null {
+  ceiling: number = PICKEM_MAX_PROB,
+): { line: number; prob: number; overCeiling: boolean } | null {
   if (postedLines.length === 0) return null
   const probOf = (line: number) => {
     const p = resolveLine(distribution as never, line)
@@ -389,7 +473,7 @@ export function boardLine(
   }
   const modal = marketLineOf(postedLines, mean)
   const atModal = probOf(modal)
-  if (atModal <= PICKEM_MAX_PROB) return { line: modal, prob: atModal }
+  if (atModal <= ceiling) return { line: modal, prob: atModal, overCeiling: false }
   // The modal line is one no app would post. Fall back to the posted line
   // closest to a coin flip, which is the one a board would choose.
   let best = modal
@@ -401,14 +485,28 @@ export function boardLine(
       bestProb = p
     }
   }
-  return bestProb <= PICKEM_MAX_PROB ? { line: best, prob: bestProb } : null
+  return { line: best, prob: bestProb, overCeiling: bestProb > ceiling }
 }
 
+/** The pick'em board: the targets, and what the ceiling left out of them. */
+export interface DfsBoard {
+  targets: DfsTarget[]
+  lopsided: LopsidedProp[]
+}
+
+/** The targets alone, for callers that do not care what was left out. */
 export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTarget[] {
+  return buildDfsBoard(quotes, opts).targets
+}
+
+export function buildDfsBoard(quotes: FeedQuote[], opts: BuildOptions): DfsBoard {
   const now = opts.now ?? Date.now()
+  const ceiling = opts.pickemMaxProb ?? PICKEM_MAX_PROB
   const out: DfsTarget[] = []
+  const lopsided: LopsidedProp[] = []
   const appIndex = indexPickemLines(opts.pickemLines)
   const coverage = pickemCoverage(quotes, opts.pickemLines)
+  const ambiguous = ambiguousPlayers(quotes)
 
   for (const group of groupQuotes(quotes)) {
     const ref = referenceProjection(group, group.quotes, opts.value, now)
@@ -419,7 +517,19 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
     // A prop where neither side clears is not a target, it is a pass.
     if (t.overAt == null && t.underAt == null) continue
 
-    const appLines = priceAppLines(appIndex.get(`${normalizeName(group.player)}|${group.market}`) ?? [], ref.distribution)
+    const nameIsAmbiguous = ambiguous.has(normalizeName(group.player))
+    const resolved = pickemLinesFor(
+      appIndex.get(`${normalizeName(group.player)}|${group.market}`) ?? [],
+      group.gameId,
+      nameIsAmbiguous,
+    )
+    const appLines = priceAppLines(resolved.lines, ref.distribution)
+    const warnings = [
+      nameIsAmbiguous
+        ? `Another player on this slate normalises to the same name. This row is ${group.gameId.replace("@", " at ")} only.`
+        : null,
+      resolved.warning,
+    ].filter((w): w is string => !!w)
 
     // The line a pick'em app would hang: the one the books post most often,
     // unless that one is so lopsided no app would offer the prop at all, in
@@ -427,8 +537,21 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
     // If no posted line is one a board could plausibly show, this is not a
     // pick'em target at any line — unless an app is demonstrably posting one,
     // because a real line beats a prior about what the line would be.
-    const board = boardLine(postedLines, ref.mean, ref.distribution)
-    if (!board && appLines.length === 0) continue
+    const board = boardLine(postedLines, ref.mean, ref.distribution, ceiling)
+    if (board?.overCeiling && appLines.length === 0) {
+      // Counted and named rather than quietly missing: see LopsidedProp.
+      lopsided.push({
+        key: group.key,
+        player: group.player,
+        market: group.market,
+        marketLabel: MARKETS[group.market].label,
+        gameId: group.gameId,
+        competition: group.competition,
+        line: board.line,
+        prob: board.prob,
+      })
+      continue
+    }
     const marketLine = board?.line ?? marketLineOf(postedLines, ref.mean)
     const atMarket = resolveLine(ref.distribution as never, marketLine)
     const marketSide = atMarket.over >= atMarket.under ? "OVER" : "UNDER"
@@ -450,13 +573,17 @@ export function buildDfsTargets(quotes: FeedQuote[], opts: BuildOptions): DfsTar
       marketSide,
       marketProb: Math.max(atMarket.over, atMarket.under),
       appLines,
+      warnings: warnings.length > 0 ? warnings : undefined,
       appCoverage: Array.from(coverage.get(group.gameId) ?? []).sort(),
       ...t,
     })
   }
 
   // Most likely to hit first, at the line the app is most likely showing.
-  return out.sort((a, b) => b.marketProb - a.marketProb)
+  return {
+    targets: out.sort((a, b) => b.marketProb - a.marketProb),
+    lopsided: lopsided.sort((a, b) => b.prob - a.prob),
+  }
 }
 
 export interface PickemLeg {
@@ -576,7 +703,9 @@ export function buildPickemEntry(
     if (legs.length >= size) break
     if (play.prob < bar) break
     const t = play.target
-    const who = t.player.toLowerCase()
+    // Per player, not per name: two same-named players in different games are
+    // two people, and the second must not be excluded as a duplicate.
+    const who = playerKeyIn(t.player, t.gameId)
     if (players.has(who) || (games.get(t.gameId) ?? 0) >= maxPerGame) continue
     players.add(who)
     games.set(t.gameId, (games.get(t.gameId) ?? 0) + 1)
@@ -681,7 +810,7 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
   parlays.sort((a, b) => b.evaluation.ev - a.evaluation.ev)
   const topParlays = parlays.slice(0, opts.parlayCount ?? 4)
 
-  const dfsTargets = buildDfsTargets(quotes, opts)
+  const board = buildDfsBoard(quotes, opts)
 
   const booksSeen = Array.from(new Set(quotes.map((q) => q.book))).sort()
   let pricedProps = 0
@@ -694,7 +823,8 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
     games,
     valueBets,
     parlays: topParlays,
-    dfsTargets,
+    dfsTargets: board.targets,
+    lopsided: board.lopsided,
     stats: {
       quotes: quotes.length,
       props: groups.length,
