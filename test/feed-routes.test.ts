@@ -301,8 +301,8 @@ describe("/api/today with a companion competition", () => {
     expect(feed.oddsCalls()).toHaveLength(3)
     expect(data.events.map((e: { id: string }) => e.id).sort()).toEqual(["cfb1", "cfb2", "nfl1"])
     // The NFL game is billed for the one market asked for; the college games
-    // ignore that list and use their own two. One plus two twos is five.
-    expect(data.estimatedCredits).toBe(5)
+    // ignore that list and use their own four. One plus two fours is nine.
+    expect(data.estimatedCredits).toBe(9)
     const cfbCall = feed.oddsCalls().find((u) => u.includes("ncaaf"))!
     expect(cfbCall).toContain("markets=player_pass_yds%2Cplayer_rush_yds")
     const comps = data.quotes.map((q: { competition?: string }) => q.competition ?? "nfl")
@@ -339,9 +339,9 @@ describe("/api/today ranking a companion slate by market depth", () => {
   afterEach(() => vi.unstubAllGlobals())
 
   /**
-   * Six college games in the window against a cap of four, which is what makes
+   * Nine college games in the window against a cap of six, which is what makes
    * the ranking worth a credit. Two are routs, one is priced by nobody, and the
-   * order the books imply is the reverse of the order they kick off in.
+   * order the books imply is nothing like the order they kick off in.
    */
   function stubSaturday(now: number) {
     const games = [
@@ -351,6 +351,9 @@ describe("/api/today ranking a companion slate by market depth", () => {
       { id: "cfb-deep", books: 9, margin: 3, at: 4 },
       { id: "cfb-mid", books: 5, margin: 6, at: 5 },
       { id: "cfb-rout-two", books: 8, margin: 24, at: 6 },
+      { id: "cfb-b", books: 7, margin: 10, at: 7 },
+      { id: "cfb-c", books: 6, margin: 4, at: 8 },
+      { id: "cfb-d", books: 3, margin: 9, at: 9 },
     ]
     const listing = games.map((g) => ({
       id: g.id,
@@ -441,19 +444,20 @@ describe("/api/today ranking a companion slate by market depth", () => {
     expect(feed.bulkCalls()[0]).toContain("markets=spreads")
     expect(feed.bulkCalls()[0]).toContain("regions=us")
     expect(feed.bulkCalls()[0]).not.toContain("us2")
-    // Four games priced, deepest first: the routs and the unpriced game are out,
-    // and the earliest kick-off is the one nobody prices.
-    expect(feed.pricedIds()).toEqual(["cfb-deep", "cfb-mid", "cfb-thin"])
-    expect(data.events.map((e: { id: string }) => e.id)).toEqual(["cfb-deep", "cfb-mid", "cfb-thin"])
+    // Six games priced, deepest first: the two routs and the game nobody
+    // prices are out, and the earliest kick-off is the one nobody prices.
+    const order = ["cfb-deep", "cfb-b", "cfb-c", "cfb-mid", "cfb-d", "cfb-thin"]
+    expect(feed.pricedIds()).toEqual(order)
+    expect(data.events.map((e: { id: string }) => e.id)).toEqual(order)
   })
 
   it("bills the ranking call and says what it did", async () => {
     const now = Date.now()
     stubSaturday(now)
     const data = await (await saturday(now)).json()
-    // Three games at two markets is six, plus one for the ranking.
-    expect(data.estimatedCredits).toBe(3 * 2 + 1)
-    expect(data.depthNote).toContain("3 of 6 College football games priced")
+    // Six games at four markets is 24, plus one for the ranking.
+    expect(data.estimatedCredits).toBe(6 * 4 + 1)
+    expect(data.depthNote).toContain("6 of 9 College football games priced")
     expect(data.depthNote).toContain("2 skipped as likely blowouts")
     expect(data.depthNote).toContain("1 had no spread priced")
   })

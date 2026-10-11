@@ -95,18 +95,6 @@ const NBA_BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel",
 
 const FOOTBALL_MARKETS = ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"]
 
-/**
- * College football's own market list, and it is two rather than four.
- *
- * The college prop market is thin away from the televised games: receptions
- * and receiving yards are posted for a handful of players at the games anyone
- * is watching and for nobody at the rest, so two of the four markets came back
- * empty and padded the board with props nothing could price. Whether they also
- * cost a credit each is NOT settled: see UNVERIFIED_EMPTY_MARKET_COST in
- * lib/odds-feed/theoddsapi. The board-quality reason stands either way.
- */
-const CFB_MARKETS = ["player_pass_yds", "player_rush_yds"]
-
 export const LEAGUES: Record<LeagueId, LeagueConfig> = {
   nba: {
     id: "nba",
@@ -176,12 +164,17 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     // gets checked once there are enough settled college legs to check it
     // with; until then it is a prior and is labelled as one on screen.
     dispersionScale: 1.2,
-    markets: CFB_MARKETS,
+    // The NFL's four. Receptions and receiving yards are thin away from the
+    // televised games, but the games this section actually prices are the
+    // televised ones — that is what the depth ranking selects for — so asking
+    // for all four is asking where the answers are.
+    markets: FOOTBALL_MARKETS,
     books: NBA_BOOKS,
     // A Saturday has 50 or more games and only the televised ones carry real
-    // prop pricing, so the cap is small on purpose: four games at two markets
-    // is 8 credits on top of the NFL pull.
-    maxGames: 4,
+    // prop pricing, so the cap stays small: six games at four markets is 24
+    // credits on top of the NFL pull, which takes a full Sunday press to 80 —
+    // past the point where the button asks before spending.
+    maxGames: 6,
     typicalSlate: 45,
     season: [8, 9, 10, 11, 12, 1],
     // A 500-yard passing game and a 300-yard rushing game both happen in

@@ -61,12 +61,11 @@ describe("league config", () => {
     expect(plannedGames("nfl", 14)).toBe(14)
   })
 
-  it("asks college football for two markets, not the NFL's four", () => {
-    // Receptions and receiving yards are posted for a handful of players at
-    // the televised games and nobody at the rest, so the other two markets
-    // were a credit each for an empty response.
-    expect(LEAGUES.cfb.markets).toEqual(["player_pass_yds", "player_rush_yds"])
-    expect(LEAGUES.cfb.markets.length).toBeLessThan(LEAGUES.nfl.markets.length)
+  it("asks college football for the same four markets as the NFL", () => {
+    // The games this section prices are the televised ones, which is what the
+    // depth ranking selects for, and those are the games where receptions and
+    // receiving yards exist. Asking for four is asking where the answers are.
+    expect(LEAGUES.cfb.markets).toEqual(LEAGUES.nfl.markets)
   })
 
   it("no longer supports college basketball or the WNBA, and falls back rather than guessing", () => {
@@ -178,13 +177,24 @@ describe("credit warning", () => {
     expect(plannedGames("nba", 14, { companions: true })).toBe(14)
   })
 
-  it("prices each competition's own market list rather than one count for both", () => {
-    // 14 NFL games at four markets plus four college games at two is 64, not
-    // the 72 a combined game count times four markets would claim.
+  it("prices each competition's own game cap, not one number for both", () => {
+    // 14 NFL games at four markets plus six college games at four is 80.
     const plan = pullPlan("nfl", LEAGUES.nfl.maxGames, { companions: true })
     const credits = plan.reduce((a, p) => a + p.games * p.league.markets.length, 0)
-    expect(credits).toBe(56 + 8)
-    expect(creditWarning("nfl", plannedGames("nfl", 14, { companions: true }), 4).credits).toBe(72)
+    expect(credits).toBe(56 + 24)
+  })
+
+  it("asks before a default NFL press that pulls college football too", () => {
+    // This is the press the gate exists for: 80 credits is 16% of a month, so
+    // six of them empty it, and it is the one a careless refresh repeats.
+    const plan = pullPlan("nfl", LEAGUES.nfl.maxGames, { companions: true })
+    const credits = plan.reduce((a, p) => a + p.games * p.league.markets.length, 0)
+    const gate = creditPlan("nfl", credits)
+    expect(gate.credits).toBe(80)
+    expect(gate.confirm).toBe(true)
+    expect(gate.prompt).toContain("80")
+    // And the NFL alone still does not ask.
+    expect(creditPlan("nfl", 56).confirm).toBe(false)
   })
 
   it("asks before a pull that would empty the month in seven presses", () => {

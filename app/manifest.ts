@@ -10,7 +10,7 @@ import type { MetadataRoute } from "next"
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "WagerWise — Basketball Prop Terminal",
+    name: "WagerWise — Prop Terminal",
     short_name: "WagerWise",
     description:
       "NBA, NFL, college football and NHL prop and parlay analysis: devigged fair lines, calibrated probabilities and expected value.",

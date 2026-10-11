@@ -178,7 +178,8 @@ entry in the tracker still reads back.
 **College football is thin and barely priced away from television.** Only the games on a
 network carry real prop pricing; the rest of a Saturday comes back unpriced and is left out,
 which is the correct outcome but means the section covers a fraction of the slate. Its game cap
-is six for that reason and because a Saturday lists fifty games. Its wider volatility prior
+is six for that reason and because a Saturday lists fifty games. It asks for the NFL's four
+markets, since the games the ranking picks are the televised ones where those markets exist. Its wider volatility prior
 (1.2 on the NFL's ratios) is reasoned from blowouts, benched starters and unknowable backfield
 splits — it is not fitted. The feed's college player names collide more often than the NFL's
 (two players of the same name across 130 teams), and a name is matched exactly rather than

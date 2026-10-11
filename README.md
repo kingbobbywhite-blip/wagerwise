@@ -10,8 +10,9 @@ Add a book under Settings if you open an account there.
 
 Three tabs: **NBA**, **NFL** and **NHL**. **College football rides inside the NFL tab**, off by
 default: turn the switch on under Settings → Today and one press pulls both, each priced with its
-own numbers, with a college row badged CFB wherever it appears. Each tab keeps its own cached pull,
-so switching never throws away a slate you already paid feed credits for.
+own numbers, with a college row badged CFB wherever it appears — and because that press costs 80
+credits rather than 56, the button asks before spending it. Each tab keeps its own cached pull, so
+switching never throws away a slate you already paid feed credits for.
 
 **It does not create an edge. It stops you acting on edges that are not there.**
 
@@ -335,10 +336,10 @@ what the model predicted.
 |---|---|---|---|---|
 | Tab | NBA | NFL | inside NFL, opt-in | NHL |
 | Feed sport key | `basketball_nba` | `americanfootball_nfl` | `americanfootball_ncaaf` | `icehockey_nhl` |
-| Default markets | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions | pass yds, rush yds | shots on goal, points, saves, blocked shots |
-| Default game cap | 14 | 14 | 4 | 12 |
+| Default markets | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions | same as the NFL | shots on goal, points, saves, blocked shots |
+| Default game cap | 14 | 14 | 6 | 12 |
 | Volatility prior | baseline | its own markets | +20% on the NFL's (unfitted) | its own markets |
-| One default press | 56 credits | 56 credits | +8 with the switch on | 48 credits
+| One default press | 56 credits | 56 credits | +24, and +1 to rank them | 48 credits
 
 The **prior mean** is used only when no book has priced the prop: a real market price always
 wins. A **volatility prior** above baseline widens the distribution, which pulls probabilities
@@ -369,10 +370,11 @@ shows that total before you press the button.
 
 Two things make the numbers here more honest than a dispersion ratio alone:
 
-**The button asks before an expensive press.** Above 15% of a 500-request month — 75 credits, seven
+**The button asks before an expensive press.** Above 15% of a 500-request month — 75 credits, six
 presses from an empty month — the pull is a confirm rather than a note beside the button, because a
 note is read after the credits are gone. The figure is summed per competition, since each can be
-asked for a different market list and credits are billed per market per game.
+asked for a different market list and credits are billed per market per game. A full Sunday with
+college football switched on is 80 credits, so that press asks; the NFL alone, at 56, does not.
 
 **Yardage carries a floor on its relative spread.** A ratio prior implies that the spread
 grows with the square root of the projection, so a 340-yard passing line came out with a
@@ -406,14 +408,16 @@ and priced with its own numbers rather than the NFL's:
 - **Its own plausibility ceilings**, because a 500-yard passing game and a 300-yard rushing
   game both happen in college football and NFL ceilings would flag real outcomes as impossible.
 
-**Which four games get the cap is chosen, not taken in start order.** A Saturday lists fifty and
+**Which six games get the cap is chosen, not taken in start order.** A Saturday lists fifty and
 the earliest kick-off is as likely to be a game no book prices as the one everyone does, so one
 sport-level call for spreads — billed per market per region, so a single credit whatever it
 returns — says who the books are actually pricing. Games are ranked by how many books hang a
 spread, ties to the closer game, and anything over 21 points is skipped because a four-touchdown
-favourite benches the players a yardage prop is on. If that call fails the slate falls back to
-start order and says so, and what the ranking did is reported on screen so a three-game board
-reads as expected rather than broken.
+favourite benches the players a yardage prop is on. That is also why the section asks for all four
+football markets rather than a trimmed pair: the games it selects are the televised ones, which are
+exactly the games where receptions and receiving yards exist. If the ranking call fails the slate
+falls back to start order and says so, and what it did is reported on screen so a thin board reads
+as expected rather than broken.
 
 Most of a Saturday slate comes back unpriced and is correctly left out: no sportsbook price,
 no expected value, no exceptions.
