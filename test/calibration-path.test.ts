@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { groupedCalibration, impliedDispersion, type Observation } from "@/lib/quant/calibration"
 import { fitMovement, lineMoves, snapshotFor, snapshotRows, summariseHistory } from "@/lib/quant/lines"
 import { DEFAULT_VALUE_SETTINGS, KICKOFF_VARIANCE_PER_DAY, type FeedQuote } from "@/lib/quant/valuebets"
@@ -195,6 +195,29 @@ describe("the line history cannot grow without bound", () => {
     expect(migrated.lines[0].pulledAt > migrated.lines[1].pulledAt).toBe(true)
   })
 
+  it("drops a row the readouts would crash on, because an import is arbitrary JSON", () => {
+    // fitMovement indexes the market table by the row's market, and importState
+    // runs a hand-edited file straight through migrate.
+    const migrated = migrate({
+      version: 1,
+      lines: [
+        {
+          pulledAt: "2026-11-03T18:00:00Z",
+          league: "nfl",
+          rows: [
+            { key: "a|PASS_YDS", player: "A", market: "PASS_YDS", line: 245.5, hoursToStart: 96, mean: 245, books: 3 },
+            { key: "b|NOPE", player: "B", market: "NOT_A_MARKET", line: 10, hoursToStart: 2, mean: null, books: 1 },
+            { key: "", player: "C", market: "PASS_YDS", line: 10, hoursToStart: 2, mean: null, books: 1 },
+            { player: "D", market: "PASS_YDS", line: 10 },
+            { key: "e|PASS_YDS", player: "E", market: "PASS_YDS", line: "245.5" },
+            null,
+          ],
+        },
+      ],
+    })
+    expect(migrated.lines[0].rows.map((r) => r.key)).toEqual(["a|PASS_YDS"])
+  })
+
   it("drops junk rather than trusting stored shapes", () => {
     const migrated = migrate({
       version: 1,
@@ -207,6 +230,38 @@ describe("the line history cannot grow without bound", () => {
     })
     expect(migrated.lines.map((l) => l.pulledAt)).toEqual(["2026-11-03T18:00:00Z"])
     expect(migrate({ version: 1 }).lines).toEqual([])
+  })
+})
+
+describe("a save that fails for some other reason", () => {
+  it("is not a reason to delete anything", async () => {
+    // Shedding is the right answer to a full quota and the wrong answer to
+    // every other failure: storage switched off, or a value that will not
+    // serialise, would otherwise have the app delete slate after slate
+    // trying to fix a problem that was never about size.
+    const { saveState } = await import("@/lib/store/local")
+    const store: Record<string, string> = {}
+    const setItem = () => {
+      const err = new Error("The quota has been exceeded.")
+      err.name = "QuotaExceededError"
+      throw err
+    }
+    vi.stubGlobal("window", { localStorage: { setItem, getItem: (k: string) => store[k] ?? null } })
+    expect(saveState(EMPTY_STATE)).toMatchObject({ ok: false, quota: true })
+
+    vi.stubGlobal("window", {
+      localStorage: {
+        setItem: () => {
+          throw new Error("Access is denied for this document.")
+        },
+        getItem: () => null,
+      },
+    })
+    const denied = saveState(EMPTY_STATE)
+    expect(denied.ok).toBe(false)
+    expect(denied.quota).toBeFalsy()
+    expect(denied.error).toContain("Could not save")
+    vi.unstubAllGlobals()
   })
 })
 

@@ -54,17 +54,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setSaveError(null)
       return
     }
-    // Storage is full. Shed the cheapest thing and try again on the next pass
+    // Out of room: shed the cheapest thing and try again on the next pass
     // rather than reporting success while nothing is being written. Each
     // reduction is strictly smaller, so this terminates; when there is nothing
     // left to shed, the error stands and every screen shows it.
-    const reduced = reduceForQuota(state, state.settings.daily.league)
+    //
+    // Only for a quota failure. Shedding data in response to any other error —
+    // storage switched off, a value that will not serialise — would delete
+    // slate after slate trying to fix a problem that was never about size.
+    const reduced = r.quota ? reduceForQuota(state, state.settings.daily.league) : null
     if (reduced) {
-      setSaveDropped((d) => [...d, reduced.dropped])
+      setSaveDropped((d) => (d.includes(reduced.dropped) ? d : [...d, reduced.dropped]))
       setState(reduced.state)
       return
     }
-    setSaveError(r.error)
+    setSaveError(r.error ?? "Could not save.")
   }, [state, ready])
 
   const value = React.useMemo<StoreValue>(

@@ -24,18 +24,39 @@ export function loadState(): AppState {
   }
 }
 
-export function saveState(state: AppState): { ok: true } | { ok: false; error: string } {
+export interface SaveResult {
+  ok: boolean
+  error?: string
+  /**
+   * True only when the write failed for want of room.
+   *
+   * The distinction decides whether anything may be thrown away. Shedding data
+   * is the right answer to a full quota and the wrong answer to every other
+   * failure: storage disabled in a private window, or a value that would not
+   * serialise, would otherwise have the app delete slate after slate in a loop
+   * trying to fix a problem that was never about size.
+   */
+  quota?: boolean
+}
+
+export function saveState(state: AppState): SaveResult {
   if (typeof window === "undefined") return { ok: false, error: "No browser storage available." }
   try {
     window.localStorage.setItem(KEY, JSON.stringify(state))
     return { ok: true }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+    // Browsers disagree about the name and the message. Safari throws
+    // QuotaExceededError, Firefox NS_ERROR_DOM_QUOTA_REACHED, and the legacy
+    // code 22 is still what some report.
+    const name = e instanceof Error ? e.name : ""
+    const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: number }).code : undefined
+    const quota =
+      /quota|NS_ERROR_DOM_QUOTA_REACHED/i.test(`${name} ${msg}`) || code === 22 || name === "QuotaExceededError"
     return {
       ok: false,
-      error: msg.toLowerCase().includes("quota")
-        ? "Browser storage is full. Export your data, then clear old slates."
-        : `Could not save: ${msg}`,
+      quota,
+      error: quota ? "Browser storage is full. Export your data, then clear old slates." : `Could not save: ${msg}`,
     }
   }
 }

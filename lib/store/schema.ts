@@ -2,7 +2,7 @@ import { DEFAULT_CORRELATION, type CorrelationSettings } from "@/lib/quant/corre
 import { DEFAULT_CONSTRAINTS, type OptimizerConstraints } from "@/lib/quant/optimizer"
 import { DEFAULT_APPS, type BookApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow } from "@/lib/quant/projection"
-import type { MarketKey } from "@/lib/nba/markets"
+import { MARKETS, type MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import type { PickemLine } from "@/lib/odds-feed/propline"
 import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId } from "@/lib/leagues"
@@ -457,6 +457,26 @@ function migrateLines(raw: unknown): LineSnapshot[] {
         Array.isArray(snap.rows)
       )
     })
+    .map((snap) => ({ ...snap, rows: snap.rows.filter(isLineSnapshotRow) }))
     .sort((a, b) => b.pulledAt.localeCompare(a.pulledAt))
     .slice(0, MAX_LINE_SNAPSHOTS)
+}
+
+/**
+ * A stored row worth reading. The market has to be one we model, because the
+ * readouts index the market table by it, and an imported file is arbitrary
+ * JSON: nothing between a hand-edited export and a crash but this.
+ */
+function isLineSnapshotRow(row: unknown): row is LineSnapshotRow {
+  if (!row || typeof row !== "object") return false
+  const r = row as Partial<LineSnapshotRow>
+  return (
+    typeof r.key === "string" &&
+    r.key.length > 0 &&
+    typeof r.player === "string" &&
+    typeof r.market === "string" &&
+    Object.prototype.hasOwnProperty.call(MARKETS, r.market) &&
+    typeof r.line === "number" &&
+    Number.isFinite(r.line)
+  )
 }
