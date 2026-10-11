@@ -30,8 +30,12 @@ export default function SettingsPage() {
   const companions = companionsOf(dailyLeague.id)
   // What one press of the selected league's button would spend, companions
   // included, billed per market per game at each competition's own list.
-  const dailyCredits = pullPlan(dailyLeague.id, s.daily.maxGames, { companions: s.daily.companions }).reduce(
-    (a, p) => a + p.games * marketsForCompetition(p.league, s.daily.markets).length,
+  const dailyCredits = pullPlan(dailyLeague.id, Math.max(1, Math.min(s.daily.maxGames, 20)), {
+    companions: s.daily.companions,
+  }).reduce(
+    // Including the ranking call a depth-ranked companion buys, so this agrees
+    // with the figure the Today screen gates on.
+    (a, p) => a + p.games * marketsForCompetition(p.league, s.daily.markets).length + (p.league.depthRanked ? 1 : 0),
     0,
   )
   const dailyCost = creditPlan(dailyLeague.id, dailyCredits)

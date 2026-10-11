@@ -58,9 +58,9 @@ export interface MarketConfig {
    *
    * UNFITTED. These are read off typical starter game logs, not fitted to
    * realised results, and the tracker labels them as priors wherever it
-   * reports on them. Note also that a leg sitting on this floor does not
-   * scale as the square root of the dispersion dial, so the implied-spread
-   * number in the tracker is looser for yardage than for counts.
+   * reports on them. The dispersion dial scales the floor and the ratio by the
+   * same factor, so which of the two binds does not change how the dial
+   * behaves: variance stays proportional to it either way.
    */
   cv?: number
   /** Component stats, used by the correlation model for combo markets. */

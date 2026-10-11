@@ -3,7 +3,7 @@ import { DEFAULT_CORRELATION, legCorrelation, playerKeyIn } from "@/lib/quant/co
 import { DEFAULT_CONSTRAINTS } from "@/lib/quant/optimizer"
 import { DEFAULT_PROJECTION_SETTINGS } from "@/lib/quant/projection"
 import { DEFAULT_VALUE_SETTINGS, ambiguousPlayers, findValueBets, groupQuotes, type FeedQuote } from "@/lib/quant/valuebets"
-import { sameGameId, teamNickname } from "@/lib/odds-feed/games"
+import { sameGameId, sameTeamName, teamNickname } from "@/lib/odds-feed/games"
 import { attachQuotes, indexQuotes, type NormalizedQuote } from "@/lib/odds-feed/theoddsapi"
 import { buildDfsTargets, pickemLinesFor } from "@/lib/today/build"
 import type { PickemLine } from "@/lib/odds-feed/propline"
@@ -119,8 +119,41 @@ describe("two players, one name", () => {
 })
 
 describe("matching a fixture across two feeds", () => {
+  it("refuses two college fixtures that merely share both nicknames", () => {
+    // There are a dozen Bulldogs and a dozen Tigers. Matching on the nickname
+    // pair alone made "Georgia Bulldogs at Auburn Tigers" and "Mississippi
+    // State Bulldogs at LSU Tigers" the same game, which handed one player's
+    // row the other's pick'em line and priced it at 99%.
+    expect(sameGameId("Georgia Bulldogs@Auburn Tigers", "Mississippi State Bulldogs@LSU Tigers")).toBe(false)
+    expect(sameTeamName("Georgia Bulldogs", "Mississippi State Bulldogs")).toBe(false)
+    // While the spellings it exists to reconcile still meet.
+    expect(sameTeamName("Ohio St", "Ohio State Buckeyes")).toBe(true)
+    expect(sameTeamName("LA Clippers", "Los Angeles Clippers")).toBe(true)
+    expect(sameTeamName("Bulldogs", "Georgia Bulldogs")).toBe(true)
+    expect(sameTeamName("Kansas City Chiefs", "KC Chiefs")).toBe(true)
+    // And the other college traps: a shared word is not agreement either.
+    expect(sameTeamName("Georgia Tech Yellow Jackets", "Georgia Bulldogs")).toBe(false)
+    expect(sameTeamName("Washington Huskies", "Washington State Cougars")).toBe(false)
+    expect(sameTeamName("Miami (OH) RedHawks", "Miami Hurricanes")).toBe(false)
+    expect(sameTeamName("Auburn Tigers", "LSU Tigers")).toBe(false)
+  })
+
+  it("shows no line at all when two fixtures could both be this player's", () => {
+    const line = (gameId: string, l: number): PickemLine => ({
+      app: "prizepicks", player: "Jordan Johnson", playerKey: "jordan johnson",
+      market: "RUSH_YDS", gameId, line: l, pickType: "standard",
+      over: { multiplier: null }, under: { multiplier: null }, fetchedAt: null,
+    })
+    // Both reduce to a bulldogs-at-tigers fixture under a nickname-only rule.
+    const both = [line("Georgia Bulldogs@Auburn Tigers", 92.5), line("Mississippi State Bulldogs@LSU Tigers", 17.5)]
+    const picked = pickemLinesFor(both, "Bulldogs@Tigers", true)
+    expect(picked.lines).toEqual([])
+    expect(picked.warning).toContain("Two games on this slate")
+  })
+
   it("matches on nicknames, because the feeds spell teams differently", () => {
     expect(teamNickname("Ohio State Buckeyes")).toBe("buckeyes")
+    // One side being only the nickname corroborates nothing against it.
     expect(sameGameId("Nittany Lions@Buckeyes", "Penn State Nittany Lions@Ohio State Buckeyes")).toBe(true)
     expect(sameGameId("LA Clippers@Lakers", "Los Angeles Clippers@Los Angeles Lakers")).toBe(true)
     // Home and away still have to line up: the reverse fixture is another game.

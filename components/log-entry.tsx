@@ -110,6 +110,12 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       : null,
   )
   const priced = matched.map((m) => m?.pWin ?? null)
+  // Two players on the slate normalising to one name, and an entry screen
+  // gives a name and a stat with no fixture — so the price shown may be the
+  // other one's. Computed at match time and worth nothing unless it is said.
+  const ambiguousNames = matched
+    .map((m, i) => (m?.ambiguous ? legs[i].player.trim() : null))
+    .filter((n): n is string => !!n)
 
   // Entries these legs could collide with: anything still open, and anything
   // logged today, which is where a night's settled screenshots all land.
@@ -460,6 +466,28 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       {legs.length > 0 && problems.length > 0 ? (
         <p className="flex items-start gap-1.5 text-[11px] text-accent">
           <TriangleAlert className="mt-0.5 size-3 shrink-0" /> {problems[0]}
+        </p>
+      ) : null}
+      {league === "cfb" && !quotes?.some((q) => q.competition === "cfb") ? (
+        <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" />
+          <span>
+            The last pull holds no college prices, so these legs log with no probability and nothing to calibrate
+            against. College football is pulled with the NFL only when the companion switch is on in Settings — turn
+            it on and refresh before logging, or log now and accept that the model never got a prediction on record.
+          </span>
+        </p>
+      ) : null}
+      {ambiguousNames.length > 0 ? (
+        <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-accent">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" />
+          <span>
+            Two players on the last pull share {ambiguousNames.length === 1 ? "a name with" : "names with"}{" "}
+            {ambiguousNames.join(", ")}, and an entry screen gives a name and a stat but never a fixture. The
+            probability recorded for {ambiguousNames.length === 1 ? "that leg" : "those legs"} may be the other
+            player&apos;s, so the calibration it feeds would be measuring the wrong prop. Check the game before
+            logging it.
+          </span>
         </p>
       ) : null}
       <Button size="sm" onClick={save} disabled={problems.length > 0}>

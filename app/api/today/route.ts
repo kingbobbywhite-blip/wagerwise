@@ -185,9 +185,11 @@ export async function POST(request: Request) {
     // pulled and priced inside the NFL section. Each is listed, capped and
     // billed separately, then merged into one slate.
     const pulls: CompetitionPull[] = []
+    const competitionFailures: { eventId: string; matchup: string; error: string }[] = []
     for (const comp of competitionsFor(leagueId, { companions })) {
-      pulls.push(
-        await pullCompetition(apiKey!, comp, {
+      try {
+        pulls.push(
+          await pullCompetition(apiKey!, comp, {
           // The league's own cap is the dial on the Today screen; a companion
           // keeps the cap sized to its own slate, because a Saturday lists
           // fifty college games and only a handful carry real prop pricing.
@@ -198,9 +200,23 @@ export async function POST(request: Request) {
           fromMs,
           toMs,
           now,
-          eventsOnly: !!body.eventsOnly,
-        }),
-      )
+            eventsOnly: !!body.eventsOnly,
+          }),
+        )
+      } catch (err) {
+        // The league is pulled first and its per-event odds are billed as they
+        // go, so letting a companion's listing throw past here would return a
+        // 502 with no quotes and bin a slate that has already been paid for.
+        // A competition that cannot be listed is a failure to report, exactly
+        // like a game that cannot be priced.
+        competitionFailures.push({
+          eventId: comp.id,
+          matchup: comp.label,
+          error: feedErrorText(err, "The Odds API"),
+        })
+        // With nothing listed at all there is no slate and no pull to protect.
+        if (pulls.length === 0 && comp.id === leagueId) throw err
+      }
     }
 
     const selected = pulls.flatMap((p) => p.selected)
@@ -228,6 +244,7 @@ export async function POST(request: Request) {
         estimatedCredits,
         costWarning: cost.message,
         costSevere: cost.severe,
+        failures: competitionFailures,
         requestsRemaining: remaining,
         requestsUsed: used,
       })
@@ -254,6 +271,7 @@ export async function POST(request: Request) {
         requestsUsed: used,
         inSeason: inSeason(leagueId, new Date(), { companions }),
         startedCount: started,
+        failures: competitionFailures,
         nextEvent: next
           ? { commence_time: next.commence_time, home_team: next.home_team, away_team: next.away_team }
           : null,
@@ -261,7 +279,7 @@ export async function POST(request: Request) {
       })
     }
 
-    const failures = pulls.flatMap((p) => p.failures)
+    const failures = [...competitionFailures, ...pulls.flatMap((p) => p.failures)]
     const priced = pulls.reduce((a, p) => a + p.payloads.length, 0)
     const failed = noneCouldBePriced(selected.length, priced, failures)
     if (failed) {

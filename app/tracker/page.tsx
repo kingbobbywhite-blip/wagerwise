@@ -340,8 +340,15 @@ export default function TrackerPage() {
                         >
                           {signedPct(-r.bias)}
                         </td>
-                        <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">
-                          {r.impliedDispersion != null ? `×${r.impliedDispersion.toFixed(2)}` : "—"}
+                        <td
+                          className={cn(
+                            "py-1.5 text-right font-mono tabular-nums",
+                            r.dispersionPegged ? "text-accent" : "text-muted-foreground",
+                          )}
+                        >
+                          {r.impliedDispersion != null
+                            ? `${r.dispersionPegged ? "≥" : ""}×${r.impliedDispersion.toFixed(2)}`
+                            : "—"}
                         </td>
                       </tr>
                     ))}
@@ -353,9 +360,11 @@ export default function TrackerPage() {
 
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
             &ldquo;Spread implied&rdquo; is the multiplier the outcome-spread slider in Settings would need for these
-            predictions to have matched these results: above 1 the model was too confident. It appears only at 25
-            legs or more, it is a normal approximation to count distributions rather than a fit, and it measures what
-            is left AFTER every correction the app already applies. It cannot be used to fit the kickoff widening,
+            predictions to have matched these results: above 1 the model was too confident. It is solved over the
+            individual legs rather than their average, it appears only at 25 legs or more, and it is a normal
+            approximation to count distributions rather than a fit. A ≥ means the gap is wider than the slider can
+            express, so its limit is as far as you can go and it still will not be enough — look at the projections
+            rather than the dial. It measures what is left AFTER every correction the app already applies. It cannot be used to fit the kickoff widening,
             because the stored probability already had that applied — only the line history below is independent of
             it. Legs logged before a competition was recorded sit in their own row: a leg keeps no game, so nothing
             can work out afterwards whether it was a college prop or an NFL one.
@@ -405,12 +414,15 @@ export default function TrackerPage() {
         ) : null}
         <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
           {movement.length > 0
-            ? "The last column is the unfitted prior the app widens by: four percent of variance per day until kick-off, capped at twelve. The column beside it is what your own pulls measured. They are directly comparable, and if yours is consistently larger the prior is too small."
+            ? "The last column is the unfitted prior the app widens by: four percent of variance per day until kick-off, capped at twelve. The column beside it is what your own pulls measured, extrapolated to a day. They are directly comparable, and if yours is consistently larger the prior is too small."
             : history.paired > 0
               ? "Not enough pairs in any one market yet to measure anything. Eight is the floor, and a number built on fewer would be worse than the prior it replaced."
-              : "Nothing to measure yet. This needs the same prop seen twice at different distances from kick-off, which means pulling a slate days out and pulling it again on game day. Nothing here can manufacture that second look: a refresh costs credits, and the cache exists precisely so the app never spends them on its own."}{" "}
-          Until then the widening stays an unfitted prior, and so do the college volatility multiplier and the yardage
-          spread floors.
+              : "Nothing to measure yet. This needs the same prop pulled twice, hours apart — the easiest way is a pull in the morning and another near the first kick-off. Nothing here can manufacture that second look: a refresh costs credits, and the cache exists precisely so the app never spends them on its own."}{" "}
+          One limit worth knowing: Today pulls from local midnight to 11am tomorrow, so two looks at one prop can be
+          hours to about a day apart, never the four days a midweek NFL line actually drifts over. What is measured
+          here is the last day&apos;s movement scaled up, which is a lower bound on the week&apos;s. Until there is
+          enough of it the widening stays an unfitted prior, and so do the college volatility multiplier and the
+          yardage spread floors.
         </p>
       </section>
 

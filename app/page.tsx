@@ -131,9 +131,13 @@ export default function TodayPage() {
   const companionHeld = React.useMemo(() => {
     if (!daily || wantCompanions) return 0
     return new Set(
-      daily.quotes.filter((q) => q.competition && q.competition !== leagueId).map((q) => q.gameId),
+      daily.quotes
+        // Only games still to start: one that kicked off is gone whatever the
+        // switch says, and promising it back by flicking a setting is a lie.
+        .filter((q) => q.competition && q.competition !== leagueId && notStarted(q.commenceTime, now))
+        .map((q) => q.gameId),
     ).size
-  }, [daily, wantCompanions, leagueId])
+  }, [daily, wantCompanions, leagueId, now])
   const startedSincePull = daily
     ? new Set(daily.quotes.filter((q) => !notStarted(q.commenceTime, now)).map((q) => q.gameId)).size
     : 0
@@ -141,12 +145,18 @@ export default function TodayPage() {
   const pickemLines = wantPickem ? daily?.pickemLines : undefined
   // Credits are The Odds API's monthly quota. PropLine counts requests per day,
   // one per game whatever the markets, so a slate is never a quota event there.
+  // Mirrors the route: the body's cap, floored at 1 and ceilinged at 20.
+  const requestedMaxGames = Math.max(1, Math.min(s.daily.maxGames, 20))
   // What the next press would spend, per competition. Each competition can be
   // asked for a different market list, and credits are billed per market per
   // game, so a combined game count times one market count is the wrong sum.
   const plannedCredits = React.useMemo(
     () =>
-      pullPlan(leagueId, Math.min(s.daily.maxGames, league.maxGames), { companions: wantCompanions }).reduce(
+      // The cap the REQUEST sends, not the league's default. Clamping the
+      // preview to the league default while the body sent the dial's value
+      // meant a raised cap was never priced and the gate never opened: 20 NBA
+      // games at four markets is 80 credits shown as 56.
+      pullPlan(leagueId, requestedMaxGames, { companions: wantCompanions }).reduce(
         (a, p) =>
           a +
           p.games * marketsForCompetition(p.league, s.daily.markets).length +
@@ -158,7 +168,7 @@ export default function TodayPage() {
           (p.league.depthRanked ? 1 : 0),
         0,
       ),
-    [leagueId, s.daily.maxGames, s.daily.markets, league.maxGames, wantCompanions],
+    [leagueId, requestedMaxGames, s.daily.markets, wantCompanions],
   )
   const cost = usePropline
     ? { message: null, severe: false, confirm: false, prompt: null, credits: 0 }
@@ -836,7 +846,9 @@ export default function TodayPage() {
             <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-muted-foreground">
               {!daily
                 ? "Press the button above to pull today's slate. Player props are billed per market per game, so nothing is fetched until you ask."
-                : daily.quotes.length > 0
+                : companionHeld > 0
+                  ? `Everything still to start in this pull is ${companions.map((l) => l.label).join(" or ")}, which the companion switch is holding back. Nothing has been lost: turn it on in Settings and these games come back without a credit.`
+                  : daily.quotes.length > 0
                   ? `Every game in this pull has started since it was pulled, so nothing in it can still be played. Press Refresh for any later games today.`
                   : daily.startedCount
                     ? `Every ${league.label} game today has already started, and live games are not priced: their lines move with the score and the pick'em apps have closed them.${daily.nextEvent ? ` The next game is ${nextGameText(daily.nextEvent)}.` : ""}`

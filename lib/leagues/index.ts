@@ -350,7 +350,7 @@ export function creditPlan(id: LeagueId, credits: number, monthlyQuota = 500): C
   const pct = Math.round(pctOfQuota * 100)
   const confirm = pctOfQuota >= CONFIRM_PCT_OF_QUOTA
   const prompt = confirm
-    ? `This pull spends about ${spend} feed credits, ${pct}% of a 500-request month, and about ${Math.floor(1 / Math.max(pctOfQuota, 1e-9))} presses like it would empty the month. Lower the game cap or the market count in Settings to spend less. Pull anyway?`
+    ? `This pull spends about ${spend} feed credits, ${pct}% of a 500-request month, and ${Math.ceil(1 / Math.max(pctOfQuota, 1e-9))} presses like it would empty the month. Lower the game cap or the market count in Settings to spend less. Pull anyway?`
     : null
   if (spend === 0) return { credits: spend, pctOfQuota, severe: false, confirm: false, message: null, prompt: null }
   if (pctOfQuota >= 0.25) {

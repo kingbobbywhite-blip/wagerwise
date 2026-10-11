@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
-import { groupedCalibration, impliedDispersion, type Observation } from "@/lib/quant/calibration"
+import {
+  DISPERSION_DIAL_RANGE,
+  groupedCalibration,
+  impliedDispersion,
+  type Observation,
+} from "@/lib/quant/calibration"
 import { fitMovement, lineMoves, snapshotFor, snapshotRows, summariseHistory } from "@/lib/quant/lines"
 import { DEFAULT_VALUE_SETTINGS, KICKOFF_VARIANCE_PER_DAY, type FeedQuote } from "@/lib/quant/valuebets"
 import { DEFAULT_PROJECTION_SETTINGS } from "@/lib/quant/projection"
@@ -18,32 +23,59 @@ import { EMPTY_STATE } from "@/lib/store/schema"
 const SETTINGS = { ...DEFAULT_VALUE_SETTINGS, projection: { ...DEFAULT_PROJECTION_SETTINGS, league: "nfl" as const } }
 
 describe("the dispersion a result implies", () => {
+  /** n legs each predicted at p, of which a fraction actually won. */
+  const legs = (n: number, p: number, winRate: number): Observation[] =>
+    Array.from({ length: n }, (_, i) => ({ p, win: i < Math.round(n * winRate) }))
+
   it("asks for a wider spread when the model was too confident", () => {
-    // Said 65%, hit 55%: the distribution was too narrow.
-    const k = impliedDispersion(0.65, 0.55, 200)!
+    // Said 62%, hit 57%: the distribution was too narrow.
+    const k = impliedDispersion(legs(200, 0.62, 0.57))!
     expect(k).toBeGreaterThan(1)
     // And a narrower one when it was too timid.
-    expect(impliedDispersion(0.55, 0.65, 200)!).toBeLessThan(1)
+    expect(impliedDispersion(legs(200, 0.57, 0.62))!).toBeLessThan(1)
     // Dead right asks for no change at all.
-    expect(impliedDispersion(0.6, 0.6, 200)!).toBeCloseTo(1, 6)
+    expect(impliedDispersion(legs(200, 0.6, 0.6))!).toBeCloseTo(1, 2)
+  })
+
+  it("never names a multiplier the dial cannot be set to", () => {
+    // The headline example in calibration.ts — says 70%, hits 55% — inverts to
+    // about 17x. Printing that under prose telling the user to move a slider
+    // that stops at 1.8 is advice nobody can take, so it reports the limit.
+    const extreme = impliedDispersion(legs(200, 0.7, 0.55))!
+    expect(extreme).toBe(DISPERSION_DIAL_RANGE.max)
+    const timid = impliedDispersion(legs(200, 0.55, 0.85))!
+    expect(timid).toBe(DISPERSION_DIAL_RANGE.min)
+  })
+
+  it("solves over the legs rather than inverting their average", () => {
+    // Phi^-1 of a mean is not the mean of Phi^-1, so a group holding a 55% leg
+    // and an 85% leg does not behave like two 70% legs. Same mean prediction,
+    // same hit rate, different answer — and the spread-out group is the one
+    // the averaging shortcut got wrong.
+    const tight = Array.from({ length: 200 }, (_, i) => ({ p: 0.7, win: i < 132 }))
+    const spread = Array.from({ length: 200 }, (_, i) => ({ p: i % 2 ? 0.55 : 0.85, win: i < 132 }))
+    const a = impliedDispersion(tight)!
+    const b = impliedDispersion(spread)!
+    expect(a).not.toBeCloseTo(b, 3)
   })
 
   it("refuses to answer on a thin sample", () => {
-    expect(impliedDispersion(0.65, 0.55, 24)).toBeNull()
-    expect(impliedDispersion(0.65, 0.55, 25)).not.toBeNull()
+    expect(impliedDispersion(legs(24, 0.62, 0.57))).toBeNull()
+    expect(impliedDispersion(legs(25, 0.62, 0.57))).not.toBeNull()
   })
 
-  it("refuses a bucket sitting on a coin flip, where width says nothing", () => {
-    // Every width gives 50% at the line, so the ratio would be noise/noise.
-    expect(impliedDispersion(0.5, 0.56, 500)).toBeNull()
-    expect(impliedDispersion(0.52, 0.5, 500)).toBeNull()
+  it("refuses a group sitting on a coin flip, where width says nothing", () => {
+    // Every width gives 50% at the line, so there is nothing to invert.
+    expect(impliedDispersion(legs(500, 0.5, 0.56))).toBeNull()
+    expect(impliedDispersion(legs(500, 0.52, 0.5))).toBeNull()
+    // A realised rate on the coin flip needs an infinite width to explain.
+    expect(impliedDispersion(legs(500, 0.62, 0.5))).toBeNull()
   })
 
   it("refuses when the model had the wrong side, not the wrong width", () => {
-    // Predicted 65% and the thing lost more often than not: no amount of
-    // widening explains that, and reporting a multiplier would invite the
-    // wrong fix.
-    expect(impliedDispersion(0.65, 0.4, 500)).toBeNull()
+    // Predicted 65% and it lost more often than not: no amount of widening
+    // explains that, and a multiplier would invite the wrong fix.
+    expect(impliedDispersion(legs(500, 0.65, 0.4))).toBeNull()
   })
 })
 
@@ -65,6 +97,7 @@ describe("reading the same legs by competition and by market", () => {
     const cfb = byComp.find((r) => r.key === "cfb")!
     expect(cfb.bias).toBeGreaterThan(0)
     expect(cfb.impliedDispersion!).toBeGreaterThan(1)
+    expect(cfb.dispersionPegged).toBe(true)
     // The NFL rows landed where they were predicted to, so nothing to change.
     const nfl = byComp.find((r) => r.key === "nfl")!
     expect(Math.abs(nfl.bias)).toBeLessThan(0.05)
@@ -142,6 +175,15 @@ describe("line history", () => {
     expect(moves).toHaveLength(1)
     expect(moves[0].delta).toBeCloseTo(13, 5)
     expect(moves[0].days).toBeCloseTo((96 - 2) / 24, 3)
+  })
+
+  it("will not pair the same two teams meeting again later in the season", () => {
+    // A game id is two team names with no date, so a rematch shares the key.
+    // Pairing them would report a season's drift as one game's final-day move.
+    const now = Date.parse("2026-11-04T18:00:00Z")
+    const rematch = Date.parse("2026-12-11T18:00:00Z")
+    const moves = lineMoves([pull(245.5, 96, now), pull(268.5, 96, rematch)])
+    expect(moves).toEqual([])
   })
 
   it("will not pair two looks taken minutes apart", () => {

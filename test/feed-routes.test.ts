@@ -458,6 +458,29 @@ describe("/api/today ranking a companion slate by market depth", () => {
     expect(data.depthNote).toContain("1 had no spread priced")
   })
 
+  it("keeps the league's paid pull when the companion cannot even be listed", async () => {
+    // The league is pulled first and billed as it goes, so a 429 on the
+    // companion's free listing used to return a 502 with no quotes and bin a
+    // slate that had already cost credits.
+    const now = Date.now()
+    stubSaturday(now)
+    const base = globalThis.fetch as unknown as (u: string) => Promise<Response>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/sports/americanfootball_ncaaf/events?")) return json({ message: "rate limited" }, 429)
+        return base(url)
+      }),
+    )
+    const res = await saturday(now)
+    const data = await res.json()
+    expect(res.status).toBe(200)
+    // The NFL stub lists no games here, so what matters is that the press did
+    // not throw and the failure is reported rather than swallowed.
+    expect(data.failures.some((f: { matchup: string }) => f.matchup === "College football")).toBe(true)
+    expect(data.failures[0].error).toContain("limiting")
+  })
+
   it("falls back to start order and says so when the ranking call fails", async () => {
     const now = Date.now()
     const feed = stubSaturday(now)

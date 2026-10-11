@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import type { LeagueId } from "@/lib/leagues"
 import { loadState, reduceForQuota, saveState } from "./local"
 import {
   EMPTY_STATE,
@@ -62,7 +63,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Only for a quota failure. Shedding data in response to any other error —
     // storage switched off, a value that will not serialise — would delete
     // slate after slate trying to fix a problem that was never about size.
-    const reduced = r.quota ? reduceForQuota(state, state.settings.daily.league) : null
+    // Keep the most recently fetched slate rather than whichever tab is
+    // selected: switching tabs while a pull is in flight would otherwise shed
+    // the slate the credits were just spent on.
+    const newest = (Object.keys(state.daily) as LeagueId[]).sort((a, b) =>
+      (state.daily[b]?.fetchedAt ?? "").localeCompare(state.daily[a]?.fetchedAt ?? ""),
+    )[0]
+    const reduced = r.quota ? reduceForQuota(state, newest ?? state.settings.daily.league) : null
     if (reduced) {
       setSaveDropped((d) => (d.includes(reduced.dropped) ? d : [...d, reduced.dropped]))
       setState(reduced.state)

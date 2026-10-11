@@ -387,6 +387,19 @@ export function pickemLinesFor(
 ): { lines: PickemLine[]; warning: string | null } {
   if (candidates.length === 0) return { lines: [], warning: null }
   const sameGame = candidates.filter((l) => sameGameId(l.gameId, gameId))
+  // More than one FIXTURE matching is not a match, it is a collision: two
+  // college teams can share a nickname, so "bulldogs at tigers" names several
+  // games. Taking the union would hand this row the other player's line and
+  // price it as a near-certainty, which is how an entry gets built at a number
+  // that belongs to somebody else.
+  const matchedGames = new Set(sameGame.map((l) => l.gameId))
+  if (matchedGames.size > 1) {
+    return {
+      lines: [],
+      warning:
+        "Two games on this slate could be this player's, so no pick'em line can be tied to this one. Check the app yourself before entering it.",
+    }
+  }
   if (sameGame.length > 0) return { lines: sameGame, warning: null }
   if (nameIsAmbiguous) {
     return {

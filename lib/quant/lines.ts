@@ -1,5 +1,5 @@
 import { distributionFor, MARKETS, type MarketKey } from "@/lib/nba/markets"
-import type { LineSnapshot, LineSnapshotRow } from "@/lib/store/schema"
+import { MAX_SNAPSHOT_ROWS, type LineSnapshot, type LineSnapshotRow } from "@/lib/store/schema"
 import type { LeagueId } from "@/lib/leagues"
 import { marketLineOf } from "@/lib/today/build"
 import { groupQuotes, referenceProjection, type FeedQuote, type ValueBetSettings } from "./valuebets"
@@ -24,10 +24,18 @@ import { groupQuotes, referenceProjection, type FeedQuote, type ValueBetSettings
  *   correction. Only two observations of the same line are independent of it.
  *
  *   It cannot make the second observation happen. Nothing in this app re-pulls
- *   a slate near kick-off — refreshing costs credits and the cache exists to
- *   avoid it — so pairs only appear when someone pulls on game day for games
- *   they already pulled midweek. The readout therefore counts its pairs out
- *   loud rather than quietly fitting six of them.
+ *   a slate near kick-off: refreshing costs credits and the cache exists to
+ *   avoid it. So a pair needs the same slate pulled twice, and the readout
+ *   counts its pairs out loud rather than quietly fitting six of them.
+ *
+ *   And the gap it can see is HOURS, not days. The Today screen pulls from
+ *   local midnight to 11am tomorrow, so a Sunday afternoon game cannot be
+ *   pulled on Saturday at all: the furthest apart two looks at one prop can be
+ *   is a few hours to a day, depending on kick-off. The multi-day drift the
+ *   NFL is famous for would need a wider window than Today uses, which means
+ *   more games and more credits per press — a choice for whoever is paying,
+ *   not a default to slip in. What is measured here is the last day's
+ *   movement, extrapolated per day, and it is a lower bound on the week's.
  */
 
 /** Hours from a pull to a game, or null when the start time is unknown. */
@@ -65,6 +73,7 @@ export function snapshotRows(quotes: FeedQuote[], settings: ValueBetSettings, no
       market: group.market,
       competition: group.competition,
       hoursToStart: hours,
+      startsAt: group.commenceTime,
       line: marketLineOf(lines, ref?.mean ?? lines[0]),
       mean: ref?.status === "priced" ? ref.mean : null,
       books: new Set(group.quotes.map((q) => q.book)).size,
@@ -80,7 +89,9 @@ export function snapshotFor(
   now: number,
   pulledAt: string,
 ): LineSnapshot {
-  return { pulledAt, league, rows: snapshotRows(quotes, settings, now) }
+  // Capped here as well as on load, so a single enormous slate cannot blow the
+  // storage budget before anything has a chance to prune it.
+  return { pulledAt, league, rows: snapshotRows(quotes, settings, now).slice(0, MAX_SNAPSHOT_ROWS) }
 }
 
 /** The same prop seen twice, at two distances from kick-off. */
@@ -114,9 +125,13 @@ export function lineMoves(snapshots: LineSnapshot[]): LineMove[] {
   for (const snap of snapshots) {
     for (const row of snap.rows) {
       if (row.hoursToStart == null || !Number.isFinite(row.line)) continue
-      const arr = byKey.get(row.key)
+      // The fixture's own start time joins the key, because a game id is two
+      // team names: the same two teams meeting again later in the season would
+      // otherwise pair with this one, and a season's drift would be reported
+      // as one game's pre-kickoff move.
+      const arr = byKey.get(`${row.key}|${row.startsAt ?? ""}`)
       if (arr) arr.push(row)
-      else byKey.set(row.key, [row])
+      else byKey.set(`${row.key}|${row.startsAt ?? ""}`, [row])
     }
   }
 

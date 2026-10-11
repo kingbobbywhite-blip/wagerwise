@@ -322,6 +322,15 @@ export interface LineSnapshotRow {
   competition?: LeagueId
   /** Hours from this pull to kick-off, which is the variable being fitted. */
   hoursToStart: number | null
+  /**
+   * When the game starts.
+   *
+   * The key holds the two teams and not the date, because a game id is built
+   * as "away@home". Two meetings of the same teams a month apart therefore
+   * share a key, and pairing them would report a whole season's line drift as
+   * one game's pre-kickoff move. This is what tells them apart.
+   */
+  startsAt: string | null
   /** Consensus line across the books that posted it. */
   line: number
   /** The implied mean behind that line, when the prop could be priced. */
@@ -335,8 +344,24 @@ export interface LineSnapshot {
   rows: LineSnapshotRow[]
 }
 
-/** Pulls kept. Beyond this the oldest are dropped on load, so storage cannot creep. */
-export const MAX_LINE_SNAPSHOTS = 24
+/**
+ * Pulls kept, and rows kept within them. The oldest go on load, so storage
+ * cannot creep.
+ *
+ * Sized against the quota rather than guessed. A full NFL pull is about 1,100
+ * props at roughly 190 bytes a row, so one snapshot is around 200KB and eight
+ * is 1.6MB — which browsers meter in UTF-16, so 3.2MiB of a ~5MiB budget that
+ * the slate cache is already most of the way through. Twenty-four, the first
+ * number here, was about twice the whole quota: the history would have been
+ * what triggered the shed loop it is first in line to be shed by.
+ *
+ * Eight pulls is still a month of weekends, which is what the comparison
+ * needs. The row cap is the backstop for a slate far bigger than the NFL's.
+ */
+export const MAX_LINE_SNAPSHOTS = 8
+
+/** Rows kept per snapshot, newest-priced first. A full NFL pull is about 1,100. */
+export const MAX_SNAPSHOT_ROWS = 1500
 
 export interface AppState {
   version: number
@@ -457,7 +482,7 @@ function migrateLines(raw: unknown): LineSnapshot[] {
         Array.isArray(snap.rows)
       )
     })
-    .map((snap) => ({ ...snap, rows: snap.rows.filter(isLineSnapshotRow) }))
+    .map((snap) => ({ ...snap, rows: snap.rows.filter(isLineSnapshotRow).slice(0, MAX_SNAPSHOT_ROWS) }))
     .sort((a, b) => b.pulledAt.localeCompare(a.pulledAt))
     .slice(0, MAX_LINE_SNAPSHOTS)
 }

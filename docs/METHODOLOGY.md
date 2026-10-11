@@ -156,14 +156,25 @@ kick-off". Each pull therefore keeps a compact row per prop and the tracker prin
 variance per day beside the 4% in use, scaled against the outcome's own variance so a 12-yard move
 on a 250-yard line and a half-shot move on a 3-shot line are comparable numbers. The spread is
 measured about the mean move rather than about zero, so a market that drifts one way all week is
-treated as a bias to correct rather than noise to widen for.
+treated as a bias to correct rather than noise to widen for. Pairs are joined on the prop AND the
+fixture's start time, because a game id is two team names and the same two teams meet again.
 
-**The gap between what was predicted and what happened implies a spread.** Under a normal
-approximation a prediction p sits z = Phi^-1(p) standard deviations from the line, so a realised
-rate p' implies the distribution should have been z/z' times as wide and the variance (z/z')^2.
-That is the number the outcome-spread dial multiplies, and the tracker prints it per competition
-and per market. Three limits, all stated beside it: it is a normal approximation to count
-distributions; a leg on a coefficient-of-variation floor does not scale with it; and because the
+The gap it can observe is hours rather than days: the Today screen's window runs from local
+midnight to 11am the next morning, so a Sunday game is not pullable on Saturday. The measurement is
+therefore the final day's movement extrapolated per day, which is a lower bound on a week's drift,
+and the tracker says so beside the number.
+
+**The gap between what was predicted and what happened implies a spread.** The dial multiplies
+variance, so a multiplier k scales each leg's distance from the line by 1/sqrt(k); the k that would
+have turned these predictions into this hit rate is the one solving mean_i Phi(z_i / sqrt(k)) =
+actual, found by bisection over the dial's own range. Solved over the individual legs rather than
+their average, because Phi^-1 of a mean is not the mean of Phi^-1 — a group holding a 55% leg and
+an 85% leg does not behave like two 70% legs. The tracker prints it per competition and per market.
+
+Four limits, all stated beside it: it is a normal approximation to count distributions; a group
+whose predictions or whose realised rate sit on a coin flip carries no information about width and
+reports nothing rather than a number nobody can act on; beyond the dial's range it reports the
+limit, because a multiplier of 17 is not advice when the slider stops at 1.8; and because the
 stored probability already carried every correction the app applies, it measures what is LEFT
 rather than any one correction, so it cannot be used to fit the widening above.
 

@@ -301,12 +301,17 @@ already had the widening applied, so comparing it to the result measures what is
 correction rather than the correction itself.
 
 **What can fit it is the line history.** Each pull keeps one compact row per prop — the consensus
-line, the implied mean and how many books posted it, about 175 bytes, not a copy of the quotes —
+line, the implied mean and how many books posted it, about 190 bytes, not a copy of the quotes —
 and the same prop seen twice at different distances from kick-off gives the spread of the move,
 which is exactly the uncertainty the widening prices. The tracker prints the measured variance per
-day beside the 4% in use. It needs a game-day pull for games already pulled midweek; nothing here
-can manufacture that second look, so the readout counts its pairs out loud rather than quietly
-fitting six of them.
+day beside the 4% in use, and counts its pairs out loud rather than quietly fitting six of them.
+
+**It measures hours, not days, and that is a real limit.** Today pulls from local midnight to 11am
+tomorrow, so a Sunday afternoon game cannot be pulled on Saturday at all: two looks at one prop can
+be hours to about a day apart, never the four days a midweek NFL line actually drifts over. What
+the readout shows is the last day's movement scaled to a day, which is a lower bound on the week's.
+Closing that gap means a wider pull window, which means more games and more credits per press — a
+choice for whoever is paying, not a default worth slipping in.
 
 Legs logged before a competition was recorded sit in their own row. A leg keeps no game and no
 start time, so nothing can work out afterwards whether it was a college prop or an NFL one, and
