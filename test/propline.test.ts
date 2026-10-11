@@ -103,8 +103,8 @@ const event: ProplineEventOdds = {
 describe("PropLine requests", () => {
   it("uses PropLine's own sport keys", () => {
     expect(proplineSportKey("nba")).toBe("basketball_nba")
-    expect(proplineSportKey("wnba")).toBe("basketball_wnba")
     expect(proplineSportKey("nfl")).toBe("football_nfl")
+    expect(proplineSportKey("cfb")).toBe("football_ncaaf")
     expect(proplineSportKey("nhl")).toBe("hockey_nhl")
   })
 

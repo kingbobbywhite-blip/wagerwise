@@ -110,7 +110,8 @@ describe("real OCR output", () => {
 // ---------------------------------------------------------------------------
 // Settled PrizePicks entry screens.
 //
-// Real phone screenshots of five settled entries (four NFL, one WNBA), read by
+// Real phone screenshots of five settled entries (four NFL, one WNBA, from
+// before the WNBA was dropped as a league: the reader still has to read it), read by
 // the app's own OCR in a browser, both the raw and the cleaned-up pass. Before
 // these, capture got 0 props from two of them and the wrong value from most of
 // the rest. What the reads have in common:
@@ -542,8 +543,8 @@ describe("/api/odds", () => {
 
   it("queries the requested league's feed", async () => {
     const urls = stubFeed([])
-    await post({ league: "wnba", markets: ["player_points"] })
-    expect(urls[0]).toContain("/sports/basketball_wnba/")
+    await post({ league: "cfb", markets: ["player_pass_yds"] })
+    expect(urls[0]).toContain("/sports/americanfootball_ncaaf/")
   })
 
   it("prices only games in the window, capped, instead of every game the feed lists", async () => {

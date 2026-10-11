@@ -194,6 +194,25 @@ export const DEFAULT_CORRELATION: CorrelationSettings = {
  * accounting for direction. Two positively correlated stats bet on opposite
  * sides become negatively correlated outcomes.
  */
+/**
+ * Who a player is within one pull. A name is not an identity.
+ *
+ * Across 130 college football teams, two different players sharing a
+ * normalised name in one slate is ordinary rather than freakish: there is a
+ * Jordan Johnson or a Michael Williams in several conferences at once. Every
+ * map in this app that was keyed on the name alone would fuse them and hand
+ * one player the other's line or price, which is a wrong price rather than a
+ * missing one. The game is what tells them apart, so it belongs in the key.
+ *
+ * Without a game (an imported screenshot often has no fixture on it) this is
+ * the bare name, which is all there is. Callers that cannot key on the game
+ * have to detect the ambiguity and say so instead.
+ */
+export function playerKeyIn(player: string, gameId?: string | null): string {
+  const who = normalizeName(player)
+  return gameId ? `${who}@${gameId}` : who
+}
+
 export function legCorrelation(
   a: CorrelationLeg,
   b: CorrelationLeg,
@@ -202,7 +221,12 @@ export function legCorrelation(
   if (a === b) return 1
   if (!a.market || !b.market) return 0
 
-  const samePlayer = normalizeName(a.player) === normalizeName(b.player)
+  // Same name in two different games is two different people, and treating
+  // them as one would price a parlay of two unrelated legs as if it held the
+  // same player twice.
+  const samePlayer =
+    normalizeName(a.player) === normalizeName(b.player) &&
+    (!a.gameId || !b.gameId || a.gameId === b.gameId)
   let rho: number
 
   if (samePlayer) {

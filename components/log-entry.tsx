@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { LEAGUES, LEAGUE_IDS, type LeagueId } from "@/lib/leagues"
 import { MARKETS, MARKET_KEYS, marketForSport, marketSport, type MarketKey } from "@/lib/nba/markets"
-import { extractProps, isUnmodelledStat, mergeReads, readEntryHeader } from "@/lib/ocr/extract"
+import { extractProps, isUnmodelledStat, leagueFromScreen, mergeReads, readEntryHeader } from "@/lib/ocr/extract"
 import { normalizeName } from "@/lib/quant/correlation"
 import { breakEvenLegProb, findApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_VALUE_SETTINGS } from "@/lib/quant/valuebets"
@@ -22,7 +22,7 @@ import {
   legClash,
   legsFromText,
   localDay,
-  priceLeg,
+  matchLeg,
   settlementMode,
   withResults,
   type DraftLeg,
@@ -102,11 +102,20 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
     [s.projection, s.daily.requireSharpReference, league],
   )
   const quotes = state.daily[league]?.quotes
-  const priced = legs.map((l) =>
+  // Matched rather than just priced: the competition is only knowable now,
+  // because a logged leg keeps no game to look it up by later.
+  const matched = legs.map((l) =>
     l.side && l.marketKey && Number.isFinite(l.line)
-      ? priceLeg(quotes, { player: l.player, marketKey: l.marketKey, line: l.line, side: l.side }, valueSettings)
+      ? matchLeg(quotes, { player: l.player, marketKey: l.marketKey, line: l.line, side: l.side }, valueSettings)
       : null,
   )
+  const priced = matched.map((m) => m?.pWin ?? null)
+  // Two players on the slate normalising to one name, and an entry screen
+  // gives a name and a stat with no fixture — so the price shown may be the
+  // other one's. Computed at match time and worth nothing unless it is said.
+  const ambiguousNames = matched
+    .map((m, i) => (m?.ambiguous ? legs[i].player.trim() : null))
+    .filter((n): n is string => !!n)
 
   // Entries these legs could collide with: anything still open, and anything
   // logged today, which is where a night's settled screenshots all land.
@@ -142,8 +151,14 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
     try {
       const { readImage } = await import("@/lib/ocr/engine")
       const out = await readImage(file)
-      const raw = extractProps(out.lines)
-      const cleaned = extractProps(out.cleanedLines)
+      // Read the league off the screen BEFORE extracting, because it decides
+      // which team codes count as a team rather than a person. The league
+      // already selected is the previous entry's and would be a worse guess
+      // than none: a stray college code would cost a real NFL name.
+      const screen = [...out.lines, ...out.cleanedLines].map((l) => l.text).join(" ")
+      const named = leagueFromScreen(screen)
+      const raw = extractProps(out.lines, { league: named })
+      const cleaned = extractProps(out.cleanedLines, { league: named })
       const merged = mergeReads(raw.candidates, cleaned.candidates)
       let found: Row[] = merged.map((c) => toRow(draftFromCandidate(c)))
       const seen = new Set(found.map((l) => normalizeName(l.player)))
@@ -166,10 +181,8 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       if (mode === "power" && header?.paid != null && header.paid > 0) {
         found = found.map((l) => (l.result === "VOID" ? l : { ...l, result: "WIN" }))
       }
-      // Each game on an entry screen is headed by its league: "WNBA MIN 71 vs
-      // NYL 87". Failing that, a football stat means an NFL entry.
-      const screen = [...out.lines, ...out.cleanedLines].map((l) => l.text).join(" ")
-      const named = LEAGUE_IDS.find((id) => new RegExp(`\\b${id}\\b`, "i").test(screen))
+      // Failing a league named on the screen, a football stat means an NFL
+      // entry. College is never inferred that way: its stats are the NFL's.
       const sportSeen = (sport: string) => found.some((l) => l.marketKey && marketSport(l.marketKey) === sport)
       const leagueRead = named ?? (sportSeen("football") ? "nfl" : sportSeen("hockey") ? "nhl" : null)
       if (leagueRead) setLeague(leagueRead)
@@ -218,6 +231,8 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
         result: l.result,
         actual: null,
         pickType: l.pickType,
+        league,
+        competition: matched[i]?.competition,
       })),
       stake: stakeN,
       capturedPayout,
@@ -451,6 +466,28 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       {legs.length > 0 && problems.length > 0 ? (
         <p className="flex items-start gap-1.5 text-[11px] text-accent">
           <TriangleAlert className="mt-0.5 size-3 shrink-0" /> {problems[0]}
+        </p>
+      ) : null}
+      {league === "cfb" && !quotes?.some((q) => q.competition === "cfb") ? (
+        <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" />
+          <span>
+            The last pull holds no college prices, so these legs log with no probability and nothing to calibrate
+            against. College football is pulled with the NFL only when the companion switch is on in Settings — turn
+            it on and refresh before logging, or log now and accept that the model never got a prediction on record.
+          </span>
+        </p>
+      ) : null}
+      {ambiguousNames.length > 0 ? (
+        <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-accent">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" />
+          <span>
+            Two players on the last pull share {ambiguousNames.length === 1 ? "a name with" : "names with"}{" "}
+            {ambiguousNames.join(", ")}, and an entry screen gives a name and a stat but never a fixture. The
+            probability recorded for {ambiguousNames.length === 1 ? "that leg" : "those legs"} may be the other
+            player&apos;s, so the calibration it feeds would be measuring the wrong prop. Check the game before
+            logging it.
+          </span>
         </p>
       ) : null}
       <Button size="sm" onClick={save} disabled={problems.length > 0}>

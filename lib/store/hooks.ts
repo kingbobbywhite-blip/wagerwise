@@ -26,7 +26,7 @@ export function useDerivedSlate(): DerivedSlate {
     if (!state.slate || state.slate.rows.length === 0) {
       return { props: [], rows: [], candidates: [], unpriceable: 0 }
     }
-    // Price in the slate's own league. A WNBA slate priced with NBA priors gets
+    // Price in the slate's own league. A college slate priced with NFL priors gets
     // the wrong spread and the wrong plausibility ceilings.
     const projection = { ...state.settings.projection, league: state.slate.league ?? state.settings.projection.league }
     const props = projectSlate(state.slate.rows, projection)

@@ -1,4 +1,5 @@
 import { MARKETS, type MarketKey } from "@/lib/nba/markets"
+import type { LeagueId } from "@/lib/leagues"
 import { resolveLine } from "./distributions"
 import { bookProfile, isSharp } from "./books"
 import { americanToDecimal, probToAmerican } from "./odds"
@@ -10,6 +11,7 @@ import {
   type ProjectionSettings,
 } from "./projection"
 import { clamp } from "./math"
+import { normalizeName, playerKeyIn } from "./correlation"
 
 /**
  * Finding bets that are priced wrong.
@@ -40,6 +42,13 @@ export interface FeedQuote extends BookQuote {
   homeTeam?: string
   awayTeam?: string
   commenceTime?: string
+  /**
+   * Which competition the prop belongs to, when a league's section covers more
+   * than one. College football is pulled inside the NFL section and arrives
+   * as "cfb", and it is priced with CFB priors and CFB plausibility ceilings
+   * rather than the section's. Absent means the section's own league.
+   */
+  competition?: LeagueId
 }
 
 export type ValueSide = "OVER" | "UNDER"
@@ -50,6 +59,8 @@ export interface ValueBet {
   market: MarketKey
   marketLabel: string
   gameId: string
+  /** Set when the pull covered more than one competition: "cfb" inside the NFL section. */
+  competition?: LeagueId
   commenceTime: string | null
 
   book: string
@@ -116,14 +127,24 @@ export interface PropGroup {
   market: MarketKey
   gameId: string
   commenceTime: string | null
+  /** The competition these quotes came from, when the pull covered more than one. */
+  competition?: LeagueId
   quotes: FeedQuote[]
 }
 
-/** Group feed quotes by player and market. */
+/**
+ * Group feed quotes by player, market and game.
+ *
+ * The game is in the key because a name is not an identity: see playerKeyIn.
+ * It was left out on the reasoning that a player has one game a day, which is
+ * true of a person and false of a name once the slate holds 130 college teams.
+ * Without it, two players sharing a normalised name had their books pooled
+ * into one consensus, and whichever line came back was wrong for both.
+ */
 export function groupQuotes(quotes: FeedQuote[]): PropGroup[] {
   const map = new Map<string, PropGroup>()
   for (const q of quotes) {
-    const key = `${q.player.toLowerCase()}|${q.market}`
+    const key = `${playerKeyIn(q.player, q.gameId)}|${q.market}`
     const g = map.get(key)
     if (g) g.quotes.push(q)
     else
@@ -133,6 +154,7 @@ export function groupQuotes(quotes: FeedQuote[]): PropGroup[] {
         market: q.market,
         gameId: q.gameId,
         commenceTime: q.commenceTime ?? null,
+        competition: q.competition,
         quotes: [q],
       })
   }
@@ -140,9 +162,64 @@ export function groupQuotes(quotes: FeedQuote[]): PropGroup[] {
 }
 
 /**
+ * Normalised player names that appear in more than one game in this pull.
+ *
+ * These are the names where any match made on the name alone — a pick'em line
+ * from the other feed, a row on an imported board — can land on the wrong
+ * person. Nothing is dropped for being ambiguous; it is reported, because a
+ * silently wrong price is the one failure this app exists to prevent.
+ */
+export function ambiguousPlayers(quotes: FeedQuote[]): Set<string> {
+  const games = new Map<string, Set<string>>()
+  for (const q of quotes) {
+    const who = normalizeName(q.player)
+    const set = games.get(who) ?? new Set<string>()
+    set.add(q.gameId)
+    games.set(who, set)
+  }
+  const out = new Set<string>()
+  for (const [who, set] of games) if (set.size > 1) out.add(who)
+  return out
+}
+
+/**
  * Build a reference projection from a set of quotes.
  * Returns null when the set cannot support one.
  */
+/**
+ * How much wider a projection should be for a line priced days before kickoff.
+ *
+ * Returns a multiplier on variance. This is the NFL's and college football's
+ * particular trap: props post on Tuesday for a Sunday game, and between those
+ * two days a starter is ruled out, a backfield split changes, or a weather
+ * forecast turns over. The price you pulled was correct for what was known
+ * then, and the uncertainty about what will be known by kickoff is real
+ * uncertainty that belongs in the distribution rather than in a footnote.
+ *
+ * Four percent of variance per day, capped at twelve percent, which is three
+ * days out. On an NBA or NHL slate pulled the same evening it is under four
+ * percent and changes nothing; on a passing line pulled midweek it widens the
+ * spread about six percent and pulls every probability back toward a coin flip.
+ * Deliberately modest: it is a known unknown, not a reason to stop pricing.
+ */
+/**
+ * UNFITTED. Reasoned from how far a football line moves in a week, not
+ * measured against anything. lib/quant/lines can measure it from two looks at
+ * the same prop; until that has pairs, this is a prior.
+ */
+export const KICKOFF_VARIANCE_PER_DAY = 0.04
+
+/** UNFITTED. The cap, at three days out. */
+export const KICKOFF_VARIANCE_CAP = 0.12
+
+export function kickoffVarianceFactor(commenceTime: string | null | undefined, now: number): number {
+  const t = commenceTime ? Date.parse(commenceTime) : NaN
+  if (!Number.isFinite(t)) return 1
+  const days = (t - now) / 86_400_000
+  if (!(days > 0)) return 1
+  return 1 + Math.min(KICKOFF_VARIANCE_CAP, KICKOFF_VARIANCE_PER_DAY * days)
+}
+
 export function referenceProjection(
   group: PropGroup,
   quotes: FeedQuote[],
@@ -156,6 +233,19 @@ export function referenceProjection(
   // the projection is inverted back into a mean either way.
   const lines = quotes.map((q) => q.line).sort((a, b) => a - b)
   const median = lines[Math.floor(lines.length / 2)]
+
+  // Price each competition with its own priors and ceilings. A college game
+  // pulled inside the NFL section is a college game: wider, and with room for
+  // a 500-yard passer in the plausibility check.
+  const projection: ProjectionSettings = {
+    ...settings.projection,
+    league: group.competition ?? settings.projection.league,
+    dispersion: {
+      ...settings.projection.dispersion,
+      global:
+        (settings.projection.dispersion.global ?? 1) * kickoffVarianceFactor(group.commenceTime, now),
+    },
+  }
 
   return projectProp(
     {
@@ -171,7 +261,7 @@ export function referenceProjection(
         fetchedAt: q.fetchedAt ?? null,
       })),
     },
-    settings.projection,
+    projection,
     `|ref`,
     now,
   )
@@ -195,6 +285,7 @@ export function findValueBets(
   now: number = Date.now(),
 ): ValueBet[] {
   const out: ValueBet[] = []
+  const ambiguous = ambiguousPlayers(quotes)
 
   for (const group of groupQuotes(quotes)) {
     // A single price has nothing to be measured against.
@@ -231,6 +322,11 @@ export function findValueBets(
         if (ref.isStale) {
           warnings.unshift("Reference prices are stale. Re-pull before acting on this.")
         }
+        if (ambiguous.has(normalizeName(group.player))) {
+          warnings.unshift(
+            `Another player on this slate has the same name. This price is from ${group.gameId.replace("@", " at ")} only, but check the app is showing you the right player before betting it.`,
+          )
+        }
 
         out.push({
           id: `${group.key}|${offer.book}|${s.side}|${offer.line}`,
@@ -238,6 +334,7 @@ export function findValueBets(
           market: group.market,
           marketLabel: MARKETS[group.market].label,
           gameId: group.gameId,
+          competition: group.competition,
           commenceTime: group.commenceTime,
           book: offer.book,
           bookName: bookProfile(offer.book).name,
@@ -286,7 +383,9 @@ export function bestPerSelection(bets: ValueBet[]): ValueBet[] {
   const best = new Map<string, ValueBet>()
   const bestOther = new Map<string, ValueBet>()
   for (const b of bets) {
-    const key = `${b.player.toLowerCase()}|${b.market}`
+    // Keyed by game as well, so two same-named players in different games are
+    // two decisions rather than one that silently discards the other.
+    const key = `${playerKeyIn(b.player, b.gameId)}|${b.market}`
     const existing = best.get(key)
     if (!existing || b.edge > existing.edge) {
       if (existing && existing.side !== b.side) bestOther.set(key, existing)

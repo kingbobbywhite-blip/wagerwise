@@ -53,6 +53,7 @@ export default function ImportPage() {
   const [oddsReport, setOddsReport] = React.useState<{
     matched: number
     unmatched: { player: string; market: string }[]
+    ambiguous?: { player: string; market: string; games: string[] }[]
     remaining: number | null
     error?: string
   } | null>(null)
@@ -110,8 +111,11 @@ export default function ImportPage() {
       for (let i = 0; i < files.length; i++) {
         setOcrStatus(`Reading image ${i + 1} of ${files.length}…`)
         const out = await readImage(files[i], (p) => setOcrStatus(`${p.status} ${Math.round(p.progress * 100)}%`))
-        const r = extractProps(out.lines)
-        const r2 = extractProps(out.cleanedLines)
+        // The league is the one picked above the table, and the page already
+        // says it has to match the players you capture. It decides which team
+        // codes are a team rather than a person.
+        const r = extractProps(out.lines, { league })
+        const r2 = extractProps(out.cleanedLines, { league })
         for (const c of mergeReads(r.candidates, r2.candidates)) found.push(draftFromCandidate(c, app))
         // Show whichever read got further, so "what was read" is the useful one.
         const best = r2.candidates.length > r.candidates.length ? { res: r2, lines: out.cleanedLines } : { res: r, lines: out.lines }
@@ -165,7 +169,7 @@ export default function ImportPage() {
     }
 
     const lines = linesFromText(text)
-    const { candidates, leftover } = extractProps(lines)
+    const { candidates, leftover } = extractProps(lines, { league })
     const dupes = addDrafts(candidates.map((c) => ({ ...draftFromCandidate(c, app), origin: "paste" as const })))
     setLastRead({ source: "paste", found: candidates.length, lines: lines.map((l) => l.text), leftover: leftover.map((l) => l.text) })
     if (candidates.length > 0) {
@@ -221,6 +225,7 @@ export default function ImportPage() {
       setOddsReport({
         matched: attached.matched,
         unmatched: attached.unmatched,
+        ambiguous: attached.ambiguous,
         remaining: data.requestsRemaining ?? null,
       })
       if (attached.matched > 0) {
@@ -492,6 +497,18 @@ export default function ImportPage() {
               <p className="rounded-lg border border-border/60 bg-card/40 p-3 text-xs leading-relaxed text-muted-foreground">
                 Priced {oddsReport.matched} of {drafts.length}.
                 {oddsReport.remaining != null ? ` ${oddsReport.remaining} feed requests left this period.` : ""}
+                {oddsReport.ambiguous && oddsReport.ambiguous.length > 0 ? (
+                  <span className="mt-1 block text-accent">
+                    Two players of the same name:{" "}
+                    {oddsReport.ambiguous
+                      .slice(0, 6)
+                      .map((a) => `${a.player} ${a.market} (${a.games.map((g) => g.replace("@", " at ")).join(", ")})`)
+                      .join("; ")}
+                    {oddsReport.ambiguous.length > 6 ? ` and ${oddsReport.ambiguous.length - 6} more` : ""}. The board
+                    row says who, not which game, so the prices attached may be the other player&apos;s. Check these
+                    before pricing them.
+                  </span>
+                ) : null}
                 {oddsReport.unmatched.length > 0 ? (
                   <>
                     {" "}

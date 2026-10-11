@@ -1,4 +1,5 @@
 import { MARKETS, normalizeMarket, type MarketKey } from "@/lib/nba/markets"
+import type { LeagueId } from "@/lib/leagues"
 import type { Boost } from "./boost"
 
 /**
@@ -104,20 +105,126 @@ const STAT_WORDS = [
 const NOT_NAMES = new Set([
   "higher", "lower", "more", "less", "over", "under", "final", "live", "today", "tonight",
   "power", "flex", "play", "entry", "lineup", "picks", "pick", "board", "all", "sports",
-  "nba", "wnba", "nfl", "mlb", "nhl", "ncaa", "quick", "demon", "goblin", "boost", "boosted",
+  "nba", "wnba", "nfl", "cfb", "mlb", "nhl", "ncaa", "ncaaf", "quick", "demon", "goblin", "boost", "boosted",
   "my", "promo", "special", "combo", "vs", "at", "home", "away", "projection", "proj",
 ])
 
-const TEAM_CODES = new Set([
+/**
+ * Team codes every read consults: the NBA, the WNBA and the NFL.
+ *
+ * Nothing is ever removed from this set. What it actually buys is narrow and
+ * real: a bare matchup row with no clock, no "vs" and no position — "Dal Den"
+ * above a line and a stat — is the one input that reads as a player without
+ * it. Emptying the set does not fail a single fixture, so the protection lives
+ * off-fixture and has to be kept deliberately.
+ */
+const BASE_TEAM_CODES = new Set([
   // NBA
   "atl","bos","bkn","bkl","cha","chi","cle","dal","den","det","gsw","hou","ind","lac","lal",
   "mem","mia","mil","min","nop","nyk","okc","orl","phi","phx","por","sac","sas","tor","uta","was",
-  // WNBA codes that are not already NBA codes
+  // WNBA codes that are not already NBA codes. The WNBA is no longer one of the
+  // leagues Today prices, but these stay: a logged WNBA entry still has to read
+  // back off a screenshot, and settled history is the only thing that can tell
+  // you the model was wrong.
   "lva","lv","nyl","ny","sea","con","conn","las","la","gsv",
   // NFL codes that are not already NBA or WNBA codes
   "ari","bal","buf","car","cin","gb","jax","jac","kc","lar","lv","lvr","ne","no","nyg","nyj","pit",
   "sf","tb","ten","wsh","wash",
 ])
+
+/**
+ * College football codes, consulted ONLY on a read the screen says is college.
+ *
+ * They cannot go in the set above, and this is measured rather than argued.
+ * The check below rejects a whole line as a name when ANY of its words is a
+ * code, so merging these globally silently destroys real NFL players: Rashee
+ * Rice, Sam LaPorta, LaMelo Ball, Troy Franklin, Van Jefferson, Duke Johnson.
+ * Not flagged for review — gone, with the prop and the name both dropped. A
+ * college slate is the only place these are worth the risk, so a college
+ * slate is the only place they are consulted.
+ *
+ * Codes that are also a word inside a real full name are left out for the same
+ * reason, even on a college read: rice, ball, troy, sam, van, duke, kent,
+ * temple, del, cal, stan and marsh all belong to somebody. A team code read as
+ * a name lands in the review table, where you fix it in a second; a name read
+ * as a team code is a prop that never appears. The first mistake is cheap and
+ * the second is not, so the list errs toward letting a code through.
+ */
+const CFB_TEAM_CODES = new Set([
+  // SEC
+  "ala","bama","ark","aub","fla","fsu","ga","uga","ky","lsu","miss","ole","msst","miz","mizz","sc",
+  "tenn","tex","tamu","vandy","okla","ou","okst",
+  // Big Ten
+  "ill","mich","msu","minn","neb","nw","psu","pur","umd","wis","iowa","rut","ucla","usc","ore",
+  "wash","uw",
+  // Big 12
+  "byu","tcu","smu","ttu","baylor","kan","ku","ksu","isu","cin","hou","ucf","wvu","asu","ariz",
+  "colo","utah","orst","wsu","utsa",
+  // ACC
+  "unc","ncst","wake","pitt","bc","syr","cuse","lou","uva","vt","clem","gt","nd","miami","cuse",
+  // Group of five and independents
+  "army","navy","af","tulsa","tulane","memp","usf","fau","fiu","uab","unt","mtsu","usm","ulm","ull",
+  "arst","txst","app","ccu","gaso","jmu","odu","lib","akr","bg","bgsu","cmu","emu","wmu","niu",
+  "tol","ohio","buff","nev","unlv","sdsu","sjsu","fres","haw","wyo","usu","nmsu","unm","utst",
+  "utep","jvst","kenn","wku","boise","bois",
+])
+
+/**
+ * Which league a screenshot is of, from its own text.
+ *
+ * Every game on an entry screen is headed by its league: "NHL MIN 2 vs NYL 87",
+ * "CFB OSU 24 vs PSU 17". Three things this has to get right:
+ *
+ *   The apps do not all write it the same way. PrizePicks says CFB; others
+ *   say NCAAF, and the odds feeds say NCAAF too, so both have to resolve to
+ *   the same league.
+ *
+ *   A first match in key order is not a reading. A college slip whose chrome
+ *   says "NFL" anywhere once read as NFL, which then pointed the extractor at
+ *   the wrong team codes. Counting which league the screen actually names more
+ *   often is the honest answer, and a tie is no answer at all.
+ *
+ *   "WNBA" is not "NBA". There is no word boundary between the W and the N, so
+ *   a WNBA screen names no league we price, which is correct: the WNBA is gone
+ *   from Today and its entries still have to read back.
+ */
+const LEAGUE_WORDS: { league: LeagueId; pattern: RegExp }[] = [
+  { league: "nba", pattern: /\bnba\b/gi },
+  { league: "nfl", pattern: /\bnfl\b/gi },
+  { league: "cfb", pattern: /\b(?:cfb|ncaaf|ncaa\s*fb|cfp)\b/gi },
+  { league: "nhl", pattern: /\bnhl\b/gi },
+]
+
+export function leagueFromScreen(text: string): LeagueId | null {
+  let best: LeagueId | null = null
+  let bestCount = 0
+  let tied = false
+  for (const { league, pattern } of LEAGUE_WORDS) {
+    const count = (text.match(pattern) ?? []).length
+    if (count === 0) continue
+    if (count > bestCount) {
+      best = league
+      bestCount = count
+      tied = false
+    } else if (count === bestCount) {
+      tied = true
+    }
+  }
+  // A screen naming two leagues equally often is a mixed slip, and guessing
+  // between them would point the extractor at the wrong team codes. No hint
+  // leaves it reading exactly as it did before college football existed.
+  return tied ? null : best
+}
+
+/**
+ * The codes to consult for a read, given what the screen said the league was.
+ *
+ * No hint means exactly today's set: the extractor has no idea what sport it
+ * is looking at unless the caller says, and guessing wrong here costs a prop.
+ */
+export function teamCodesFor(league?: LeagueId | null): ReadonlySet<string> {
+  return league === "cfb" ? new Set([...BASE_TEAM_CODES, ...CFB_TEAM_CODES]) : BASE_TEAM_CODES
+}
 
 // Single positions plus the combined tags boards print, such as "G/F" or "F-C",
 // which reach here with the separator stripped.
@@ -415,7 +522,7 @@ function trimNoise(text: string): string {
  * line someone typed, where "lebron james" is obviously a name and one word
  * ("Jokic") is common enough to accept, flagged for review.
  */
-function looksLikeName(text: string, opts: { lenient?: boolean } = {}): boolean {
+function looksLikeName(text: string, opts: { lenient?: boolean; codes?: ReadonlySet<string> } = {}): boolean {
   const t = trimNoise(text)
   if (t.length < (opts.lenient ? 3 : 4) || t.length > 40) return false
   if (/\d/.test(t)) return false
@@ -430,7 +537,7 @@ function looksLikeName(text: string, opts: { lenient?: boolean } = {}): boolean 
     // Two capitals opening a name of three or more words are initials, even
     // when they spell a team: "KC Concepcion Jr.", not the Chiefs.
     const initials = idx === 0 && words.length >= 3 && /^[A-Z]{2}$/.test(bare)
-    if (TEAM_CODES.has(lower) && !initials) return false
+    if ((opts.codes ?? BASE_TEAM_CODES).has(lower) && !initials) return false
     if (POSITIONS.has(lower)) return false
     if (SIDE_WORDS.has(lower)) return false
     // Names are capitalised on these boards; typed input may not be.
@@ -439,8 +546,8 @@ function looksLikeName(text: string, opts: { lenient?: boolean } = {}): boolean 
   return true
 }
 
-function isNameLine(text: string): boolean {
-  return looksLikeName(text)
+function isNameLine(text: string, codes?: ReadonlySet<string>): boolean {
+  return looksLikeName(text, { codes })
 }
 
 /**
@@ -478,13 +585,13 @@ function stripSides(tokens: string[]): string[] {
  * Edwards" still yields the player. A matchup such as "IND vs CON 7:00PM"
  * yields nothing, which is right: its name is on the row above.
  */
-function nameFromPrefix(prefix: string): string | null {
+function nameFromPrefix(prefix: string, codes?: ReadonlySet<string>): string | null {
   if (!prefix) return null
-  if (looksLikeName(prefix, { lenient: true })) return prefix
+  if (looksLikeName(prefix, { lenient: true, codes })) return prefix
   const words = prefix.split(/\s+/).filter(Boolean)
   for (let k = Math.min(4, words.length - 1); k >= 2; k--) {
     const tail = words.slice(words.length - k).join(" ")
-    if (looksLikeName(tail, { lenient: true })) return tail
+    if (looksLikeName(tail, { lenient: true, codes })) return tail
   }
   return null
 }
@@ -532,13 +639,14 @@ function trimTrailingJunk(tokens: string[]): string[] {
  */
 function findNameValue(
   text: string,
+  codes?: ReadonlySet<string>,
 ): { name: string; value: number; alt?: number; altSide?: Side; repaired: boolean; raw: string; side: Side | null } | null {
   // The arrow read as its own token ("Cade Otton J 65.5") or as letters stuck
   // to the value ("Jordan Addison U55"). Checked first: a plain "25" after an
   // arrow is 2.5 with its decimal swallowed, not twenty-five.
   const tv = trailingValue(text.trim().split(/\s+/).filter(Boolean))
   if (tv && tv.before.length > 0) {
-    const name = nameFromPrefix(trimNoise(trimTrailingJunk(tv.before).join(" ")))
+    const name = nameFromPrefix(trimNoise(trimTrailingJunk(tv.before).join(" ")), codes)
     if (name) return { name: tidyName(name), value: tv.value, alt: tv.alt, altSide: tv.altSide, repaired: tv.repaired, raw: tv.raw, side: tv.side }
   }
   // The arrow read as a 7 stuck to the value: "Jonquel Jones 715".
@@ -548,7 +656,7 @@ function findNameValue(
   const v = loosePrefixedValue(raw)
   if (!v) return null
   const prefix = trimTrailingJunk(tokens.slice(0, -1)).join(" ")
-  const name = nameFromPrefix(trimNoise(prefix))
+  const name = nameFromPrefix(trimNoise(prefix), codes)
   if (!name) return null
   return { name: tidyName(name), value: v.value, repaired: v.repaired, raw, side: glyphSide(raw.replace(/[\d.,]/g, "")) }
 }
@@ -558,13 +666,13 @@ function findNameValue(
  * "8 \u2018\\ Jack Bech". Leading tokens with digits, no letters, or a single
  * character are dropped, and what is left must still read as a name.
  */
-function nameAfterJunk(text: string): string | null {
+function nameAfterJunk(text: string, codes?: ReadonlySet<string>): string | null {
   const words = text.trim().split(/\s+/).filter(Boolean)
   let i = 0
   while (i < words.length && (/\d/.test(words[i]) || !/[A-Za-z]{2,}/.test(words[i]))) i++
   if (i === 0 || i >= words.length) return null
   const rest = words.slice(i).join(" ")
-  return looksLikeName(rest) ? trimNoise(rest) : null
+  return looksLikeName(rest, { codes }) ? trimNoise(rest) : null
 }
 
 /** A stat at the end of a row after other text: "NYL-C- #35 Assists". */
@@ -649,7 +757,7 @@ interface Classified {
   side?: Side | null
 }
 
-function classify(lines: OcrLine[]): Classified[] {
+function classify(lines: OcrLine[], codes?: ReadonlySet<string>): Classified[] {
   return lines.map((l, index) => {
     const text = trimNoise(l.text)
     const confidence = (l.confidence ?? 80) / 100
@@ -658,7 +766,7 @@ function classify(lines: OcrLine[]): Classified[] {
     const inline = findInline(text)
     if (inline) {
       const number = { value: inline.value, repaired: false }
-      const player = nameFromPrefix(inline.prefix)
+      const player = nameFromPrefix(inline.prefix, codes)
       if (player) {
         return {
           index, text, confidence, bbox, kind: "prop" as const,
@@ -687,15 +795,15 @@ function classify(lines: OcrLine[]): Classified[] {
     }
     const num = parseLineValue(text)
     if (num) return { index, text, confidence, bbox, kind: "number" as const, number: num }
-    const nv = findNameValue(text)
+    const nv = findNameValue(text, codes)
     if (nv) {
       return {
         index, text, confidence, bbox, kind: "namevalue" as const,
         name: nv.name, number: { value: nv.value, repaired: nv.repaired, alt: nv.alt, altSide: nv.altSide }, rawValue: nv.raw, side: nv.side,
       }
     }
-    if (isNameLine(text)) return { index, text, confidence, bbox, kind: "name" as const, name: tidyName(text) }
-    const junkName = nameAfterJunk(text)
+    if (isNameLine(text, codes)) return { index, text, confidence, bbox, kind: "name" as const, name: tidyName(text) }
+    const junkName = nameAfterJunk(text, codes)
     if (junkName) return { index, text, confidence, bbox, kind: "name" as const, name: tidyName(junkName) }
     const suffix = statSuffix(text)
     if (suffix) return { index, text, confidence, bbox, kind: "stat" as const, stat: suffix.stat, statText: suffix.statText }
@@ -773,8 +881,10 @@ function medianLineHeight(items: Classified[]): number {
  * this searches a small window around each stat, which handles both and degrades
  * predictably when the OCR drops a line.
  */
-export function extractProps(lines: OcrLine[]): ExtractResult {
-  const items = classify(lines)
+export function extractProps(lines: OcrLine[], hint?: { league?: LeagueId | null }): ExtractResult {
+  // Resolved once per read. Without a hint this is the same set the extractor
+  // has always used, so every existing caller behaves exactly as before.
+  const items = classify(lines, teamCodesFor(hint?.league))
   const candidates: PropCandidate[] = []
   const used = new Set<number>()
 

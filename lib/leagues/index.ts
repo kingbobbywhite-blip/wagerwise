@@ -10,14 +10,9 @@ import type { MarketKey, Sport } from "@/lib/nba/markets"
  * What genuinely differs is the SHAPE of the distribution, and it differs for
  * reasons worth stating rather than fudging:
  *
- *   Game length (basketball). The NBA plays 48 minutes; the WNBA plays 40.
- *   Fewer minutes and slower pace mean fewer possessions, so every counting
- *   stat is smaller. That is the meanScale below, and it is used only for the
- *   sanity-check priors: a real market price always overrides it.
- *
- *   Volatility. Holding the dispersion ratio fixed while the mean falls already
- *   widens the relative spread, because variance/mean = r implies
- *   sd/mean = sqrt(r/mean). That handles most of the WNBA difference.
+ *   Volatility. The same projected mean deserves a wider distribution, and
+ *   therefore a probability closer to 50%, in a league where usage is less
+ *   predictable. That is dispersionScale.
  *
  *   A different sport (NFL). Football markets are their own stats with their
  *   own spreads (see lib/nba/markets), so the NFL needs no scaling of the
@@ -27,13 +22,20 @@ import type { MarketKey, Sport } from "@/lib/nba/markets"
  *   Its markets are its own, like the NFL's, and so are its feed keys, even
  *   where they share a name with basketball ("player_points").
  *
- *   Market depth. The NBA has props on every book at every game. The WNBA has
- *   props on most books for most games. The NFL is the deepest prop market
- *   there is, but posts a week ahead and moves hard on injury news.
- *   Asking for markets a league does not post burns feed credits for nothing.
+ *   Market depth. The NBA has props on every book at every game. The NFL is the
+ *   deepest prop market there is, but posts a week ahead and moves hard on
+ *   injury news. College football is priced for the games on television and
+ *   barely at all for the rest. Asking for markets a league does not post is at
+ *   best a wasted request and may be a wasted credit.
+ *
+ * COMPANIONS. A league can carry other competitions that are pulled in the
+ * same press and priced in the same tables, because they are the same sport
+ * played the same week: college football sits inside the NFL section. A
+ * companion keeps its own priors, caps and game cap, so a CFB prop is never
+ * priced with NFL numbers. See `competitionsFor`.
  */
 
-export type LeagueId = "nba" | "wnba" | "nfl" | "nhl"
+export type LeagueId = "nba" | "nfl" | "cfb" | "nhl"
 
 export interface LeagueConfig {
   id: LeagueId
@@ -50,11 +52,7 @@ export interface LeagueConfig {
    * Multiplier on each market's league-wide typical mean.
    *
    * Used only where no market price exists, as a prior and for plausibility
-   * warnings. Derived from per-possession scoring times possessions per game:
-   * the NBA runs about 100 possessions at 48 minutes and the WNBA about 82 at
-   * 40. Per-player rather than per-team, because
-   * a WNBA starter plays a larger share of a shorter game than an NBA starter
-   * plays of a longer one, which claws back part of the gap.
+   * warnings.
    */
   meanScale: number
   /** Multiplier on each market's variance/mean ratio. See the note above. */
@@ -73,9 +71,29 @@ export interface LeagueConfig {
   caps: Partial<Record<MarketKey, number>>
   /** Shown in the UI so the league's specific caveat is never hidden. */
   note: string
+  /**
+   * Other competitions pulled and priced alongside this one, in the same
+   * press. Never a tab of its own: a companion appears inside this league's
+   * section. Each is priced with its own config.
+   */
+  companions?: LeagueId[]
+  /** True when this league is only ever shown inside another league's section. */
+  companionOnly?: boolean
+  /**
+   * Choose which games to price by how deep their market is, rather than by
+   * who starts first.
+   *
+   * Worth one extra credit only where the slate is far bigger than the cap and
+   * the games differ wildly in whether anyone prices them: a college Saturday
+   * lists fifty games and a handful carry real props. On a 13-game NFL Sunday
+   * the cap takes nearly everything anyway, so there is nothing to rank.
+   */
+  depthRanked?: boolean
 }
 
 const NBA_BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel", "betmgm", "caesars", "espnbet"]
+
+const FOOTBALL_MARKETS = ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"]
 
 export const LEAGUES: Record<LeagueId, LeagueConfig> = {
   nba: {
@@ -95,27 +113,6 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     caps: { PTS: 60, REB: 30, AST: 25, "3PM": 14, STL: 8, BLK: 10 },
     note: "Deepest basketball prop market. Every game is priced by every book, so the consensus is meaningful and stale lines are rare.",
   },
-  wnba: {
-    id: "wnba",
-    label: "WNBA",
-    short: "WNBA",
-    sportKey: "basketball_wnba",
-    sport: "basketball",
-    gameMinutes: 40,
-    // 82 possessions over 40 minutes against 100 over 48, offset by starters
-    // taking a larger share of the shorter game.
-    meanScale: 0.78,
-    // Slightly noisier than the NBA at equal minutes: shorter rotations mean a
-    // single foul-trouble night moves a line further.
-    dispersionScale: 1.05,
-    markets: ["player_points", "player_rebounds", "player_assists", "player_threes"],
-    books: ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel", "betmgm", "caesars"],
-    maxGames: 8,
-    typicalSlate: 5,
-    season: [5, 6, 7, 8, 9, 10],
-    caps: { PTS: 45, REB: 22, AST: 18, "3PM": 11, STL: 7, BLK: 8 },
-    note: "Thinner market than the NBA, which cuts both ways: fewer books means a weaker consensus, but also more genuinely stale numbers. Small rosters make minutes projections unusually sensitive to one absence.",
-  },
   nfl: {
     id: "nfl",
     label: "NFL",
@@ -127,10 +124,11 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     // basketball is scaled across.
     meanScale: 1,
     dispersionScale: 1,
-    // The four markets with the deepest pricing and the most pick'em interest.
-    // Touchdowns, completions, attempts, carries and interceptions are mapped
-    // too; add their feed keys under Settings to pull them.
-    markets: ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"],
+    // The four markets with the deepest pricing and the most pick'em interest,
+    // and the four every pick'em app and FanDuel post. Touchdowns, completions,
+    // attempts, carries and interceptions are mapped too; add their feed keys
+    // under Settings to pull them.
+    markets: FOOTBALL_MARKETS,
     books: NBA_BOOKS,
     // A full Sunday is 13 or 14 games. Four markets across all of them is about
     // 56 credits, the same as a full NBA night.
@@ -141,7 +139,53 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
       PASS_YDS: 550, PASS_TDS: 7, PASS_COMP: 45, PASS_ATT: 65, PASS_INT: 5,
       RUSH_YDS: 300, RUSH_ATT: 40, REC: 18, REC_YDS: 300, RUSH_REC_YDS: 350,
     },
-    note: "Games are mostly Sunday, plus Thursday and Monday nights, so most days have nothing to pull. Props post days ahead and move hard on injury news: refresh on game day. The feed does not say which team a player is on, so a quarterback and his own receiver are only linked as same-game, not as a stack.",
+    // College football rides along: same sport, same markets, same Saturday-to-
+    // Monday week, and the pick'em apps post both on one board.
+    companions: ["cfb"],
+    note: "Games are mostly Sunday, plus Thursday and Monday nights, so most days have nothing to pull. College football is pulled with it and priced with its own numbers. Props post days ahead and move hard on injury news: a line pulled days out is widened for that, but refresh on game day. The feed does not say which team a player is on, so a quarterback and his own receiver are only linked as same-game, not as a stack.",
+  },
+  cfb: {
+    id: "cfb",
+    label: "College football",
+    short: "CFB",
+    sportKey: "americanfootball_ncaaf",
+    sport: "football",
+    gameMinutes: 60,
+    meanScale: 1,
+    // Wider than the NFL at the same projected mean, and this is the single
+    // most important thing to get right about college football. The talent gap
+    // between the two rosters is often enormous, starters sit out the fourth
+    // quarter of a blowout, and the backfield split is far less knowable than
+    // in the NFL. All three widen the outcome and pull every probability back
+    // toward a coin flip, which is the honest answer here.
+    //
+    // UNFITTED: 1.2 is reasoned from those three facts, not measured against
+    // realised results. The tracker's per-competition calibration is where it
+    // gets checked once there are enough settled college legs to check it
+    // with; until then it is a prior and is labelled as one on screen.
+    dispersionScale: 1.2,
+    // The NFL's four. Receptions and receiving yards are thin away from the
+    // televised games, but the games this section actually prices are the
+    // televised ones — that is what the depth ranking selects for — so asking
+    // for all four is asking where the answers are.
+    markets: FOOTBALL_MARKETS,
+    books: NBA_BOOKS,
+    // A Saturday has 50 or more games and only the televised ones carry real
+    // prop pricing, so the cap stays small: six games at four markets is 24
+    // credits on top of the NFL pull, which takes a full Sunday press to 80 —
+    // past the point where the button asks before spending.
+    maxGames: 6,
+    typicalSlate: 45,
+    season: [8, 9, 10, 11, 12, 1],
+    // A 500-yard passing game and a 300-yard rushing game both happen in
+    // college football, so NFL ceilings would flag real outcomes as implausible.
+    caps: {
+      PASS_YDS: 650, PASS_TDS: 9, PASS_COMP: 55, PASS_ATT: 75, PASS_INT: 6,
+      RUSH_YDS: 400, RUSH_ATT: 45, REC: 20, REC_YDS: 350, RUSH_REC_YDS: 450,
+    },
+    companionOnly: true,
+    depthRanked: true,
+    note: "Priced inside the NFL section with its own, wider numbers. Only the games on television carry real prop pricing, so most of a Saturday slate comes back unpriced and is correctly left out. Blowouts are routine and starters sit: treat a projection here as less certain than the same number in the NFL.",
   },
   nhl: {
     id: "nhl",
@@ -153,22 +197,32 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     // Hockey markets carry their own means and spreads; nothing is scaled across.
     meanScale: 1,
     dispersionScale: 1,
-    // Shots on goal and saves first: the deepest-priced NHL props and the ones
-    // where a half-point line leaves one side furthest from a coin flip. Goals,
-    // blocked shots and power-play points are mapped too; add their feed keys
-    // under Settings to pull them.
-    markets: ["player_shots_on_goal", "player_points", "player_total_saves", "player_assists"],
+    // Only the four markets PrizePicks, Underdog and FanDuel all actually post
+    // with both sides near a coin flip: shots on goal, points, goalie saves and
+    // blocked shots. Goals and power-play points are deliberately NOT here.
+    // Their only posted line is 0.5 against a mean near 0.25, so the favoured
+    // side is an 80% under, no pick'em app posts the prop at all, and pulling
+    // them filled the board with picks that could not be placed anywhere.
+    // They stay mapped, for reading a logged entry; add their feed keys under
+    // Settings if a book ever hangs a line worth taking.
+    markets: ["player_shots_on_goal", "player_points", "player_total_saves", "player_blocked_shots"],
     books: NBA_BOOKS,
     // A busy night is 12 to 15 games. Four markets across 12 is 48 credits.
     maxGames: 12,
     typicalSlate: 9,
     season: [10, 11, 12, 1, 2, 3, 4, 5, 6],
     caps: { SOG: 12, SAVES: 60, HKY_PTS: 6, HKY_AST: 5, HKY_GOALS: 4, HKY_BLK: 10, HKY_PPP: 4 },
-    note: "Low counts on half-point lines, so one side of a standard line is often far from a coin flip: shots on goal 2.5 and points 0.5 are where pick'em lines most often lag the books. Starting goalies are confirmed late and a backup in net moves every save line and the other team's shots, so refresh close to puck drop. The feed does not say which team a player is on, so a goalie's saves and the other team's shots are linked only as same-game.",
+    note: "Low counts on half-point lines, so one side of a standard line is often far from a coin flip: shots on goal 2.5 and points 0.5 are where pick'em lines most often lag the books. Only the markets the apps actually post are pulled. Starting goalies are confirmed late and a backup in net moves every save line and the other team's shots, so refresh close to puck drop. The feed does not say which team a player is on, so a goalie's saves and the other team's shots are linked only as same-game.",
   },
 }
 
 export const LEAGUE_IDS = Object.keys(LEAGUES) as LeagueId[]
+
+/**
+ * Leagues that get a tab of their own. A companion competition is pulled and
+ * priced inside its parent's section, so it is not one of these.
+ */
+export const TAB_LEAGUE_IDS = LEAGUE_IDS.filter((id) => !LEAGUES[id].companionOnly)
 
 export const DEFAULT_LEAGUE: LeagueId = "nba"
 
@@ -187,51 +241,137 @@ export function sportKeyFor(id: unknown): string | null {
 }
 
 /**
+ * Every competition one press of this league's button pulls: the league itself
+ * first, then its companions. One entry for a league with no companions, so
+ * callers can always loop.
+ *
+ * Companions are OPT-IN and off unless asked for. A companion costs real feed
+ * credits, and the default for anything that spends money is not to. A caller
+ * that forgets the flag therefore under-pulls rather than over-bills, which is
+ * the cheaper mistake of the two.
+ */
+export function competitionsFor(id: LeagueId, opts: { companions?: boolean } = {}): LeagueConfig[] {
+  const league = LEAGUES[id]
+  if (!opts.companions) return [league]
+  return [league, ...(league.companions ?? []).map((c) => LEAGUES[c])]
+}
+
+/** The companions this league would add, which is nothing unless it has any. */
+export function companionsOf(id: LeagueId): LeagueConfig[] {
+  return (LEAGUES[id].companions ?? []).map((c) => LEAGUES[c])
+}
+
+/**
  * Is the league plausibly in season on this date?
  *
  * Used only to explain an empty slate. An empty response in July from the NBA
  * is the off-season; the same response in January is a real problem worth
- * looking at. Telling the two apart saves a pointless debugging session.
+ * looking at. Telling the two apart saves a pointless debugging session. A
+ * league whose companion is in season counts as in season, because the press
+ * will still return a slate.
  */
-export function inSeason(id: LeagueId, when: Date = new Date()): boolean {
-  return LEAGUES[id].season.includes(when.getUTCMonth() + 1)
+export function inSeason(id: LeagueId, when: Date = new Date(), opts: { companions?: boolean } = {}): boolean {
+  const month = when.getUTCMonth() + 1
+  return competitionsFor(id, opts).some((l) => l.season.includes(month))
 }
 
 /**
  * What a full pull of this league would cost, and whether that is reckless.
  *
  * Player props are billed per market per event. The free tier is 500 requests a
- * month. A full NFL Sunday is 14 games; at four markets that is 56 credits in one
- * press, and a handful of careless refreshes empties the month. This is the single
- * most expensive mistake available in the app, so it is computed up front and
- * shown before the button is pressed rather than discovered afterwards.
+ * month. A full NFL Sunday is 14 games, plus six college games pulled with it;
+ * at four markets that is 80 credits in one press, and a handful of careless
+ * refreshes empties the month. This is the single most expensive mistake
+ * available in the app, so it is computed up front and shown before the button
+ * is pressed rather than discovered afterwards.
  */
-export function creditWarning(
-  id: LeagueId,
-  games: number,
-  markets: number,
-  monthlyQuota = 500,
-): { credits: number; pctOfQuota: number; severe: boolean; message: string | null } {
-  const credits = Math.max(0, games) * Math.max(0, markets)
-  const pctOfQuota = monthlyQuota > 0 ? credits / monthlyQuota : 0
-  if (credits === 0) return { credits, pctOfQuota, severe: false, message: null }
+export interface CompetitionPlan {
+  league: LeagueConfig
+  /** Games this competition would be asked for. */
+  games: number
+}
+
+/**
+ * What one press of this league's button would pull, per competition.
+ *
+ * The league's own cap is the dial on the Today screen; a companion keeps the
+ * cap sized to its own slate. Returned per competition rather than as a single
+ * number because each competition can be asked for a different market list,
+ * and credits are billed per market per game: multiplying a combined game
+ * count by one market count overstates the cheap competition and understates
+ * the expensive one.
+ */
+export function pullPlan(id: LeagueId, primaryCap: number, opts: { companions?: boolean } = {}): CompetitionPlan[] {
+  return competitionsFor(id, opts).map((league) => ({
+    league,
+    games: league.id === id ? Math.max(0, primaryCap) : league.maxGames,
+  }))
+}
+
+/** Games one press would pull, across every competition in the plan. */
+export function plannedGames(id: LeagueId, primaryCap: number, opts: { companions?: boolean } = {}): number {
+  return pullPlan(id, primaryCap, opts).reduce((a, p) => a + p.games, 0)
+}
+
+/**
+ * Share of a month one pull may spend before the button has to ask first.
+ *
+ * Seven presses at this size empty the month, which is a fortnight of casual
+ * refreshing. Above it the spend stops being a note beside the button and
+ * becomes a question the button asks, because a note is read after the credits
+ * are gone and a question is answered before.
+ */
+export const CONFIRM_PCT_OF_QUOTA = 0.15
+
+export interface CreditPlan {
+  credits: number
+  pctOfQuota: number
+  /** Worth shouting about: a quarter of the month in one press. */
+  severe: boolean
+  /** The button must ask before spending this. */
+  confirm: boolean
+  /** Shown beside the button. Null when the spend is unremarkable. */
+  message: string | null
+  /** Shown in the confirm dialog. Null when no confirm is needed. */
+  prompt: string | null
+}
+
+/** The cost of a pull whose credits are already totted up across competitions. */
+export function creditPlan(id: LeagueId, credits: number, monthlyQuota = 500): CreditPlan {
+  const spend = Math.max(0, Math.round(credits))
+  const pctOfQuota = monthlyQuota > 0 ? spend / monthlyQuota : 0
+  const pct = Math.round(pctOfQuota * 100)
+  const confirm = pctOfQuota >= CONFIRM_PCT_OF_QUOTA
+  const prompt = confirm
+    ? `This pull spends about ${spend} feed credits, ${pct}% of a 500-request month, and ${Math.ceil(1 / Math.max(pctOfQuota, 1e-9))} presses like it would empty the month. Lower the game cap or the market count in Settings to spend less. Pull anyway?`
+    : null
+  if (spend === 0) return { credits: spend, pctOfQuota, severe: false, confirm: false, message: null, prompt: null }
   if (pctOfQuota >= 0.25) {
     return {
-      credits,
+      credits: spend,
       pctOfQuota,
       severe: true,
-      message: `This pull costs about ${credits} feed credits, roughly ${Math.round(pctOfQuota * 100)}% of a 500-request month. ${LEAGUES[id].label} slates are large; lower the game cap or the market count before refreshing often.`,
+      confirm,
+      message: `This pull costs about ${spend} feed credits, roughly ${pct}% of a 500-request month. ${LEAGUES[id].label} slates are large; lower the game cap or the market count before refreshing often.`,
+      prompt,
     }
   }
   if (pctOfQuota >= 0.1) {
     return {
-      credits,
+      credits: spend,
       pctOfQuota,
       severe: false,
-      message: `About ${credits} feed credits, ${Math.round(pctOfQuota * 100)}% of a 500-request month.`,
+      confirm,
+      message: `About ${spend} feed credits, ${pct}% of a 500-request month.`,
+      prompt,
     }
   }
-  return { credits, pctOfQuota, severe: false, message: null }
+  return { credits: spend, pctOfQuota, severe: false, confirm: false, message: null, prompt: null }
+}
+
+/** The same, for a pull whose every competition shares one market list. */
+export function creditWarning(id: LeagueId, games: number, markets: number, monthlyQuota = 500): CreditPlan {
+  return creditPlan(id, Math.max(0, games) * Math.max(0, markets), monthlyQuota)
 }
 
 /**

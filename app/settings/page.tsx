@@ -15,8 +15,8 @@ import { DEVIG_METHODS, type DevigMethod } from "@/lib/quant/odds"
 import { payoutMultiple, supportedPickCounts } from "@/lib/quant/payouts"
 import { exportState, importState } from "@/lib/store/local"
 import { useStore } from "@/lib/store/provider"
-import { leagueFor } from "@/lib/leagues"
-import { marketsForLeague } from "@/lib/odds-feed/theoddsapi"
+import { companionsOf, creditPlan, leagueFor, pullPlan } from "@/lib/leagues"
+import { marketsForCompetition, marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { DEFAULT_SETTINGS, type OddsProvider } from "@/lib/store/schema"
 import { money } from "@/lib/format"
 
@@ -27,6 +27,18 @@ export default function SettingsPage() {
   const s = state.settings
   const dailyLeague = leagueFor(s.daily.league)
   const dailyMarkets = marketsForLeague(dailyLeague.id, s.daily.markets)
+  const companions = companionsOf(dailyLeague.id)
+  // What one press of the selected league's button would spend, companions
+  // included, billed per market per game at each competition's own list.
+  const dailyCredits = pullPlan(dailyLeague.id, Math.max(1, Math.min(s.daily.maxGames, 20)), {
+    companions: s.daily.companions,
+  }).reduce(
+    // Including the ranking call a depth-ranked companion buys, so this agrees
+    // with the figure the Today screen gates on.
+    (a, p) => a + p.games * marketsForCompetition(p.league, s.daily.markets).length + (p.league.depthRanked ? 1 : 0),
+    0,
+  )
+  const dailyCost = creditPlan(dailyLeague.id, dailyCredits)
 
   if (!ready) {
     return <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Loading…</p>
@@ -175,7 +187,7 @@ export default function SettingsPage() {
               onChange={(v) =>
                 setSettings((p) => ({ ...p, projection: { ...p.projection, dispersion: { ...p.projection.dispersion, global: v } } }))
               }
-              hint="Scales how volatile every stat is assumed to be. Raise it if the tracker says the model is overconfident: wider outcomes pull every probability toward 50%."
+              hint="Scales how volatile every stat is assumed to be. Raise it if the tracker says the model is overconfident: wider outcomes pull every probability toward 50%. The tracker's calibration table prints the multiplier your own settled legs imply, per competition and per market, which is the number to move this toward. The dispersion priors it scales — including college football's 1.2 and the yardage spread floors — are reasoned rather than fitted, so this dial is how you correct them until there is enough history to fit them properly."
             />
             <SliderRow
               label="Correlation strength"
@@ -405,6 +417,29 @@ export default function SettingsPage() {
                 onChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, minEdge: v } }))}
                 hint="Ignore value bets below this. Real edges on a liquid market are low single digits; anything large is usually a line that already moved."
               />
+              {companions.length > 0 ? (
+                <div className="flex items-start justify-between gap-3 rounded-lg border border-border/50 p-3 md:col-span-2">
+                  <div>
+                    <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                      Pull {companions.map((l) => l.label).join(" and ")} with the {dailyLeague.label}
+                    </Label>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                      {companions.map((l) => l.label).join(" and ")} {companions.length === 1 ? "is" : "are"} the
+                      same sport in the same week, so {companions.length === 1 ? "it rides" : "they ride"} inside
+                      this section rather than taking a tab. Off by default because it costs credits on top of the{" "}
+                      {dailyLeague.label} slate: {companions.map((l) => `${l.maxGames} games at ${l.markets.length} markets`).join(", ")}, so about{" "}
+                      {companions.reduce((a, l) => a + l.maxGames * l.markets.length, 0)} more per press. Each is
+                      priced with its own numbers and badged on every row. Turning it off keeps the games you have
+                      already paid for in this browser&apos;s cache and only leaves them out of the picks, so you
+                      can turn it back on without spending anything.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={s.daily.companions}
+                    onCheckedChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, companions: v } }))}
+                  />
+                </div>
+              ) : null}
               <div className="flex items-start justify-between gap-3 rounded-lg border border-border/50 p-3">
                 <div>
                   <Label className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -412,7 +447,8 @@ export default function SettingsPage() {
                   </Label>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
                     When on, Today prices nothing unless Pinnacle, BetOnline, LowVig or another sharp book posted the
-                    prop. WNBA props are often retail-only, so Today stays empty. Turn off to price against
+                    prop. College football props outside the televised games are often retail-only or unpriced, so
+                    Today leaves them out. Turn off to price against
                     the retail consensus instead: weaker, and every result says so.
                   </p>
                 </div>
@@ -423,6 +459,18 @@ export default function SettingsPage() {
                   }
                 />
               </div>
+              <SliderRow
+                label="Pick'em ceiling"
+                value={s.daily.pickemMaxProb}
+                min={0.5}
+                max={1}
+                step={0.01}
+                format={(v) => (v >= 1 ? "keep everything" : `${(v * 100).toFixed(0)}%`)}
+                onChange={(v) => setSettings((p) => ({ ...p, daily: { ...p.daily, pickemMaxProb: v } }))}
+                hint={
+                  "The most lopsided a pick'em pick can be and still be assumed to exist. A flat payout table only works if both sides are plausible, so an app does not post a prop whose favoured side is a near-certainty, however happily a sportsbook prices one. Props above this are left out of the targets and listed under them by name, never silently. Move it to 100% to keep everything. A line PropLine shows an app actually posting is never removed, whatever this says."
+                }
+              />
               <SliderRow
                 label="Parlay legs"
                 value={s.daily.parlayLegs}
@@ -444,7 +492,13 @@ export default function SettingsPage() {
                 hint={
                   s.oddsFeed.provider === "propline"
                     ? `Caps the PropLine requests one refresh can spend: up to ${s.daily.maxGames + 1} of the daily 1,000, whatever the markets.`
-                    : `Caps the credits one refresh can spend. At ${dailyMarkets.length} markets that is up to ${s.daily.maxGames * dailyMarkets.length} credits.`
+                    : `Caps the credits one refresh can spend. At ${dailyMarkets.length} markets${
+                        dailyCredits > s.daily.maxGames * dailyMarkets.length
+                          ? `, with the companion on,`
+                          : ``
+                      } that is up to ${dailyCredits} credits, ${Math.round(dailyCost.pctOfQuota * 100)}% of a 500-request month.${
+                        dailyCost.confirm ? " Today asks before spending this much." : ""
+                      }`
                 }
               />
               <div>
@@ -460,7 +514,7 @@ export default function SettingsPage() {
                       ...p,
                       // Empty means "follow the league", which is the right
                       // default: each league posts different markets, and a
-                      // market that comes back empty still costs a credit.
+                      // market that comes back empty buys nothing.
                       daily: { ...p.daily, markets: parsed.length > 0 ? parsed : null },
                     }))
                   }}

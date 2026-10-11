@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server"
 import { crossSiteRejection } from "@/lib/odds-feed/same-origin"
-import { estimateCredits, eventOddsUrl, eventsUrl, marketsForLeague, normalizeMany } from "@/lib/odds-feed/theoddsapi"
+import {
+  BLOWOUT_MARGIN,
+  estimateCredits,
+  eventOddsUrl,
+  eventsUrl,
+  marketsForCompetition,
+  normalizeMany,
+  rankByDepth,
+  sportOddsUrl,
+  type DepthRanking,
+} from "@/lib/odds-feed/theoddsapi"
 import {
   PICKEM_BOOKS,
   normalizeProplineMany,
@@ -9,10 +19,21 @@ import {
   pullPropline,
   resolveProplineKey,
   type PickemLine,
+  type ProplineNormalizeResult,
 } from "@/lib/odds-feed/propline"
 import { feedErrorText, fetchOddsApi, noneCouldBePriced, notStarted } from "@/lib/odds-feed/http"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
-import { DEFAULT_LEAGUE, LEAGUE_IDS, creditWarning, inSeason, isLeagueId, leagueFor, type LeagueId } from "@/lib/leagues"
+import {
+  DEFAULT_LEAGUE,
+  LEAGUE_IDS,
+  competitionsFor,
+  creditPlan,
+  inSeason,
+  isLeagueId,
+  leagueFor,
+  type LeagueConfig,
+  type LeagueId,
+} from "@/lib/leagues"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -45,6 +66,11 @@ interface RequestBody {
   pickemLines?: boolean
   /** Which league to pull. Defaults to the NBA. */
   league?: string
+  /**
+   * Pull this league's companion competitions too (college football inside the
+   * NFL section). Off unless asked for: a companion costs credits.
+   */
+  companions?: boolean
   /** ISO instant for the start of the caller's local day. */
   from?: string
   /** ISO instant for the end of the window. */
@@ -66,12 +92,14 @@ function resolveKey(body: RequestBody): string | null {
 }
 
 /** The empty-slate note, naming games that were skipped for having started. */
-function emptyNote(leagueId: LeagueId, started: number): string {
-  const label = leagueFor(leagueId).label
+function emptyNote(leagueId: LeagueId, started: number, companions: boolean): string {
+  // A section that pulled a companion has nothing only when both are empty, so
+  // the note names both rather than blaming the parent league alone.
+  const label = competitionsFor(leagueId, { companions }).map((l) => l.label).join(" or ")
   if (started > 0) {
     return `${started === 1 ? "The only" : `All ${started}`} ${label} game${started === 1 ? "" : "s"} in this window ${started === 1 ? "has" : "have"} already started. Live games are not priced: their lines move with the score and the pick'em apps have closed them.`
   }
-  return inSeason(leagueId)
+  return inSeason(leagueId, new Date(), { companions })
     ? `No ${label} games tip in this window.`
     : `No ${label} games tip in this window, and ${label} is out of season right now, so an empty slate is expected rather than a fault.`
 }
@@ -121,11 +149,13 @@ export async function POST(request: Request) {
   }
   const leagueId = isLeagueId(body.league) ? body.league : DEFAULT_LEAGUE
   const league = leagueFor(leagueId)
+  // Opt-in, and only where there is something to opt into.
+  const companions = !!body.companions && (league.companions?.length ?? 0) > 0
 
   // Each league's defaults come from its own config: the markets it actually
   // posts, the books that price it, and a game cap sized to its slate. A market
-  // list from settings is kept only where it fits the league's sport.
-  const markets = marketsForLeague(leagueId, body.markets)
+  // list from settings is kept only where it fits the league's sport, and a
+  // companion always uses its own list. Resolved per competition below.
   const bookmakers = body.bookmakers?.length ? body.bookmakers : league.books
   const regions = body.regions || "us,us2,eu"
   const maxGames = Math.max(1, Math.min(body.maxGames ?? league.maxGames, 20))
@@ -137,57 +167,99 @@ export async function POST(request: Request) {
   const toMs = body.to ? Date.parse(body.to) : fromMs + 30 * 3600 * 1000
 
   if (provider === "propline") {
-    return fromPropline({ apiKey: proplineKey!, leagueId, markets, maxGames, fromMs, toMs, now, eventsOnly: !!body.eventsOnly })
+    return fromPropline({
+      apiKey: proplineKey!,
+      leagueId,
+      markets: body.markets ?? null,
+      maxGames,
+      fromMs,
+      toMs,
+      now,
+      companions,
+      eventsOnly: !!body.eventsOnly,
+    })
   }
 
   try {
-    // The events listing is free, so the game list never costs a credit.
-    const events = await fetchOddsApi<FeedEvent[]>(eventsUrl(apiKey!, leagueId))
-    if (!Array.isArray(events.data)) throw new SyntaxError("events listing is not a list")
-    const listed = events.data
-      .filter((e) => {
-        const t = Date.parse(e.commence_time)
-        return Number.isFinite(t) && t >= fromMs && t <= toMs
-      })
-      .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
-    // The window opens at the caller's midnight, so it holds games already
-    // under way. Those are skipped before the cap, so a live game never takes
-    // a slot from one that can still be played.
-    const todays = listed.filter((e) => notStarted(e.commence_time, now))
-    const started = listed.length - todays.length
+    // One press can cover more than one competition: college football is
+    // pulled and priced inside the NFL section. Each is listed, capped and
+    // billed separately, then merged into one slate.
+    const pulls: CompetitionPull[] = []
+    const competitionFailures: { eventId: string; matchup: string; error: string }[] = []
+    for (const comp of competitionsFor(leagueId, { companions })) {
+      try {
+        pulls.push(
+          await pullCompetition(apiKey!, comp, {
+          // The league's own cap is the dial on the Today screen; a companion
+          // keeps the cap sized to its own slate, because a Saturday lists
+          // fifty college games and only a handful carry real prop pricing.
+          maxGames: comp.id === leagueId ? maxGames : comp.maxGames,
+          markets: marketsForCompetition(comp, body.markets),
+          regions,
+          bookmakers,
+          fromMs,
+          toMs,
+          now,
+            eventsOnly: !!body.eventsOnly,
+          }),
+        )
+      } catch (err) {
+        // The league is pulled first and its per-event odds are billed as they
+        // go, so letting a companion's listing throw past here would return a
+        // 502 with no quotes and bin a slate that has already been paid for.
+        // A competition that cannot be listed is a failure to report, exactly
+        // like a game that cannot be priced.
+        competitionFailures.push({
+          eventId: comp.id,
+          matchup: comp.label,
+          error: feedErrorText(err, "The Odds API"),
+        })
+        // With nothing listed at all there is no slate and no pull to protect.
+        if (pulls.length === 0 && comp.id === leagueId) throw err
+      }
+    }
 
-    const selected = todays.slice(0, maxGames)
-    const estimatedCredits = estimateCredits(selected.length, markets.length)
-    const cost = creditWarning(leagueId, selected.length, markets.length)
-    // What a pull would have cost without the cap, so the cap is visible rather
-    // than silently swallowing two thirds of the slate.
-    const cappedOut = Math.max(0, todays.length - selected.length)
+    const selected = pulls.flatMap((p) => p.selected)
+    const upcoming = pulls.flatMap((p) => p.upcoming)
+    const started = pulls.reduce((a, p) => a + p.started, 0)
+    const cappedOut = pulls.reduce((a, p) => a + p.cappedOut, 0)
+    // Billed per market per event, and each competition can be asked for a
+    // different market list, so the cost is summed per competition.
+    const estimatedCredits = pulls.reduce(
+      (a, p) => a + estimateCredits(p.selected.length, p.markets.length) + p.depthCredits,
+      0,
+    )
+    const cost = creditPlan(leagueId, estimatedCredits)
+    const remaining = lastFinite(pulls.map((p) => p.remaining))
+    const used = lastFinite(pulls.map((p) => p.used))
 
     if (body.eventsOnly) {
       return NextResponse.json({
         league: leagueId,
         provider,
-        events: todays,
+        events: upcoming,
         selected: selected.length,
         cappedOut,
         startedCount: started,
         estimatedCredits,
         costWarning: cost.message,
         costSevere: cost.severe,
-        requestsRemaining: events.remaining,
-        requestsUsed: events.used,
+        failures: competitionFailures,
+        requestsRemaining: remaining,
+        requestsUsed: used,
       })
     }
 
     if (selected.length === 0) {
       // Distinguish "wrong time of year" from "something is broken". An empty
-      // WNBA slate in January is the off-season; an empty one in July is a
+      // NFL slate on a Wednesday is the schedule; an empty one on a Sunday is a
       // problem worth chasing.
-      const note = emptyNote(leagueId, started)
+      const note = emptyNote(leagueId, started, companions)
       // The listing is already paid for (it is free), so say when the next game
       // is. "Nothing today, next one Tuesday" is an answer; a blank page is not.
-      const next = events.data
-        .filter((e) => Date.parse(e.commence_time) > toMs)
+      const next = pulls
+        .map((p) => p.nextEvent)
+        .filter((e): e is FeedEvent => !!e)
         .sort((a, b) => a.commence_time.localeCompare(b.commence_time))[0]
       return NextResponse.json({
         league: leagueId,
@@ -195,10 +267,11 @@ export async function POST(request: Request) {
         events: [],
         quotes: [],
         estimatedCredits: 0,
-        requestsRemaining: events.remaining,
-        requestsUsed: events.used,
-        inSeason: inSeason(leagueId),
+        requestsRemaining: remaining,
+        requestsUsed: used,
+        inSeason: inSeason(leagueId, new Date(), { companions }),
         startedCount: started,
+        failures: competitionFailures,
         nextEvent: next
           ? { commence_time: next.commence_time, home_team: next.home_team, away_team: next.away_team }
           : null,
@@ -206,27 +279,9 @@ export async function POST(request: Request) {
       })
     }
 
-    const payloads: FeedEventOdds[] = []
-    const failures: { eventId: string; matchup: string; error: string }[] = []
-    let remaining: number | null = events.remaining
-    let used: number | null = events.used
-
-    for (const e of selected) {
-      try {
-        const r = await fetchOddsApi<FeedEventOdds>(eventOddsUrl(apiKey!, e.id, { markets, regions, bookmakers, league: leagueId }))
-        payloads.push(r.data)
-        if (r.remaining != null) remaining = r.remaining
-        if (r.used != null) used = r.used
-      } catch (err) {
-        failures.push({
-          eventId: e.id,
-          matchup: `${e.away_team} at ${e.home_team}`,
-          error: feedErrorText(err, "The Odds API"),
-        })
-      }
-    }
-
-    const failed = noneCouldBePriced(selected.length, payloads.length, failures)
+    const failures = [...competitionFailures, ...pulls.flatMap((p) => p.failures)]
+    const priced = pulls.reduce((a, p) => a + p.payloads.length, 0)
+    const failed = noneCouldBePriced(selected.length, priced, failures)
     if (failed) {
       return NextResponse.json(
         { error: failed, failures, requestsRemaining: remaining, requestsUsed: used },
@@ -234,7 +289,12 @@ export async function POST(request: Request) {
       )
     }
 
-    const normalized = normalizeMany(payloads, league.sport)
+    // Each competition's quotes are stamped with it, so the engine prices a
+    // college prop with college priors and college plausibility ceilings.
+    const normalized = pulls.map((p) => normalizeMany(p.payloads, p.comp.sport, p.comp.id))
+    const quotes = normalized.flatMap((n) => n.quotes)
+    const unknownMarkets = Array.from(new Set(normalized.flatMap((n) => n.unknownMarkets)))
+    const droppedCount = normalized.reduce((a, n) => a + n.dropped.length, 0)
 
     // The pick'em lines are a bonus on this path: a failure there is reported
     // and never costs the prices already pulled.
@@ -243,13 +303,14 @@ export async function POST(request: Request) {
         ? await pickemFromPropline({
             apiKey: proplineKey,
             leagueId,
-            markets,
+            markets: body.markets ?? null,
             maxGames,
             fromMs,
             toMs,
             now,
-            games: selected,
-            quotes: normalized.quotes,
+            companions,
+            pulls,
+            quotes,
           })
         : { lines: [] as PickemLine[], note: null, remaining: null }
 
@@ -257,19 +318,20 @@ export async function POST(request: Request) {
       league: leagueId,
       provider,
       events: selected,
-      quotes: normalized.quotes,
+      quotes,
       pickemLines: pickem.lines,
       pickemNote: pickem.note,
       proplineRemaining: pickem.remaining,
-      unknownMarkets: normalized.unknownMarkets,
-      droppedCount: normalized.dropped.length,
+      unknownMarkets,
+      droppedCount,
       failures,
       estimatedCredits,
       costWarning: cost.message,
       costSevere: cost.severe,
       cappedOut,
       startedCount: started,
-      inSeason: inSeason(leagueId),
+      depthNote: depthNote(pulls),
+      inSeason: inSeason(leagueId, new Date(), { companions }),
       requestsRemaining: remaining,
       requestsUsed: used,
       fetchedAt: new Date().toISOString(),
@@ -279,23 +341,224 @@ export async function POST(request: Request) {
   }
 }
 
+/**
+ * What the depth ranking did, in a sentence, so a thin board reads as expected
+ * rather than broken.
+ */
+function depthNote(pulls: CompetitionPull[]): string | null {
+  const parts: string[] = []
+  for (const p of pulls) {
+    if (p.depthError) {
+      parts.push(`${p.comp.label}: ${p.depthError}`)
+      continue
+    }
+    if (!p.depth) continue
+    const listed = p.depth.ranked.length + p.depth.blowouts.length + p.depth.unpriced.length
+    const bits = [
+      `${p.selected.length} of ${listed} ${p.comp.label} games priced, chosen by how many books price the spread`,
+    ]
+    if (p.depth.blowouts.length > 0) {
+      bits.push(
+        `${p.depth.blowouts.length} skipped as likely blowouts (over ${BLOWOUT_MARGIN} points), where the starters a prop is on do not finish`,
+      )
+    }
+    if (p.depth.unpriced.length > 0) {
+      bits.push(`${p.depth.unpriced.length} had no spread priced at all, so no book is likely to post props`)
+    }
+    parts.push(`${bits.join("; ")}.`)
+  }
+  return parts.length > 0 ? parts.join(" ") : null
+}
+
+/** The last number in a list of per-competition readings, ignoring absent ones. */
+function lastFinite(values: (number | null)[]): number | null {
+  let out: number | null = null
+  for (const v of values) if (v != null && Number.isFinite(v)) out = v
+  return out
+}
+
+interface CompetitionPull {
+  comp: LeagueConfig
+  markets: string[]
+  /** Credits this competition spent on choosing which games to price. */
+  depthCredits: number
+  /** What the depth ranking found, or null when it was not used or failed. */
+  depth: DepthRanking | null
+  /** Why the ranking is missing, when it was wanted and did not arrive. */
+  depthError: string | null
+  /** Games in the window that have not started. */
+  upcoming: FeedEvent[]
+  /** The games actually priced, after the cap. */
+  selected: FeedEvent[]
+  started: number
+  cappedOut: number
+  payloads: FeedEventOdds[]
+  failures: { eventId: string; matchup: string; error: string }[]
+  nextEvent: FeedEvent | null
+  remaining: number | null
+  used: number | null
+}
+
+/**
+ * List one competition's games in the window and price the ones that fit under
+ * the cap. The listing is free; the odds are a credit per market per game.
+ */
+async function pullCompetition(
+  apiKey: string,
+  comp: LeagueConfig,
+  opts: {
+    markets: string[]
+    regions: string
+    bookmakers: string[]
+    fromMs: number
+    toMs: number
+    now: number
+    maxGames: number
+    eventsOnly: boolean
+  },
+): Promise<CompetitionPull> {
+  const events = await fetchOddsApi<FeedEvent[]>(eventsUrl(apiKey, comp.id))
+  if (!Array.isArray(events.data)) throw new SyntaxError("events listing is not a list")
+  const listed = events.data
+    .filter((e) => {
+      const t = Date.parse(e.commence_time)
+      return Number.isFinite(t) && t >= opts.fromMs && t <= opts.toMs
+    })
+    .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
+  // The window opens at the caller's midnight, so it holds games already
+  // under way. Those are skipped before the cap, so a live game never takes
+  // a slot from one that can still be played.
+  const upcoming = listed.filter((e) => notStarted(e.commence_time, opts.now))
+  let remaining: number | null = events.remaining
+  let used: number | null = events.used
+
+  // Which games to spend the cap on. A college Saturday lists fifty and only a
+  // few are priced deeply enough to be worth a credit, so start time is the
+  // wrong order: one sport-level call for spreads costs a single credit and
+  // says who the books are actually pricing. It is an enhancement, never a
+  // dependency — if it fails, the slate falls back to start order and says so.
+  let depth: DepthRanking | null = null
+  let depthError: string | null = null
+  let depthCredits = 0
+  let ordered = upcoming
+  if (comp.depthRanked && !opts.eventsOnly && upcoming.length > opts.maxGames) {
+    try {
+      const bulk = await fetchOddsApi<FeedEventOdds[]>(
+        sportOddsUrl(apiKey, comp.id, { markets: ["spreads"], fromMs: opts.fromMs, toMs: opts.toMs }),
+      )
+      depthCredits = 1
+      if (bulk.remaining != null) remaining = bulk.remaining
+      if (bulk.used != null) used = bulk.used
+      depth = rankByDepth(Array.isArray(bulk.data) ? bulk.data : [])
+      const rank = new Map(depth.ranked.map((g, i) => [g.id, i]))
+      ordered = upcoming
+        .filter((e) => rank.has(e.id))
+        .sort((a, b) => rank.get(a.id)! - rank.get(b.id)!)
+      // A ranking that excluded everything is a ranking that learnt nothing
+      // useful; fall back rather than price an empty slate.
+      if (ordered.length === 0) {
+        ordered = upcoming
+        depthError = "No college game in this window had a spread priced, so the slate is in start order."
+      }
+    } catch (err) {
+      depthError = feedErrorText(err, "The Odds API")
+      ordered = upcoming
+    }
+  }
+  const selected = opts.eventsOnly ? [] : ordered.slice(0, opts.maxGames)
+  const nextEvent =
+    events.data
+      .filter((e) => Date.parse(e.commence_time) > opts.toMs)
+      .sort((a, b) => a.commence_time.localeCompare(b.commence_time))[0] ?? null
+
+  const payloads: FeedEventOdds[] = []
+  const failures: CompetitionPull["failures"] = []
+
+  for (const e of selected) {
+    try {
+      const r = await fetchOddsApi<FeedEventOdds>(
+        eventOddsUrl(apiKey, e.id, {
+          markets: opts.markets,
+          regions: opts.regions,
+          bookmakers: opts.bookmakers,
+          league: comp.id,
+        }),
+      )
+      payloads.push(r.data)
+      if (r.remaining != null) remaining = r.remaining
+      if (r.used != null) used = r.used
+    } catch (err) {
+      failures.push({
+        eventId: e.id,
+        matchup: `${e.away_team} at ${e.home_team}`,
+        error: feedErrorText(err, "The Odds API"),
+      })
+    }
+  }
+
+  return {
+    comp,
+    markets: opts.markets,
+    depthCredits,
+    depth,
+    depthError,
+    upcoming,
+    selected,
+    started: listed.length - upcoming.length,
+    cappedOut: opts.eventsOnly ? 0 : Math.max(0, upcoming.length - selected.length),
+    payloads,
+    failures,
+    nextEvent,
+    remaining,
+    used,
+  }
+}
+
 interface PullArgs {
   apiKey: string
   leagueId: LeagueId
-  markets: string[]
+  /** The market list from Settings, or null to follow each competition's own. */
+  markets: string[] | null
   maxGames: number
   fromMs: number
   toMs: number
   now: number
+  companions: boolean
 }
 
 /** The whole slate from PropLine: prices and pick'em lines in the same requests. */
 async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
-  const league = leagueFor(args.leagueId)
   try {
     // Every book: PropLine bills per request, not per book, so narrowing the
-    // list saves nothing and loses prices.
-    const pull = await pullPropline({ ...args, league: args.leagueId })
+    // list saves nothing and loses prices. One pull per competition, since the
+    // NFL section covers college football too.
+    const comps = competitionsFor(args.leagueId, { companions: args.companions })
+    const pulls = await Promise.all(
+      comps.map(async (comp) => ({
+        comp,
+        pull: await pullPropline({
+          ...args,
+          league: comp.id,
+          markets: marketsForCompetition(comp, args.markets),
+          maxGames: comp.id === args.leagueId ? args.maxGames : comp.maxGames,
+        }),
+      })),
+    )
+    const pull = {
+      inWindow: pulls.flatMap((p) => p.pull.inWindow),
+      started: pulls.reduce((a, p) => a + p.pull.started, 0),
+      selected: pulls.flatMap((p) => p.pull.selected),
+      cappedOut: pulls.reduce((a, p) => a + p.pull.cappedOut, 0),
+      nextEvent:
+        pulls
+          .map((p) => p.pull.nextEvent)
+          .filter((e): e is FeedEvent => !!e)
+          .sort((a, b) => a.commence_time.localeCompare(b.commence_time))[0] ?? null,
+      payloads: pulls.flatMap((p) => p.pull.payloads),
+      failures: pulls.flatMap((p) => p.pull.failures),
+      quota: pulls.map((p) => p.pull.quota).filter((q) => q != null).pop() ?? null,
+      requests: pulls.reduce((a, p) => a + p.pull.requests, 0),
+    }
     const cappedOut = pull.cappedOut
     const base = {
       league: args.leagueId,
@@ -306,7 +569,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       requestsRemaining: pull.quota?.remaining ?? null,
       requestsUsed: pull.quota?.used ?? null,
       quotaPeriod: "day" as const,
-      inSeason: inSeason(args.leagueId),
+      inSeason: inSeason(args.leagueId, new Date(), { companions: args.companions }),
       startedCount: pull.started,
     }
 
@@ -315,7 +578,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
     }
 
     if (pull.selected.length === 0) {
-      const note = emptyNote(args.leagueId, pull.started)
+      const note = emptyNote(args.leagueId, pull.started, args.companions)
       const next = pull.nextEvent
       return NextResponse.json({
         ...base,
@@ -330,7 +593,10 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
     const failed = noneCouldBePriced(pull.selected.length, pull.payloads.length, pull.failures)
     if (failed) return NextResponse.json({ ...base, error: failed, failures: pull.failures }, { status: 502 })
 
-    const normalized = normalizeProplineMany(pull.payloads, league.sport)
+    // Normalised per competition, so each prop carries the one it came from.
+    const normalized = mergeProplineResults(
+      pulls.map((p) => normalizeProplineMany(p.pull.payloads, p.comp.sport, { competition: p.comp.id })),
+    )
     return NextResponse.json({
       ...base,
       events: pull.selected,
@@ -353,25 +619,57 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
  * prices, for exactly the games The Odds API priced.
  */
 async function pickemFromPropline(
-  args: PullArgs & { games: FeedEvent[]; quotes: { player: string; playerKey?: string }[] },
+  args: PullArgs & { pulls: CompetitionPull[]; quotes: { player: string; playerKey?: string }[] },
 ): Promise<{ lines: PickemLine[]; note: string | null; remaining: number | null }> {
-  const league = leagueFor(args.leagueId)
   try {
-    const pull = await pullPropline({ ...args, league: args.leagueId, bookmakers: PICKEM_BOOKS })
-    const normalized = normalizeProplineMany(pull.payloads, league.sport)
+    // One PropLine pull per competition, each asking only for the games that
+    // competition actually priced.
+    const results = await Promise.all(
+      args.pulls
+        .filter((p) => p.selected.length > 0)
+        .map(async (p) => {
+          const pull = await pullPropline({
+            ...args,
+            league: p.comp.id,
+            markets: p.markets,
+            maxGames: p.selected.length,
+            games: p.selected,
+            bookmakers: PICKEM_BOOKS,
+          })
+          return {
+            comp: p.comp,
+            pull,
+            normalized: normalizeProplineMany(pull.payloads, p.comp.sport, { competition: p.comp.id }),
+            unlisted: p.selected.length - pull.selected.length,
+          }
+        }),
+    )
+    const normalized = mergeProplineResults(results.map((r) => r.normalized))
+    const failures = results.flatMap((r) => r.pull.failures)
     const lines = onlyPricedPlayers(normalized.pickemLines, args.quotes)
-    const unlisted = args.games.length - pull.selected.length
+    const unlisted = results.reduce((a, r) => a + r.unlisted, 0)
     const note =
-      pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length) ??
+      pickemNoteFor(normalized.pickemLines.length, failures, normalized.closedGames.length) ??
       (unlisted > 0
         ? `PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`
         : null)
-    return { lines, note, remaining: pull.quota?.remaining ?? null }
+    return { lines, note, remaining: results.map((r) => r.pull.quota?.remaining).filter((q) => q != null).pop() ?? null }
   } catch (err) {
     return {
       lines: [],
       note: `Pick'em lines unavailable: ${feedErrorText(err, "PropLine")}`,
       remaining: null,
     }
+  }
+}
+
+/** Fold several PropLine normalisations, one per competition, into one. */
+function mergeProplineResults(parts: ProplineNormalizeResult[]): ProplineNormalizeResult {
+  return {
+    quotes: parts.flatMap((p) => p.quotes),
+    unknownMarkets: Array.from(new Set(parts.flatMap((p) => p.unknownMarkets))),
+    dropped: parts.flatMap((p) => p.dropped),
+    pickemLines: parts.flatMap((p) => p.pickemLines),
+    closedGames: parts.flatMap((p) => p.closedGames),
   }
 }

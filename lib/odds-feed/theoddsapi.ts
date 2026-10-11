@@ -1,6 +1,7 @@
 import { marketSport, type MarketKey, type Sport } from "@/lib/nba/markets"
-import { DEFAULT_LEAGUE, leagueFor, type LeagueId } from "@/lib/leagues"
+import { DEFAULT_LEAGUE, leagueFor, type LeagueConfig, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
+import { sameGameId } from "./games"
 import type { BookQuote } from "@/lib/quant/projection"
 import type { FeedEventOdds } from "./types"
 
@@ -25,8 +26,37 @@ export const NBA_SPORT_KEY = "basketball_nba"
  * The map below covers every basketball and NFL market we model; the NHL has
  * its own further down. Which of these a given league
  * actually posts is a league question, answered in lib/leagues, because asking
- * for a market a league never posts costs a credit and returns nothing.
+ * for a market a league never posts may cost a credit and return nothing. See
+ * UNVERIFIED_EMPTY_MARKET_COST below before leaning on that.
  */
+
+/**
+ * UNVERIFIED: does a market that comes back empty cost a credit?
+ *
+ * This app has told users for a while that it does, and that claim is not
+ * established. Two independent transcriptions of The Odds API docs give the
+ * per-event cost as "[number of unique markets RETURNED] x [number of
+ * regions]", and one worked example says a request for five markets where only
+ * two carry data costs two. If that is right, asking a thin college game for
+ * four markets and getting two back costs two, and trimming a market list
+ * saves nothing in credits at all.
+ *
+ * It could not be confirmed against the vendor's own documentation, which this
+ * environment cannot reach: the egress policy answers 403 for that host, and
+ * routing around a policy denial is not on. What IS confirmed, from the
+ * vendor's own sample code, is the SHAPE of the cost — markets x regions, with
+ * no per-event term on the sport-level endpoint, which is what makes the depth
+ * ranking below affordable.
+ *
+ * How to settle it in one pull: make the same per-event request twice, once
+ * including a market the game does not post and once without, and compare the
+ * x-requests-last response header. Until someone does, nothing here should
+ * claim the saving as a fact. No decision in the app rests on it either way:
+ * market lists are trimmed because an unpriced prop is a worse board, and that
+ * is true whatever the billing turns out to be.
+ */
+export const UNVERIFIED_EMPTY_MARKET_COST =
+  "Whether a market that returns no data still costs a credit is unverified: the docs are transcribed both ways."
 
 /** Feed market keys mapped to our own taxonomy. */
 export const FEED_MARKET_MAP: Record<string, MarketKey> = {
@@ -99,7 +129,8 @@ export function sportOfFeedKey(sportKey: string | undefined): Sport | undefined 
  *
  * A requested list is kept only where it belongs to the league's sport, so a
  * basketball market list left in settings never gets billed against an NFL
- * slate (it would come back empty and still cost a credit per game). Nothing
+ * slate (it would come back empty, and may still cost a credit per game: see
+ * UNVERIFIED_EMPTY_MARKET_COST). Nothing
  * left, or nothing asked for, means the league's own defaults.
  */
 export function marketsForLeague(league: LeagueId, requested?: string[] | null): string[] {
@@ -109,6 +140,19 @@ export function marketsForLeague(league: LeagueId, requested?: string[] | null):
     return !!m && marketSport(m) === sport
   })
   return kept.length > 0 ? kept : leagueFor(league).markets
+}
+
+/**
+ * The markets to ask a competition for.
+ *
+ * A companion always uses its own list and ignores the Markets box in
+ * Settings. That box belongs to the league you selected, and the whole reason
+ * college football asks for two markets rather than four is that the other two
+ * come back empty there: letting a four-market NFL list travel across would
+ * quietly undo the saving and bill for the empty responses again.
+ */
+export function marketsForCompetition(competition: LeagueConfig, requested?: string[] | null): string[] {
+  return competition.companionOnly ? competition.markets : marketsForLeague(competition.id, requested)
 }
 
 /** Reverse lookup, used when requesting only the markets on your board. */
@@ -126,6 +170,11 @@ export interface NormalizedQuote extends BookQuote {
   homeTeam: string
   awayTeam: string
   commenceTime: string
+  /**
+   * Which competition the quote came from, set when a league's section covers
+   * more than one. The pricing engine reads it to pick the right priors.
+   */
+  competition?: LeagueId
 }
 
 export interface NormalizeResult {
@@ -144,7 +193,7 @@ export interface NormalizeResult {
  * price is worth something, but the projection layer marks it as having an
  * assumed rather than measured margin.
  */
-export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport): NormalizeResult {
+export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport, competition?: LeagueId): NormalizeResult {
   // The league asked for decides what "player_points" means; failing that, the payload's own sport.
   const inSport = sport ?? sportOfFeedKey(event.sport_key)
   const quotes: NormalizedQuote[] = []
@@ -204,6 +253,7 @@ export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport): Normali
           homeTeam: event.home_team,
           awayTeam: event.away_team,
           commenceTime: event.commence_time,
+          competition,
         })
       }
     }
@@ -212,11 +262,11 @@ export function normalizeEventOdds(event: FeedEventOdds, sport?: Sport): Normali
   return { quotes, unknownMarkets: Array.from(unknownMarkets), dropped }
 }
 
-export function normalizeMany(events: FeedEventOdds[], sport?: Sport): NormalizeResult {
+export function normalizeMany(events: FeedEventOdds[], sport?: Sport, competition?: LeagueId): NormalizeResult {
   const all: NormalizeResult = { quotes: [], unknownMarkets: [], dropped: [] }
   const unknown = new Set<string>()
   for (const e of events) {
-    const r = normalizeEventOdds(e, sport)
+    const r = normalizeEventOdds(e, sport, competition)
     all.quotes.push(...r.quotes)
     all.dropped.push(...r.dropped)
     for (const m of r.unknownMarkets) unknown.add(m)
@@ -235,7 +285,19 @@ export interface MatchTarget {
 }
 
 export interface QuoteIndex {
-  get(player: string, market: MarketKey | null): NormalizedQuote[]
+  /**
+   * Prices for a player's market. Given the row's fixture, prices from that
+   * fixture win; without one, everything the name returns comes back and
+   * `ambiguous` says whether that spans more than one game.
+   */
+  get(player: string, market: MarketKey | null, gameId?: string | null): NormalizedQuote[]
+  /**
+   * True when the name and market match prices from more than one game and the
+   * row gave nothing to tell them apart. An imported board carries a name and
+   * a stat, often with no fixture, so this is the one place the ambiguity
+   * cannot be resolved — only reported.
+   */
+  ambiguous(player: string, market: MarketKey | null, gameId?: string | null): boolean
   size: number
   players: string[]
 }
@@ -248,10 +310,22 @@ export function indexQuotes(quotes: NormalizedQuote[]): QuoteIndex {
     if (arr) arr.push(q)
     else byKey.set(k, [q])
   }
+  const lookup = (player: string, market: MarketKey | null): NormalizedQuote[] => {
+    if (!market) return []
+    return byKey.get(`${normalizeName(player)}|${market}`) ?? []
+  }
+  const narrow = (found: NormalizedQuote[], gameId?: string | null): NormalizedQuote[] => {
+    if (!gameId) return found
+    const same = found.filter((q) => sameGameId(q.gameId, gameId))
+    return same.length > 0 ? same : found
+  }
   return {
-    get(player, market) {
-      if (!market) return []
-      return byKey.get(`${normalizeName(player)}|${market}`) ?? []
+    get(player, market, gameId) {
+      return narrow(lookup(player, market), gameId)
+    },
+    ambiguous(player, market, gameId) {
+      const found = narrow(lookup(player, market), gameId)
+      return new Set(found.map((q) => q.gameId)).size > 1
     },
     size: quotes.length,
     players: Array.from(new Set(quotes.map((q) => q.playerKey))),
@@ -262,6 +336,13 @@ export interface AttachResult<T> {
   rows: T[]
   matched: number
   unmatched: { player: string; market: string }[]
+  /**
+   * Rows whose name and stat matched prices from more than one game, so the
+   * prices attached may belong to a different player of the same name. Named
+   * rather than guessed at: a wrong price is worse than no price, and this is
+   * the whole reason the app refuses to match approximately.
+   */
+  ambiguous: { player: string; market: string; games: string[] }[]
 }
 
 /**
@@ -271,25 +352,29 @@ export interface AttachResult<T> {
  * reported rather than fuzzily guessed: attaching Jalen Williams' price to
  * Jaylin Williams would be worse than leaving the prop unpriced.
  */
-export function attachQuotes<T extends { player: string; marketKey: MarketKey | null; marketLabel?: string }>(
-  rows: T[],
-  index: QuoteIndex,
-): AttachResult<T & { quotes: BookQuote[] }> {
+export function attachQuotes<
+  T extends { player: string; marketKey: MarketKey | null; marketLabel?: string; gameId?: string | null },
+>(rows: T[], index: QuoteIndex): AttachResult<T & { quotes: BookQuote[] }> {
   const out: (T & { quotes: BookQuote[] })[] = []
   const unmatched: { player: string; market: string }[] = []
+  const ambiguous: AttachResult<T>["ambiguous"] = []
   let matched = 0
 
   for (const row of rows) {
-    const found = index.get(row.player, row.marketKey)
+    const found = index.get(row.player, row.marketKey, row.gameId)
+    const market = row.marketLabel ?? String(row.marketKey)
     if (found.length > 0) matched++
-    else unmatched.push({ player: row.player, market: row.marketLabel ?? String(row.marketKey) })
+    else unmatched.push({ player: row.player, market })
+    if (index.ambiguous(row.player, row.marketKey, row.gameId)) {
+      ambiguous.push({ player: row.player, market, games: Array.from(new Set(found.map((q) => q.gameId))).sort() })
+    }
     out.push({
       ...row,
       quotes: found.map((q) => ({ book: q.book, line: q.line, overOdds: q.overOdds, underOdds: q.underOdds, fetchedAt: q.fetchedAt })),
     })
   }
 
-  return { rows: out, matched, unmatched }
+  return { rows: out, matched, unmatched, ambiguous }
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +402,127 @@ export function eventOddsUrl(
   if (opts.bookmakers && opts.bookmakers.length > 0) params.set("bookmakers", opts.bookmakers.join(","))
   const sport = leagueFor(opts.league ?? DEFAULT_LEAGUE).sportKey
   return `${BASE}/sports/${sport}/events/${encodeURIComponent(eventId)}/odds?${params.toString()}`
+}
+
+/**
+ * The sport-level odds endpoint: every upcoming game at once, with the books
+ * that price the market asked for.
+ *
+ * Billed per market per region, NOT per event: one market in one region is a
+ * single credit whether it returns four games or sixty. That is what makes the
+ * depth ranking below affordable, and it is why `regions` is pinned to one
+ * here rather than following the app's three-region default, which would make
+ * the same call cost three.
+ *
+ * Verified from the vendor's own sample code — "The usage quota cost =
+ * [number of markets specified] x [number of regions specified]", in the
+ * comment directly above this endpoint's GET in the-odds-api/samples-python,
+ * samples-nodejs and samples-php — rather than from the docs page, which this
+ * environment cannot reach. The window parameters do not change the cost but
+ * are passed anyway, because without them a Saturday ranking is computed over
+ * next week's games too.
+ */
+export function sportOddsUrl(
+  apiKey: string,
+  league: LeagueId,
+  opts: { markets: string[]; regions?: string; fromMs?: number; toMs?: number },
+): string {
+  const params = new URLSearchParams({
+    apiKey,
+    regions: opts.regions ?? DEPTH_REGION,
+    markets: opts.markets.join(","),
+    oddsFormat: "american",
+  })
+  if (opts.fromMs != null) params.set("commenceTimeFrom", isoSeconds(opts.fromMs))
+  if (opts.toMs != null) params.set("commenceTimeTo", isoSeconds(opts.toMs))
+  const sport = leagueFor(league).sportKey
+  return `${BASE}/sports/${sport}/odds?${params.toString()}`
+}
+
+/** One region, so the ranking call stays a single credit. */
+export const DEPTH_REGION = "us"
+
+/** The feed wants whole seconds with no milliseconds. */
+function isoSeconds(ms: number): string {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z")
+}
+
+/**
+ * How deep a game's market is, read off who prices its spread.
+ *
+ * A book that cannot be bothered to hang a spread on a game will not be
+ * hanging player props on it either, so the number of books pricing the spread
+ * is the cheapest available proxy for whether that game's props are worth
+ * paying for. It is a proxy and not a measurement: the only direct answer is
+ * one credit per game, which defeats the purpose.
+ */
+export interface GameDepth {
+  id: string
+  commence_time: string
+  home_team: string
+  away_team: string
+  /** Books pricing the spread. */
+  books: number
+  /** Consensus spread, as a margin in points. Null when nobody priced one. */
+  spread: number | null
+}
+
+export interface DepthRanking {
+  /** Worth paying for, best first. */
+  ranked: GameDepth[]
+  /** Skipped: the favourite is so far ahead that the starters will not finish. */
+  blowouts: GameDepth[]
+  /** Skipped: no book priced the game at all. */
+  unpriced: GameDepth[]
+}
+
+/**
+ * Above this margin a game is not worth pricing props on.
+ *
+ * A four-touchdown favourite benches the quarterback and the lead back in the
+ * fourth quarter, which is exactly where a yardage prop is decided. The number
+ * is judgement rather than a fit: 21 is three scores, the point where the
+ * second string is a plan rather than an accident.
+ */
+export const BLOWOUT_MARGIN = 21
+
+export function rankByDepth(events: FeedEventOdds[], opts: { maxMargin?: number } = {}): DepthRanking {
+  const maxMargin = opts.maxMargin ?? BLOWOUT_MARGIN
+  const measured: GameDepth[] = (events ?? []).map((e) => {
+    const margins: number[] = []
+    let books = 0
+    for (const b of e.bookmakers ?? []) {
+      const spreads = (b.markets ?? []).find((m) => m.key === "spreads")
+      if (!spreads) continue
+      books++
+      for (const o of spreads.outcomes ?? []) {
+        if (o.point != null && Number.isFinite(o.point)) margins.push(Math.abs(o.point))
+      }
+    }
+    margins.sort((a, b) => a - b)
+    return {
+      id: String(e.id),
+      commence_time: e.commence_time,
+      home_team: e.home_team,
+      away_team: e.away_team,
+      books,
+      spread: margins.length > 0 ? margins[Math.floor(margins.length / 2)] : null,
+    }
+  })
+
+  const unpriced = measured.filter((g) => g.books === 0)
+  const priced = measured.filter((g) => g.books > 0)
+  const blowouts = priced.filter((g) => g.spread != null && g.spread > maxMargin)
+  const ranked = priced
+    .filter((g) => !(g.spread != null && g.spread > maxMargin))
+    // Most books first, then the closest game, then the earliest.
+    .sort(
+      (a, b) =>
+        b.books - a.books ||
+        (a.spread ?? maxMargin) - (b.spread ?? maxMargin) ||
+        a.commence_time.localeCompare(b.commence_time),
+    )
+  return { ranked, blowouts, unpriced }
 }
 
 /**

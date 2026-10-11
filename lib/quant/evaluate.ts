@@ -1,4 +1,5 @@
 import type { MarketKey } from "@/lib/nba/markets"
+import type { LeagueId } from "@/lib/leagues"
 import {
   choleskyWithShrinkage,
   correlationMatrix,
@@ -28,6 +29,12 @@ export interface EvalLeg {
   pPush: number
   /** Price on venues that quote each leg (exchange, prediction market). */
   american?: number | null
+  /**
+   * The competition this leg's prop belongs to, when its section covers more
+   * than one. Carried so a logged entry records it: a college leg reported as
+   * NFL calibration is a wrong answer, not a rounding error.
+   */
+  competition?: LeagueId
 }
 
 function toCorrelationLeg(l: EvalLeg): CorrelationLeg {

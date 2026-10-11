@@ -126,14 +126,57 @@ Dispersion is a per-market ratio of variance to mean:
 | 3-Pointers Made | 1.15 | ≈ 5.4 |
 | Steals | 1.05 | ≈ 5.1 |
 
-These are priors fitted to typical NBA game-log behaviour, not measured constants. The WNBA
-scales them by 1.05, because a shorter game with shorter rotations makes a player's minutes a
-little less knowable. NFL markets have their own ratios (passing yards 19, rushing yards 13,
-receiving yards 16, receptions 1.1, passing touchdowns 0.8) and are not scaled. Note that
-holding the ratio fixed while the mean falls already widens the relative spread, since
+These are priors fitted to typical NBA game-log behaviour, not measured constants. NFL markets
+have their own ratios (passing yards 19, rushing yards 13, receiving yards 16, receptions 1.1,
+passing touchdowns 0.8) and are not scaled. College football scales the football ratios by 1.2,
+because a blowout, a benched starter and an unknowable backfield split all widen the outcome.
+Note that holding the ratio fixed while the mean falls already widens the relative spread, since
 variance/mean = r implies sd/mean = sqrt(r/mean); the multipliers sit on top of that. They are
 the single largest modelling assumption in the app, and the outcome-spread slider in
 settings scales all of them at once.
+
+**Yardage markets also carry a floor on the relative spread**, because that same identity cuts
+the wrong way at the top of the range: sd/mean = sqrt(r/mean) means the ratio prior makes a big
+projection look more predictable than it is. At ratio 19 a 235-yard passing line gets a standard
+deviation of 67 (28% of the mean, about right) and a 340-yard line gets 80 (24%, far too
+confident). Passing, rushing, receiving and rush+rec yards therefore take the wider of the ratio
+prior and a coefficient of variation of 0.27, 0.45, 0.52 and 0.45. The outcome-spread slider
+scales the floor too, so widening uncertainty still widens the answer.
+
+**A line priced before kickoff is widened for the wait.** Four percent of variance per day until
+the game starts, capped at twelve percent. Football props post days ahead and move on injury,
+depth-chart and weather news; the price was correct for what was known when it was posted, and
+the rest is uncertainty that belongs in the distribution. Under four percent on a slate pulled
+the same evening, so it is a football correction in practice.
+
+UNFITTED, and the app says so wherever it shows. What would fit it is the same prop's line seen
+twice at different distances from kick-off: the spread of that movement IS the uncertainty the
+factor prices, because what the factor says is "we do not yet know what the line will be at
+kick-off". Each pull therefore keeps a compact row per prop and the tracker prints the measured
+variance per day beside the 4% in use, scaled against the outcome's own variance so a 12-yard move
+on a 250-yard line and a half-shot move on a 3-shot line are comparable numbers. The spread is
+measured about the mean move rather than about zero, so a market that drifts one way all week is
+treated as a bias to correct rather than noise to widen for. Pairs are joined on the prop AND the
+fixture's start time, because a game id is two team names and the same two teams meet again.
+
+The gap it can observe is hours rather than days: the Today screen's window runs from local
+midnight to 11am the next morning, so a Sunday game is not pullable on Saturday. The measurement is
+therefore the final day's movement extrapolated per day, which is a lower bound on a week's drift,
+and the tracker says so beside the number.
+
+**The gap between what was predicted and what happened implies a spread.** The dial multiplies
+variance, so a multiplier k scales each leg's distance from the line by 1/sqrt(k); the k that would
+have turned these predictions into this hit rate is the one solving mean_i Phi(z_i / sqrt(k)) =
+actual, found by bisection over the dial's own range. Solved over the individual legs rather than
+their average, because Phi^-1 of a mean is not the mean of Phi^-1 — a group holding a 55% leg and
+an 85% leg does not behave like two 70% legs. The tracker prints it per competition and per market.
+
+Four limits, all stated beside it: it is a normal approximation to count distributions; a group
+whose predictions or whose realised rate sit on a coin flip carries no information about width and
+reports nothing rather than a number nobody can act on; beyond the dial's range it reports the
+limit, because a multiplier of 17 is not advice when the slider stops at 1.8; and because the
+stored probability already carried every correction the app applies, it measures what is LEFT
+rather than any one correction, so it cannot be used to fit the widening above.
 
 Uncertainty about the projection is folded into the outcome spread. A shaky projection
 produces probabilities closer to 50%, which is the honest response to not knowing.

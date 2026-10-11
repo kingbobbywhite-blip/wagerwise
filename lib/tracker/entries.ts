@@ -1,5 +1,6 @@
 import type { MarketKey } from "@/lib/nba/markets"
 import { extractProps, linesFromText, type PropCandidate } from "@/lib/ocr/extract"
+import type { LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 import { resolveLine } from "@/lib/quant/distributions"
 import { dfsPayout } from "@/lib/quant/evaluate"
@@ -128,14 +129,41 @@ export function priceLeg(
   settings: ValueBetSettings,
   now = Date.now(),
 ): number | null {
+  return matchLeg(quotes, leg, settings, now)?.pWin ?? null
+}
+
+/**
+ * The same match, with what it was matched against.
+ *
+ * The competition matters at log time: it is the only moment anything knows
+ * whether a leg was a college prop pulled inside the NFL section, and a leg
+ * stores no game, so it can never be worked out later. The ambiguity is worth
+ * naming too — two players on the slate normalising to one name means this
+ * price may be the other one's.
+ */
+export function matchLeg(
+  quotes: FeedQuote[] | undefined,
+  leg: { player: string; marketKey: MarketKey | null; line: number; side: "OVER" | "UNDER" },
+  settings: ValueBetSettings,
+  now = Date.now(),
+): { pWin: number; competition?: LeagueId; gameId: string; ambiguous: boolean } | null {
   if (!quotes?.length || !leg.marketKey || !Number.isFinite(leg.line)) return null
   const who = normalizeName(leg.player)
-  const group = groupQuotes(quotes).find((g) => g.market === leg.marketKey && normalizeName(g.player) === who)
+  const groups = groupQuotes(quotes).filter((g) => g.market === leg.marketKey && normalizeName(g.player) === who)
+  const group = groups[0]
   if (!group) return null
   const ref = referenceProjection(group, group.quotes, settings, now)
   if (!ref || ref.status !== "priced") return null
   const r = resolveLine(ref.distribution, leg.line)
-  return leg.side === "OVER" ? r.over : r.under
+  return {
+    pWin: leg.side === "OVER" ? r.over : r.under,
+    competition: group.competition,
+    gameId: group.gameId,
+    // An entry screen gives a name and a stat, never a fixture, so when the
+    // slate holds two players of that name there is nothing here to choose
+    // between them.
+    ambiguous: groups.length > 1,
+  }
 }
 
 export interface Exposure {

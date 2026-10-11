@@ -1,4 +1,6 @@
-import { clamp } from "./math"
+import { clamp, normalCdf, normalInvCdf } from "./math"
+import type { MarketKey } from "@/lib/nba/markets"
+import type { LeagueId } from "@/lib/leagues"
 
 /**
  * Did the model tell the truth?
@@ -19,6 +21,15 @@ export interface Observation {
   p: number
   /** Did it actually cash? Pushes should be excluded by the caller. */
   win: boolean
+  /**
+   * What the leg was, so the same legs can be read along a second axis.
+   * Absent on legs logged before any of this was recorded, which report in
+   * their own bucket rather than being folded into a guess.
+   */
+  competition?: LeagueId
+  league?: LeagueId
+  market?: MarketKey | null
+  marketLabel?: string
 }
 
 export interface CalibrationBucket {
@@ -122,4 +133,157 @@ export function summarise(
     wins: settled.filter((s) => (s.actualMultiple ?? 0) > 1).length,
     losses: settled.filter((s) => (s.actualMultiple ?? 0) <= 1).length,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Reading the same legs along a second axis
+// ---------------------------------------------------------------------------
+
+export interface GroupedCalibration {
+  /** What this row is: a competition id, a market key, or the absent bucket. */
+  key: string
+  label: string
+  count: number
+  predicted: number
+  actual: number
+  stderr: number
+  /**
+   * The gap, with the sign that matters: positive means the model was more
+   * confident than the results. Negative is not good news either; it means the
+   * distribution is wider than it needs to be and edges are being missed.
+   */
+  bias: number
+  /**
+   * The variance multiplier that would reconcile the two, or null when the
+   * sample is too small or the arithmetic degenerate. See impliedDispersion.
+   */
+  impliedDispersion: number | null
+  /**
+   * True when the answer is the end of the dial's range rather than a value
+   * inside it: the gap is bigger than the dial can express, and the honest
+   * reading is "as far as it goes, and it still will not be enough".
+   */
+  dispersionPegged: boolean
+  /** True when the gap is larger than two standard errors on this sample. */
+  significant: boolean
+}
+
+/**
+ * The range of the outcome-spread dial in Settings, which is what this number
+ * is for. A multiplier outside it is not advice anyone can take.
+ */
+export const DISPERSION_DIAL_RANGE = { min: 0.7, max: 1.8 }
+
+/**
+ * How much wider the distribution would have to be for the predictions to
+ * match the results.
+ *
+ * Under a normal approximation a prediction p sits z = Phi^-1(p) standard
+ * deviations from the line. The dial multiplies VARIANCE, so a multiplier k
+ * scales sd by sqrt(k) and z by 1/sqrt(k): the k that would have turned these
+ * predictions into this hit rate is the one solving mean_i Phi(z_i / sqrt(k)) =
+ * actual. Above 1 means the model was overconfident and the dial should go up.
+ *
+ * Solved over the individual legs rather than on the group's average
+ * probability, because Phi^-1 of a mean is not the mean of Phi^-1: a group
+ * holding a 55% leg and an 85% leg does not behave like two 70% legs, and
+ * inverting the average silently claimed it did.
+ *
+ * Four honest limits, all of which belong next to the number on screen:
+ *
+ *   It is a normal approximation to count distributions, so it is a direction
+ *   and a rough size, not a fitted parameter.
+ *
+ *   It measures what is LEFT after every correction the app already applies,
+ *   including the kickoff widening, because the stored probability had those
+ *   baked in. It cannot be used to fit them; it says whether the total was
+ *   enough.
+ *
+ *   A realised rate near a coin flip needs an enormous width to explain, and
+ *   predictions already near one say nothing about width at all. Both come
+ *   back null rather than as a number nobody can act on.
+ *
+ *   Beyond the dial's own range there is no advice to give, so it reports the
+ *   limit it exceeded rather than a figure like 25 that would send someone to
+ *   pin a slider that stops at 1.8.
+ */
+export function impliedDispersion(legs: Observation[], minCount = 25): number | null {
+  const count = legs.length
+  if (count < minCount) return null
+
+  const actual = clamp(legs.filter((o) => o.win).length / count, 1e-4, 1 - 1e-4)
+  const zs = legs.map((o) => normalInvCdf(clamp(o.p, 1e-4, 1 - 1e-4)))
+  const meanZ = zs.reduce((a, z) => a + z, 0) / zs.length
+  const zActual = normalInvCdf(actual)
+  // Predictions sitting on a coin flip carry no information about width: every
+  // width gives 50% at the line.
+  if (Math.abs(meanZ) < 0.1) return null
+  // A realised rate on the coin flip needs an infinite width to explain, and a
+  // rate on the other side of it is the wrong SIDE rather than the wrong width.
+  if (Math.abs(zActual) < 0.1 || meanZ * zActual < 0) return null
+
+  // Monotone in k, so a bisection over the dial's range answers whether the
+  // dial can express it at all.
+  const hit = (k: number) => zs.reduce((a, z) => a + normalCdf(z / Math.sqrt(k)), 0) / zs.length
+  const { min, max } = DISPERSION_DIAL_RANGE
+  // hit() falls as k rises: more spread pulls every leg toward 50%.
+  if (hit(max) > actual) return max
+  if (hit(min) < actual) return min
+  let lo = min
+  let hi = max
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2
+    if (hit(mid) > actual) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
+/**
+ * The same settled legs, grouped along whichever axis is passed.
+ *
+ * Deliberately one axis at a time rather than a cross-product. Competition by
+ * market by probability band is thirty or more cells, and with a hundred-odd
+ * settled legs almost every one of them would render a number built on five
+ * results. Two separate tables, each with a floor under it, say something; a
+ * grid of noise says less than nothing because it invites a reaction.
+ */
+export function groupedCalibration(
+  obs: Observation[],
+  axis: (o: Observation) => { key: string; label: string } | null,
+  opts: { minCount?: number } = {},
+): GroupedCalibration[] {
+  const minCount = opts.minCount ?? 25
+  const groups = new Map<string, { label: string; obs: Observation[] }>()
+  for (const o of obs) {
+    const at = axis(o)
+    const key = at?.key ?? "unrecorded"
+    const label = at?.label ?? "Before this was recorded"
+    const g = groups.get(key)
+    if (g) g.obs.push(o)
+    else groups.set(key, { label, obs: [o] })
+  }
+
+  const out: GroupedCalibration[] = []
+  for (const [key, g] of groups) {
+    const count = g.obs.length
+    const predicted = g.obs.reduce((a, o) => a + o.p, 0) / count
+    const actual = g.obs.filter((o) => o.win).length / count
+    const stderr = Math.sqrt(Math.max(actual * (1 - actual), 1e-9) / count)
+    const implied = impliedDispersion(g.obs, minCount)
+    out.push({
+      key,
+      label: g.label,
+      count,
+      predicted,
+      actual,
+      stderr,
+      bias: predicted - actual,
+      impliedDispersion: implied,
+      dispersionPegged:
+        implied != null && (implied >= DISPERSION_DIAL_RANGE.max || implied <= DISPERSION_DIAL_RANGE.min),
+      significant: Math.abs(predicted - actual) > 2 * stderr && count >= 20,
+    })
+  }
+  return out.sort((a, b) => b.count - a.count)
 }

@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Activity } from "lucide-react"
 import { NavLinks } from "./nav-links"
+import { StorageNotice } from "./storage-notice"
 import { LEAGUES, LEAGUE_IDS } from "@/lib/leagues"
 
 export function SiteHeader() {
@@ -20,6 +21,7 @@ export function SiteHeader() {
         </Link>
         <NavLinks />
       </div>
+      <StorageNotice />
     </header>
   )
 }

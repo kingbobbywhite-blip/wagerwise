@@ -3,6 +3,7 @@
 import { TriangleAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { SideBadge } from "@/components/side-badge"
+import { CompetitionBadge } from "@/components/competition-badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatAmerican } from "@/lib/quant/odds"
 import { recommendStake } from "@/lib/quant/staking"
@@ -18,7 +19,10 @@ export function ValueBetRow({ bet, bankroll }: { bet: ValueBet; bankroll: Bankro
   return (
     <tr className={cn("border-b border-border/40 last:border-0 hover:bg-card/40", suspicious && "opacity-70")}>
       <td className="px-3 py-2">
-        <div className="font-medium leading-tight">{bet.player}</div>
+        <div className="flex items-center gap-1.5 font-medium leading-tight">
+          {bet.player}
+          <CompetitionBadge competition={bet.competition} />
+        </div>
         {/* The book and the bet, in the first column so a phone shows them without scrolling sideways. */}
         <div className="mt-0.5 font-mono text-[11px]">
           <span className="text-primary">{bet.bookName}</span>

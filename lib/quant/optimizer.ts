@@ -1,4 +1,4 @@
-import { correlationMatrix, DEFAULT_CORRELATION, normalizeName, type CorrelationLeg, type CorrelationSettings } from "./correlation"
+import { correlationMatrix, DEFAULT_CORRELATION, playerKeyIn, type CorrelationLeg, type CorrelationSettings } from "./correlation"
 import { dfsPayout, evaluateSlip, oddsParlayPayout, type EvalLeg, type PayoutFn, type SlipEvaluation } from "./evaluate"
 import { clamp, hashString } from "./math"
 import { supportedPickCounts, type PayoutMode } from "./payouts"
@@ -124,11 +124,14 @@ function buildPool(legs: CandidateLeg[], cfg: CorrelationSettings): Pool {
     market: l.market,
     isOver: l.side === "OVER",
   }))
+  const gameKey = legs.map((l) => l.gameId ?? gameKeyFromTeams(l.team, l.opponent))
   return {
     legs,
     matrix: correlationMatrix(corrLegs, cfg),
-    playerKey: legs.map((l) => normalizeName(l.player)),
-    gameKey: legs.map((l) => l.gameId ?? gameKeyFromTeams(l.team, l.opponent)),
+    // Per player, not per name: two same-named players in different games are
+    // two people, and the one-leg-per-player rule must not exclude the second.
+    playerKey: legs.map((l, i) => playerKeyIn(l.player, gameKey[i])),
+    gameKey,
     teamKey: legs.map((l) => (l.team ?? "").toUpperCase()),
   }
 }

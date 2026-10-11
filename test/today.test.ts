@@ -293,12 +293,30 @@ describe("a pick'em entry to play", () => {
 
   it("takes the likeliest legs that clear the bar, one per player, two per game", () => {
     const entry = buildPickemEntry(
-      [t("A", "g1", 0.7), t("B", "g1", 0.68), t("C", "g1", 0.66), t("D", "g2", 0.6), t("A", "g2", 0.65, "OVER"), t("E", "g3", 0.5)],
+      [
+        t("A", "g1", 0.7),
+        t("A", "g1", 0.69, "OVER"),
+        t("B", "g1", 0.68),
+        t("C", "g1", 0.66),
+        t("D", "g2", 0.6),
+        t("E", "g3", 0.5),
+      ],
       3,
       0.55,
     )!
-    // C is a third leg in g1; A's second prop would be the same player twice; E is below the bar.
+    // A's second prop in the same game would be the same player twice; C is a
+    // third leg in g1; E is below the bar.
     expect(entry.map((l) => l.target.player)).toEqual(["A", "B", "D"])
+  })
+
+  it("treats the same name in two different games as two different people", () => {
+    // One person cannot play two games in a day, so a name in two fixtures is
+    // two people — ordinary across 130 college teams. Excluding the second as
+    // a duplicate would silently drop a playable leg, and pooling them would
+    // be worse: it would enter one player at the other's line.
+    const entry = buildPickemEntry([t("A", "g1", 0.7), t("A", "g2", 0.65, "OVER")], 2, 0.55)!
+    expect(entry).toHaveLength(2)
+    expect(entry.map((l) => l.target.gameId)).toEqual(["g1", "g2"])
   })
 
   it("refuses to pad an entry with legs below the bar", () => {

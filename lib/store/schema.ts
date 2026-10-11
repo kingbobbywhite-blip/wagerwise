@@ -2,10 +2,11 @@ import { DEFAULT_CORRELATION, type CorrelationSettings } from "@/lib/quant/corre
 import { DEFAULT_CONSTRAINTS, type OptimizerConstraints } from "@/lib/quant/optimizer"
 import { DEFAULT_APPS, type BookApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow } from "@/lib/quant/projection"
-import type { MarketKey } from "@/lib/nba/markets"
+import { MARKETS, type MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import type { PickemLine } from "@/lib/odds-feed/propline"
 import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId } from "@/lib/leagues"
+import { PICKEM_MAX_PROB } from "@/lib/today/build"
 
 export const STATE_VERSION = 1
 
@@ -96,12 +97,32 @@ export interface DailySettings {
   /** Cap on games pulled in one refresh, to protect the feed quota. */
   maxGames: number
   /**
+   * Pull the selected league's companion competitions too: college football
+   * inside the NFL section.
+   *
+   * Off by default, because a companion costs feed credits on top of the
+   * league's own slate and the default for anything that spends money is not
+   * to. With it off, a companion's games from an earlier pull are kept in the
+   * cache but left out of the picks, so turning it back on costs nothing.
+   */
+  companions: boolean
+  /**
+   * The most lopsided a pick'em pick can be and still be assumed to exist.
+   *
+   * A pick'em app makes its money on a flat payout table, which only works if
+   * both sides of every pick are plausible, so it does not post a prop whose
+   * favoured side is a near-certainty however happily a sportsbook prices one.
+   * Props above this are left out of the targets and listed under them, so the
+   * judgement is visible and yours to move. 1 keeps everything.
+   */
+  pickemMaxProb: number
+  /**
    * Feed market keys to request. Fewer markets means fewer credits.
    *
    * Null means "use whatever this league posts", which is almost always the
    * right answer: basketball and the NFL post entirely different markets, and
-   * paying for a market that comes back empty is the easiest way to waste a
-   * quota. Entries from the wrong sport for a league are ignored.
+   * asking for one a league never posts buys nothing and may cost a credit.
+   * Entries from the wrong sport for a league are ignored.
    */
   markets: string[] | null
 }
@@ -113,6 +134,8 @@ export const DEFAULT_DAILY: DailySettings = {
   parlayLegs: 3,
   maxGames: LEAGUES[DEFAULT_LEAGUE].maxGames,
   markets: null,
+  companions: false,
+  pickemMaxProb: PICKEM_MAX_PROB,
 }
 
 export interface AppSettings {
@@ -184,6 +207,22 @@ export interface TrackedLeg {
   actual: number | null
   /** Absent on legs logged before pick types were recorded. */
   pickType?: PickType
+  /**
+   * The section the entry was played in, and the competition this leg's prop
+   * actually belongs to. They are not the same field: a pick'em board mixes
+   * NFL and college legs on one entry, so the section says "nfl" while the leg
+   * says "cfb", and reporting the college ones as NFL calibration is the same
+   * class of wrong attribution as fusing two players by name.
+   *
+   * Both absent on legs logged before this was recorded, and they cannot be
+   * backfilled: a leg stores no game and no start time, so nothing identifies
+   * the pull it came from. The nearest inference is the stat's sport, which
+   * separates basketball from hockey and cannot separate the NFL from college
+   * — exactly the split this exists to show. Those legs report in their own
+   * bucket rather than being folded into a guess.
+   */
+  league?: LeagueId
+  competition?: LeagueId
 }
 
 export interface TrackedSlip {
@@ -250,7 +289,79 @@ export interface DailyCache {
   pickemLines?: PickemLine[]
   /** Why the pick'em lines are missing or partial, when they are. */
   pickemNote?: string | null
+  /**
+   * What choosing which games to price did, when a competition's slate was
+   * bigger than its cap and the games were ranked by market depth rather than
+   * start time. A thin board has to read as expected rather than broken.
+   */
+  depthNote?: string | null
 }
+
+/**
+ * One prop's line as it stood at one moment, compacted.
+ *
+ * Not a copy of the quotes: a pull's quotes are per book and run to megabytes,
+ * and storage is already tight enough that a full NFL Sunday can fail to save.
+ * This is one row per prop — the consensus line, the two best prices and how
+ * many books posted it — which is about 175 bytes, so a season of pulls fits
+ * in the space a single verbatim copy would take.
+ *
+ * The point of keeping it is the only thing that can fit the kickoff widening
+ * honestly: the same prop's line pulled days out and again near kickoff. That
+ * needs a pull on game day for games already pulled midweek; nothing here can
+ * manufacture one, so the readout says how many pairs it actually has.
+ */
+export interface LineSnapshotRow {
+  /**
+   * The same identity groupQuotes builds: player, game and market. Joining on
+   * it inherits the name-collision fix rather than re-deriving it badly.
+   */
+  key: string
+  player: string
+  market: MarketKey
+  competition?: LeagueId
+  /** Hours from this pull to kick-off, which is the variable being fitted. */
+  hoursToStart: number | null
+  /**
+   * When the game starts.
+   *
+   * The key holds the two teams and not the date, because a game id is built
+   * as "away@home". Two meetings of the same teams a month apart therefore
+   * share a key, and pairing them would report a whole season's line drift as
+   * one game's pre-kickoff move. This is what tells them apart.
+   */
+  startsAt: string | null
+  /** Consensus line across the books that posted it. */
+  line: number
+  /** The implied mean behind that line, when the prop could be priced. */
+  mean: number | null
+  books: number
+}
+
+export interface LineSnapshot {
+  pulledAt: string
+  league: LeagueId
+  rows: LineSnapshotRow[]
+}
+
+/**
+ * Pulls kept, and rows kept within them. The oldest go on load, so storage
+ * cannot creep.
+ *
+ * Sized against the quota rather than guessed. A full NFL pull is about 1,100
+ * props at roughly 190 bytes a row, so one snapshot is around 200KB and eight
+ * is 1.6MB — which browsers meter in UTF-16, so 3.2MiB of a ~5MiB budget that
+ * the slate cache is already most of the way through. Twenty-four, the first
+ * number here, was about twice the whole quota: the history would have been
+ * what triggered the shed loop it is first in line to be shed by.
+ *
+ * Eight pulls is still a month of weekends, which is what the comparison
+ * needs. The row cap is the backstop for a slate far bigger than the NFL's.
+ */
+export const MAX_LINE_SNAPSHOTS = 8
+
+/** Rows kept per snapshot, newest-priced first. A full NFL pull is about 1,100. */
+export const MAX_SNAPSHOT_ROWS = 1500
 
 export interface AppState {
   version: number
@@ -259,6 +370,11 @@ export interface AppState {
   slips: TrackedSlip[]
   /** Last pull per league, so switching leagues does not discard a paid-for slate. */
   daily: Partial<Record<LeagueId, DailyCache>>
+  /**
+   * Line history, newest first, across pulls and leagues. Capped and pruned on
+   * load; the first thing dropped when storage runs out.
+   */
+  lines: LineSnapshot[]
 }
 
 export const EMPTY_STATE: AppState = {
@@ -267,6 +383,7 @@ export const EMPTY_STATE: AppState = {
   slate: null,
   slips: [],
   daily: {},
+  lines: [],
 }
 
 /**
@@ -300,6 +417,7 @@ export function migrate(raw: unknown): AppState {
     slate: o.slate ? { ...o.slate, league: isLeagueId(o.slate.league) ? o.slate.league : undefined } : null,
     slips: Array.isArray(o.slips) ? o.slips : [],
     daily: migrateDaily(o.daily),
+    lines: migrateLines(o.lines),
   }
 }
 
@@ -341,4 +459,49 @@ function migrateDaily(raw: unknown): Partial<Record<LeagueId, DailyCache>> {
     out[k] = { ...cache, league: k }
   }
   return out
+}
+
+/**
+ * Bring the line history forward, and prune it.
+ *
+ * Pruning here rather than in the UI means it runs on every load and every
+ * import, is covered by the schema tests, and cannot be skipped by a component
+ * that forgets. This is already where legacy storage shapes are normalised, so
+ * it is where a reader will look for the cap.
+ */
+function migrateLines(raw: unknown): LineSnapshot[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((s): s is LineSnapshot => {
+      if (!s || typeof s !== "object") return false
+      const snap = s as Partial<LineSnapshot>
+      return (
+        typeof snap.pulledAt === "string" &&
+        Number.isFinite(Date.parse(snap.pulledAt)) &&
+        isLeagueId(snap.league) &&
+        Array.isArray(snap.rows)
+      )
+    })
+    .map((snap) => ({ ...snap, rows: snap.rows.filter(isLineSnapshotRow).slice(0, MAX_SNAPSHOT_ROWS) }))
+    .sort((a, b) => b.pulledAt.localeCompare(a.pulledAt))
+    .slice(0, MAX_LINE_SNAPSHOTS)
+}
+
+/**
+ * A stored row worth reading. The market has to be one we model, because the
+ * readouts index the market table by it, and an imported file is arbitrary
+ * JSON: nothing between a hand-edited export and a crash but this.
+ */
+function isLineSnapshotRow(row: unknown): row is LineSnapshotRow {
+  if (!row || typeof row !== "object") return false
+  const r = row as Partial<LineSnapshotRow>
+  return (
+    typeof r.key === "string" &&
+    r.key.length > 0 &&
+    typeof r.player === "string" &&
+    typeof r.market === "string" &&
+    Object.prototype.hasOwnProperty.call(MARKETS, r.market) &&
+    typeof r.line === "number" &&
+    Number.isFinite(r.line)
+  )
 }

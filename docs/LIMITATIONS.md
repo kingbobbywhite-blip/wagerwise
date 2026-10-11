@@ -161,7 +161,8 @@ legal everywhere. Nothing here is financial advice.
 
 ## League coverage
 
-Four leagues are supported: NBA, WNBA, NFL and NHL. What is NOT modelled per league:
+Three sections are supported: NBA, NFL (with college football inside it) and NHL. What is NOT
+modelled per league:
 
 **NHL goalies and line combinations are not known.** Saves depend on who starts in net and on
 the other team's shot volume, and points depend on power-play units. The feed knows neither, so
@@ -169,19 +170,31 @@ a late goalie change makes every save line, and the other side's shots, stale un
 The hockey dispersion values are reasoned from typical game logs, not fitted, like every other
 league's.
 
-**College basketball was removed.** It was replaced by the NFL. Re-adding it is a data entry in
-`lib/leagues`, but its tests and notes went with it.
+**College basketball and the WNBA were removed.** Re-adding either is a data entry in
+`lib/leagues`, but their tests and notes went with them. A stored pull or a phone still set to
+one of them opens on the NBA. WNBA team codes stay in the screenshot reader, so a settled WNBA
+entry in the tracker still reads back.
 
-**The dispersion values are judgement, not fits.** The WNBA volatility multiplier (1.05) and
-every NFL market's spread (for example 19 for passing yards, 13 for rushing yards, 16 for
-receiving yards, as variance / mean) are reasoned from typical game logs. They have not been
+**College football is thin and barely priced away from television.** Only the games on a
+network carry real prop pricing; the rest of a Saturday comes back unpriced and is left out,
+which is the correct outcome but means the section covers a fraction of the slate. Its game cap
+is six for that reason and because a Saturday lists fifty games. It asks for the NFL's four
+markets, since the games the ranking picks are the televised ones where those markets exist. Its wider volatility prior
+(1.2 on the NFL's ratios) is reasoned from blowouts, benched starters and unknowable backfield
+splits — it is not fitted. The feed's college player names collide more often than the NFL's
+(two players of the same name across 130 teams), and a name is matched exactly rather than
+fuzzily, so a collision shows up as an unmatched prop rather than a wrong price.
+
+**The dispersion values are judgement, not fits.** The college football multiplier (1.2), every
+NFL market's spread (for example 19 for passing yards, 13 for rushing yards, 16 for receiving
+yards, as variance / mean) and the yardage spread floors (27% of the mean for passing yards,
+45% rushing, 52% receiving) are reasoned from typical game logs. They have not been
 fitted against realised results, because that needs a season of settled bets per league. Treat
 them as starting points and retune them from the tracker.
 
 **Minutes projections do not know league rules.** The rest and absence adjustments in the
-game-log estimator were built for an 82-game NBA schedule. A WNBA team on a 44-game schedule,
-or an NFL team playing weekly, has a different rest profile that is not modelled. Game-log
-import is basketball-only.
+game-log estimator were built for an 82-game NBA schedule. A football team playing weekly has a
+different rest profile that is not modelled. Game-log import is basketball-only.
 
 **NFL same-team correlation is invisible.** The feed does not say which team a player is on,
 so a quarterback and his own receiver are linked only as players in the same game. That
@@ -193,4 +206,54 @@ rushing yards in the same game.
 prices with no line, which this pipeline does not model.
 
 **Correlation is otherwise league-blind.** Same-game and same-player correlation is applied
-identically in both basketball leagues, and it is the least-tested assumption in the league work.
+identically in every league, including between an NFL leg and a college leg in the same
+section (they are never in the same game, so the effect is nil), and it is the least-tested
+assumption in the league work.
+
+**The pick'em ceiling is a prior about boards, not a measurement.** A prop whose every posted
+line leaves the favoured side above the ceiling is left out of the pick'em targets, on the
+reasoning that a pick'em app cannot offer a pick that lopsided and still pay a flat multiplier.
+That threshold is judgement. It is now a dial in Settings, what it removes is listed by name on
+screen, and a line PropLine shows an app actually posting overrides it — but with no pick'em feed
+attached it is still a guess about what a board would offer.
+
+**Browser storage is the binding constraint, and it was failing silently.** Everything is one
+localStorage blob. A pull stores every book's quote verbatim, so a 14-game NFL Sunday at eight
+books is 1.7-2.8MB of JSON; browsers meter localStorage in UTF-16 code units, so that is 3.4-5.5MiB
+of a roughly 5MiB quota before an NBA or NHL cache sits beside it. A full Sunday can therefore
+fail to save outright. A failed save now sheds load — line history, then other leagues' slates,
+then the imported board — and reports what it dropped in a banner every screen shows, instead of
+looking successful while writing nothing. What it does NOT do is make the underlying allocation
+smaller: a verbatim per-book cache is still what the engine needs to re-price without spending
+credits, so a large enough slate will still shed something.
+
+**Whether an empty market costs a credit is unverified.** This app has said it does. Two
+independent transcriptions of The Odds API docs give the per-event cost as unique markets
+RETURNED times regions, which would mean trimming a market list saves nothing in credits. The
+vendor's own documentation could not be reached from the environment this was checked in, so the
+claim is marked unverified in the code with the one-request experiment that would settle it
+(compare `x-requests-last` with and without a market the game does not post). No behaviour depends
+on the answer: market lists are trimmed because an unpriced prop is a worse board.
+
+**The depth ranking is a proxy, not a measurement.** How many books hang a spread on a game stands
+in for how deep its player-prop market will be. They correlate, because both follow television,
+but the only direct answer costs a credit per game and so defeats the purpose. The 21-point
+blowout cut-off is judgement too, and on an early-season Saturday it can leave fewer games than
+the cap — which is reported rather than quietly filled with worse ones.
+
+**The calibration readout cannot fit the kickoff widening.** A settled leg's stored probability
+already had the widening applied, so comparing it to the outcome measures the residual, not the
+correction. Only the line history is independent of it, and that depends on something the app
+cannot cause: a pull on game day for games already pulled midweek. Without those pairs the history
+accumulates size and yields no fit.
+
+**Splitting calibration thins the sample fast.** The headline number asks for 100 legs and the
+band table refuses to highlight a gap under 20. Per competition and per market are therefore
+separate tables rather than a grid, and the implied multiplier appears only at 25 legs — but even
+so, a new competition will show nothing useful for a long time, and CFB legs mostly reach the
+tracker through the screenshot path, which is the path where the competition is hardest to resolve.
+
+**The implied dispersion multiplier is a normal approximation.** It inverts a hit-rate gap into a
+variance multiplier through the normal quantile, which is not how the count distributions the app
+actually uses behave, and a yardage leg sitting on its coefficient-of-variation floor does not
+scale with it at all. It is a direction and a rough size, and it is labelled that way on screen.

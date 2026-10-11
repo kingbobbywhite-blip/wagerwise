@@ -220,6 +220,287 @@ describe("/api/today", () => {
   })
 })
 
+describe("/api/today with a companion competition", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /** A feed that answers per sport, so the NFL and college listings differ. */
+  function stubFootballFeed(now: number) {
+    const bySport: Record<string, { id: string; commence_time: string; home_team: string; away_team: string }[]> = {
+      americanfootball_nfl: [
+        { id: "nfl1", commence_time: iso(now + 3 * HOUR), home_team: "Chiefs", away_team: "Bills" },
+      ],
+      americanfootball_ncaaf: [
+        { id: "cfb1", commence_time: iso(now + 4 * HOUR), home_team: "Buckeyes", away_team: "Nittany Lions" },
+        { id: "cfb2", commence_time: iso(now + 5 * HOUR), home_team: "Tigers", away_team: "Crimson Tide" },
+      ],
+    }
+    const urls: string[] = []
+    const book = (key: string) => ({
+      key,
+      title: key,
+      markets: [
+        {
+          key: "player_pass_yds",
+          outcomes: [
+            { name: "Over", description: "Some Passer", price: -110, point: 245.5 },
+            { name: "Under", description: "Some Passer", price: -110, point: 245.5 },
+          ],
+        },
+      ],
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(url)
+        const sport = url.match(/\/sports\/([^/]+)\//)![1]
+        const ev = url.match(/\/events\/([^/?]+)\/odds/)
+        if (ev) {
+          const e = bySport[sport].find((x) => x.id === ev[1])!
+          return json({ ...e, sport_key: sport, bookmakers: [book("pinnacle"), book("fanduel")] }, 200, QUOTA)
+        }
+        return json(bySport[sport].map((e) => ({ ...e, sport_key: sport })), 200, QUOTA)
+      }),
+    )
+    return { urls, oddsCalls: () => urls.filter((u) => u.includes("/odds?")) }
+  }
+
+  it("leaves college football out unless the press asks for it", async () => {
+    const now = Date.now()
+    const feed = stubFootballFeed(now)
+    const data = await (
+      await today({
+        league: "nfl",
+        markets: ["player_pass_yds"],
+        from: iso(now - HOUR),
+        to: iso(now + 12 * HOUR),
+        maxGames: 5,
+      })
+    ).json()
+    // No college listing was even asked for, so nothing was billed for it.
+    expect(feed.urls.some((u) => u.includes("ncaaf"))).toBe(false)
+    expect(data.events.map((e: { id: string }) => e.id)).toEqual(["nfl1"])
+    expect(data.estimatedCredits).toBe(1)
+  })
+
+  it("pulls college football with the NFL in one press and tags its props", async () => {
+    const now = Date.now()
+    const feed = stubFootballFeed(now)
+    const res = await today({
+      league: "nfl",
+      companions: true,
+      markets: ["player_pass_yds"],
+      from: iso(now - HOUR),
+      to: iso(now + 12 * HOUR),
+      maxGames: 5,
+    })
+    const data = await res.json()
+    expect(res.status).toBe(200)
+    // Both listings were asked for, and both competitions' games were priced.
+    expect(feed.urls.some((u) => u.includes("/sports/americanfootball_nfl/events?"))).toBe(true)
+    expect(feed.urls.some((u) => u.includes("/sports/americanfootball_ncaaf/events?"))).toBe(true)
+    expect(feed.oddsCalls()).toHaveLength(3)
+    expect(data.events.map((e: { id: string }) => e.id).sort()).toEqual(["cfb1", "cfb2", "nfl1"])
+    // The NFL game is billed for the one market asked for; the college games
+    // ignore that list and use their own four. One plus two fours is nine.
+    expect(data.estimatedCredits).toBe(9)
+    const cfbCall = feed.oddsCalls().find((u) => u.includes("ncaaf"))!
+    expect(cfbCall).toContain("markets=player_pass_yds%2Cplayer_rush_yds")
+    const comps = data.quotes.map((q: { competition?: string }) => q.competition ?? "nfl")
+    expect(new Set(comps)).toEqual(new Set(["nfl", "cfb"]))
+  })
+
+  it("keeps the companion's own game cap rather than the dial on the Today screen", async () => {
+    const now = Date.now()
+    // One NFL game allowed by the dial; the college cap is the config's, not 1.
+    const feed = stubFootballFeed(now)
+    await today({
+      league: "nfl",
+      companions: true,
+      markets: ["player_pass_yds"],
+      from: iso(now - HOUR),
+      to: iso(now + 12 * HOUR),
+      maxGames: 1,
+    })
+    expect(feed.oddsCalls().filter((u) => u.includes("ncaaf"))).toHaveLength(2)
+    expect(feed.oddsCalls().filter((u) => u.includes("_nfl"))).toHaveLength(1)
+  })
+
+  it("asks the NBA for one listing only, because it has no companion", async () => {
+    const now = Date.now()
+    const feed = stubOddsApi([{ id: "g1", commence_time: iso(now + 3 * HOUR) }], (id) =>
+      json(oddsFor({ ...feed.listing.find((e) => e.id === id)! }), 200, QUOTA),
+    )
+    await today({ league: "nba", markets: ["player_points"], from: iso(now - HOUR), to: iso(now + 12 * HOUR) })
+    expect(feed.urls.filter((u) => u.includes("/events?"))).toHaveLength(1)
+  })
+})
+
+describe("/api/today ranking a companion slate by market depth", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /**
+   * Nine college games in the window against a cap of six, which is what makes
+   * the ranking worth a credit. Two are routs, one is priced by nobody, and the
+   * order the books imply is nothing like the order they kick off in.
+   */
+  function stubSaturday(now: number) {
+    const games = [
+      { id: "cfb-early-dead", books: 0, margin: null, at: 1 },
+      { id: "cfb-rout", books: 9, margin: 31, at: 2 },
+      { id: "cfb-thin", books: 2, margin: 7, at: 3 },
+      { id: "cfb-deep", books: 9, margin: 3, at: 4 },
+      { id: "cfb-mid", books: 5, margin: 6, at: 5 },
+      { id: "cfb-rout-two", books: 8, margin: 24, at: 6 },
+      { id: "cfb-b", books: 7, margin: 10, at: 7 },
+      { id: "cfb-c", books: 6, margin: 4, at: 8 },
+      { id: "cfb-d", books: 3, margin: 9, at: 9 },
+    ]
+    const listing = games.map((g) => ({
+      id: g.id,
+      sport_key: "americanfootball_ncaaf",
+      commence_time: iso(now + g.at * HOUR),
+      home_team: `${g.id} home`,
+      away_team: `${g.id} away`,
+    }))
+    const urls: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(url)
+        if (url.includes("/sports/americanfootball_nfl/")) return json([], 200, QUOTA)
+        const ev = url.match(/\/events\/([^/?]+)\/odds/)
+        if (ev) {
+          const e = listing.find((x) => x.id === ev[1])!
+          return json(
+            {
+              ...e,
+              bookmakers: [
+                {
+                  key: "pinnacle",
+                  title: "pinnacle",
+                  markets: [
+                    {
+                      key: "player_pass_yds",
+                      outcomes: [
+                        { name: "Over", description: "Some Passer", price: -110, point: 245.5 },
+                        { name: "Under", description: "Some Passer", price: -110, point: 245.5 },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+            200,
+            QUOTA,
+          )
+        }
+        // The sport-level spreads call: one credit, every game at once.
+        if (url.includes("/odds?")) {
+          return json(
+            games.map((g) => ({
+              ...listing.find((l) => l.id === g.id)!,
+              bookmakers: Array.from({ length: g.books }, (_, i) => ({
+                key: `b${i}`,
+                title: `b${i}`,
+                markets:
+                  g.margin == null
+                    ? []
+                    : [{ key: "spreads", outcomes: [{ name: "home", price: -110, point: -g.margin }] }],
+              })),
+            })),
+            200,
+            QUOTA,
+          )
+        }
+        return json(listing, 200, QUOTA)
+      }),
+    )
+    return {
+      urls,
+      bulkCalls: () => urls.filter((u) => /\/odds\?/.test(u) && !u.includes("/events/")),
+      pricedIds: () =>
+        urls
+          .map((u) => u.match(/\/events\/([^/?]+)\/odds/)?.[1])
+          .filter((id): id is string => !!id),
+    }
+  }
+
+  const saturday = (now: number) =>
+    today({
+      league: "nfl",
+      companions: true,
+      markets: ["player_pass_yds"],
+      from: iso(now - HOUR),
+      to: iso(now + 12 * HOUR),
+      maxGames: 5,
+    })
+
+  it("spends the cap on the games the books price, not the ones that kick off first", async () => {
+    const now = Date.now()
+    const feed = stubSaturday(now)
+    const data = await (await saturday(now)).json()
+    // One sport-level call, pinned to one region so it is one credit.
+    expect(feed.bulkCalls()).toHaveLength(1)
+    expect(feed.bulkCalls()[0]).toContain("markets=spreads")
+    expect(feed.bulkCalls()[0]).toContain("regions=us")
+    expect(feed.bulkCalls()[0]).not.toContain("us2")
+    // Six games priced, deepest first: the two routs and the game nobody
+    // prices are out, and the earliest kick-off is the one nobody prices.
+    const order = ["cfb-deep", "cfb-b", "cfb-c", "cfb-mid", "cfb-d", "cfb-thin"]
+    expect(feed.pricedIds()).toEqual(order)
+    expect(data.events.map((e: { id: string }) => e.id)).toEqual(order)
+  })
+
+  it("bills the ranking call and says what it did", async () => {
+    const now = Date.now()
+    stubSaturday(now)
+    const data = await (await saturday(now)).json()
+    // Six games at four markets is 24, plus one for the ranking.
+    expect(data.estimatedCredits).toBe(6 * 4 + 1)
+    expect(data.depthNote).toContain("6 of 9 College football games priced")
+    expect(data.depthNote).toContain("2 skipped as likely blowouts")
+    expect(data.depthNote).toContain("1 had no spread priced")
+  })
+
+  it("keeps the league's paid pull when the companion cannot even be listed", async () => {
+    // The league is pulled first and billed as it goes, so a 429 on the
+    // companion's free listing used to return a 502 with no quotes and bin a
+    // slate that had already cost credits.
+    const now = Date.now()
+    stubSaturday(now)
+    const base = globalThis.fetch as unknown as (u: string) => Promise<Response>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/sports/americanfootball_ncaaf/events?")) return json({ message: "rate limited" }, 429)
+        return base(url)
+      }),
+    )
+    const res = await saturday(now)
+    const data = await res.json()
+    expect(res.status).toBe(200)
+    // The NFL stub lists no games here, so what matters is that the press did
+    // not throw and the failure is reported rather than swallowed.
+    expect(data.failures.some((f: { matchup: string }) => f.matchup === "College football")).toBe(true)
+    expect(data.failures[0].error).toContain("limiting")
+  })
+
+  it("falls back to start order and says so when the ranking call fails", async () => {
+    const now = Date.now()
+    const feed = stubSaturday(now)
+    const base = globalThis.fetch as unknown as (u: string) => Promise<Response>
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (/\/odds\?/.test(url) && !url.includes("/events/")) return json({ message: "boom" }, 503)
+      return base(url)
+    }))
+    const data = await (await saturday(now)).json()
+    // The slate still priced, in start order, and the screen is told why.
+    expect(feed.pricedIds().length).toBeGreaterThan(0)
+    expect(data.depthNote).toContain("College football")
+    expect(data.quotes.length).toBeGreaterThan(0)
+  })
+})
+
 describe("/api/odds", () => {
   afterEach(() => vi.unstubAllGlobals())
 

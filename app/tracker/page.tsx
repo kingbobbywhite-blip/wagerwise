@@ -8,7 +8,15 @@ import { StatTile } from "@/components/stat-tile"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { brierScore, calibrationBias, calibrationBuckets, logLoss, summarise, type Observation } from "@/lib/quant/calibration"
+import {
+  brierScore,
+  calibrationBias,
+  calibrationBuckets,
+  groupedCalibration,
+  logLoss,
+  summarise,
+  type Observation,
+} from "@/lib/quant/calibration"
 import { LogEntry } from "@/components/log-entry"
 import { findApp, findMode } from "@/lib/quant/payouts"
 import {
@@ -23,6 +31,10 @@ import {
 import { useStore } from "@/lib/store/provider"
 import type { LegResult, TrackedSlip } from "@/lib/store/schema"
 import { money, multiple, pct, shortDate, signedPct } from "@/lib/format"
+import { LEAGUES } from "@/lib/leagues"
+import { MARKETS } from "@/lib/nba/markets"
+import { fitMovement, lineMoves, summariseHistory } from "@/lib/quant/lines"
+import { KICKOFF_VARIANCE_PER_DAY } from "@/lib/quant/valuebets"
 import { cn } from "@/lib/utils"
 
 /** Legs needed before the headline calibration number is worth reacting to. */
@@ -39,11 +51,44 @@ export default function TrackerPage() {
       slips
         .flatMap((s) => s.legs)
         .filter((l) => (l.result === "WIN" || l.result === "LOSS") && l.pWinAtEntry != null)
-        .map((l) => ({ p: l.pWinAtEntry as number, win: l.result === "WIN" })),
+        .map((l) => ({
+          p: l.pWinAtEntry as number,
+          win: l.result === "WIN",
+          competition: l.competition,
+          league: l.league,
+          market: l.marketKey,
+          marketLabel: l.marketLabel,
+        })),
     [slips],
   )
 
   const buckets = React.useMemo(() => calibrationBuckets(observations), [observations])
+  // The same legs along two more axes, one at a time. A competition-by-market
+  // grid would be thirty cells of five results each.
+  const byCompetition = React.useMemo(
+    () =>
+      groupedCalibration(observations, (o) => {
+        const id = o.competition ?? o.league
+        return id ? { key: id, label: LEAGUES[id]?.label ?? id } : null
+      }),
+    [observations],
+  )
+  const byMarket = React.useMemo(
+    () =>
+      groupedCalibration(observations, (o) => {
+        // Stored slips are never normalised on load, so a leg can carry a
+        // market key this version no longer models. Indexing the table by it
+        // blind would take the whole page down with it.
+        const label = o.market ? MARKETS[o.market]?.label : undefined
+        if (o.market && label) return { key: o.market, label }
+        return o.marketLabel ? { key: o.marketLabel, label: o.marketLabel } : null
+      }),
+    [observations],
+  )
+  // Line history: the only estimate of the kickoff widening that is not
+  // circular, since a settled leg's probability already had it applied.
+  const movement = React.useMemo(() => fitMovement(lineMoves(state.lines)), [state.lines])
+  const history = React.useMemo(() => summariseHistory(state.lines), [state.lines])
   const bias = calibrationBias(observations)
   const brier = brierScore(observations)
   const ll = logLoss(observations)
@@ -261,8 +306,125 @@ export default function TrackerPage() {
             A gap is only highlighted once it exceeds two standard errors on at least twenty legs. Below that it is
             noise, and reacting to it will make the model worse rather than better.
           </p>
+
+          {[
+            { title: "By competition", rows: byCompetition },
+            { title: "By market", rows: byMarket },
+          ].map(({ title, rows }) =>
+            rows.length === 0 ? null : (
+              <div key={title} className="mt-4 border-t border-border/40 pt-3">
+                <h3 className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{title}</h3>
+                <table className="mt-2 w-full text-xs">
+                  <thead>
+                    <tr className="text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                      <th className="pb-1">{title === "By market" ? "Market" : "Competition"}</th>
+                      <th className="pb-1 text-right">Legs</th>
+                      <th className="pb-1 text-right">Model said</th>
+                      <th className="pb-1 text-right">Actual</th>
+                      <th className="pb-1 text-right">Gap</th>
+                      <th className="pb-1 text-right">Spread implied</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.key} className="border-t border-border/40">
+                        <td className="py-1.5">{r.label}</td>
+                        <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">{r.count}</td>
+                        <td className="py-1.5 text-right font-mono tabular-nums">{pct(r.predicted)}</td>
+                        <td className="py-1.5 text-right font-mono tabular-nums">{pct(r.actual)}</td>
+                        <td
+                          className={cn(
+                            "py-1.5 text-right font-mono tabular-nums",
+                            r.significant ? (r.bias > 0 ? "text-destructive" : "text-primary") : "text-muted-foreground",
+                          )}
+                        >
+                          {signedPct(-r.bias)}
+                        </td>
+                        <td
+                          className={cn(
+                            "py-1.5 text-right font-mono tabular-nums",
+                            r.dispersionPegged ? "text-accent" : "text-muted-foreground",
+                          )}
+                        >
+                          {r.impliedDispersion != null
+                            ? `${r.dispersionPegged ? "≥" : ""}×${r.impliedDispersion.toFixed(2)}`
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ),
+          )}
+
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            &ldquo;Spread implied&rdquo; is the multiplier the outcome-spread slider in Settings would need for these
+            predictions to have matched these results: above 1 the model was too confident. It is solved over the
+            individual legs rather than their average, it appears only at 25 legs or more, and it is a normal
+            approximation to count distributions rather than a fit. A ≥ means the gap is wider than the slider can
+            express, so its limit is as far as you can go and it still will not be enough — look at the projections
+            rather than the dial. It measures what is left AFTER every correction the app already applies. It cannot be used to fit the kickoff widening,
+            because the stored probability already had that applied — only the line history below is independent of
+            it. Legs logged before a competition was recorded sit in their own row: a leg keeps no game, so nothing
+            can work out afterwards whether it was a college prop or an NFL one.
+          </p>
         </section>
       ) : null}
+
+      <section className="rounded-lg border border-border/60 bg-card/40 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+            Line movement before kick-off
+          </h2>
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {history.snapshots} pull{history.snapshots === 1 ? "" : "s"} · {history.props} props ·{" "}
+            {history.paired} paired
+          </span>
+        </div>
+        {movement.length > 0 ? (
+          <table className="mt-3 w-full text-xs">
+            <thead>
+              <tr className="text-left font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                <th className="pb-1">Market</th>
+                <th className="pb-1 text-right">Pairs</th>
+                <th className="pb-1 text-right">Days apart</th>
+                <th className="pb-1 text-right">Line moved ±</th>
+                <th className="pb-1 text-right">Variance / day</th>
+                <th className="pb-1 text-right">In use</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movement.map((m) => (
+                <tr key={m.market} className="border-t border-border/40">
+                  <td className="py-1.5">{m.marketLabel}</td>
+                  <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">{m.pairs}</td>
+                  <td className="py-1.5 text-right font-mono tabular-nums">{m.days.toFixed(1)}</td>
+                  <td className="py-1.5 text-right font-mono tabular-nums">{m.sd.toFixed(1)}</td>
+                  <td className="py-1.5 text-right font-mono tabular-nums">
+                    {m.variancePerDay != null ? `${(m.variancePerDay * 100).toFixed(1)}%` : "—"}
+                  </td>
+                  <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                    {pct(KICKOFF_VARIANCE_PER_DAY, 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+        <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
+          {movement.length > 0
+            ? "The last column is the unfitted prior the app widens by: four percent of variance per day until kick-off, capped at twelve. The column beside it is what your own pulls measured, extrapolated to a day. They are directly comparable, and if yours is consistently larger the prior is too small."
+            : history.paired > 0
+              ? "Not enough pairs in any one market yet to measure anything. Eight is the floor, and a number built on fewer would be worse than the prior it replaced."
+              : "Nothing to measure yet. This needs the same prop pulled twice, hours apart — the easiest way is a pull in the morning and another near the first kick-off. Nothing here can manufacture that second look: a refresh costs credits, and the cache exists precisely so the app never spends them on its own."}{" "}
+          One limit worth knowing: Today pulls from local midnight to 11am tomorrow, so two looks at one prop can be
+          hours to about a day apart, never the four days a midweek NFL line actually drifts over. What is measured
+          here is the last day&apos;s movement scaled up, which is a lower bound on the week&apos;s. Until there is
+          enough of it the widening stays an unfitted prior, and so do the college volatility multiplier and the
+          yardage spread floors.
+        </p>
+      </section>
 
       <div className="space-y-3">
         {slips.map((s) => {
