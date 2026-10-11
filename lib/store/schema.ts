@@ -207,6 +207,22 @@ export interface TrackedLeg {
   actual: number | null
   /** Absent on legs logged before pick types were recorded. */
   pickType?: PickType
+  /**
+   * The section the entry was played in, and the competition this leg's prop
+   * actually belongs to. They are not the same field: a pick'em board mixes
+   * NFL and college legs on one entry, so the section says "nfl" while the leg
+   * says "cfb", and reporting the college ones as NFL calibration is the same
+   * class of wrong attribution as fusing two players by name.
+   *
+   * Both absent on legs logged before this was recorded, and they cannot be
+   * backfilled: a leg stores no game and no start time, so nothing identifies
+   * the pull it came from. The nearest inference is the stat's sport, which
+   * separates basketball from hockey and cannot separate the NFL from college
+   * — exactly the split this exists to show. Those legs report in their own
+   * bucket rather than being folded into a guess.
+   */
+  league?: LeagueId
+  competition?: LeagueId
 }
 
 export interface TrackedSlip {
@@ -281,6 +297,47 @@ export interface DailyCache {
   depthNote?: string | null
 }
 
+/**
+ * One prop's line as it stood at one moment, compacted.
+ *
+ * Not a copy of the quotes: a pull's quotes are per book and run to megabytes,
+ * and storage is already tight enough that a full NFL Sunday can fail to save.
+ * This is one row per prop — the consensus line, the two best prices and how
+ * many books posted it — which is about 175 bytes, so a season of pulls fits
+ * in the space a single verbatim copy would take.
+ *
+ * The point of keeping it is the only thing that can fit the kickoff widening
+ * honestly: the same prop's line pulled days out and again near kickoff. That
+ * needs a pull on game day for games already pulled midweek; nothing here can
+ * manufacture one, so the readout says how many pairs it actually has.
+ */
+export interface LineSnapshotRow {
+  /**
+   * The same identity groupQuotes builds: player, game and market. Joining on
+   * it inherits the name-collision fix rather than re-deriving it badly.
+   */
+  key: string
+  player: string
+  market: MarketKey
+  competition?: LeagueId
+  /** Hours from this pull to kick-off, which is the variable being fitted. */
+  hoursToStart: number | null
+  /** Consensus line across the books that posted it. */
+  line: number
+  /** The implied mean behind that line, when the prop could be priced. */
+  mean: number | null
+  books: number
+}
+
+export interface LineSnapshot {
+  pulledAt: string
+  league: LeagueId
+  rows: LineSnapshotRow[]
+}
+
+/** Pulls kept. Beyond this the oldest are dropped on load, so storage cannot creep. */
+export const MAX_LINE_SNAPSHOTS = 24
+
 export interface AppState {
   version: number
   settings: AppSettings
@@ -288,6 +345,11 @@ export interface AppState {
   slips: TrackedSlip[]
   /** Last pull per league, so switching leagues does not discard a paid-for slate. */
   daily: Partial<Record<LeagueId, DailyCache>>
+  /**
+   * Line history, newest first, across pulls and leagues. Capped and pruned on
+   * load; the first thing dropped when storage runs out.
+   */
+  lines: LineSnapshot[]
 }
 
 export const EMPTY_STATE: AppState = {
@@ -296,6 +358,7 @@ export const EMPTY_STATE: AppState = {
   slate: null,
   slips: [],
   daily: {},
+  lines: [],
 }
 
 /**
@@ -329,6 +392,7 @@ export function migrate(raw: unknown): AppState {
     slate: o.slate ? { ...o.slate, league: isLeagueId(o.slate.league) ? o.slate.league : undefined } : null,
     slips: Array.isArray(o.slips) ? o.slips : [],
     daily: migrateDaily(o.daily),
+    lines: migrateLines(o.lines),
   }
 }
 
@@ -370,4 +434,29 @@ function migrateDaily(raw: unknown): Partial<Record<LeagueId, DailyCache>> {
     out[k] = { ...cache, league: k }
   }
   return out
+}
+
+/**
+ * Bring the line history forward, and prune it.
+ *
+ * Pruning here rather than in the UI means it runs on every load and every
+ * import, is covered by the schema tests, and cannot be skipped by a component
+ * that forgets. This is already where legacy storage shapes are normalised, so
+ * it is where a reader will look for the cap.
+ */
+function migrateLines(raw: unknown): LineSnapshot[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((s): s is LineSnapshot => {
+      if (!s || typeof s !== "object") return false
+      const snap = s as Partial<LineSnapshot>
+      return (
+        typeof snap.pulledAt === "string" &&
+        Number.isFinite(Date.parse(snap.pulledAt)) &&
+        isLeagueId(snap.league) &&
+        Array.isArray(snap.rows)
+      )
+    })
+    .sort((a, b) => b.pulledAt.localeCompare(a.pulledAt))
+    .slice(0, MAX_LINE_SNAPSHOTS)
 }

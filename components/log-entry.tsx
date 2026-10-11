@@ -22,7 +22,7 @@ import {
   legClash,
   legsFromText,
   localDay,
-  priceLeg,
+  matchLeg,
   settlementMode,
   withResults,
   type DraftLeg,
@@ -102,11 +102,14 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
     [s.projection, s.daily.requireSharpReference, league],
   )
   const quotes = state.daily[league]?.quotes
-  const priced = legs.map((l) =>
+  // Matched rather than just priced: the competition is only knowable now,
+  // because a logged leg keeps no game to look it up by later.
+  const matched = legs.map((l) =>
     l.side && l.marketKey && Number.isFinite(l.line)
-      ? priceLeg(quotes, { player: l.player, marketKey: l.marketKey, line: l.line, side: l.side }, valueSettings)
+      ? matchLeg(quotes, { player: l.player, marketKey: l.marketKey, line: l.line, side: l.side }, valueSettings)
       : null,
   )
+  const priced = matched.map((m) => m?.pWin ?? null)
 
   // Entries these legs could collide with: anything still open, and anything
   // logged today, which is where a night's settled screenshots all land.
@@ -222,6 +225,8 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
         result: l.result,
         actual: null,
         pickType: l.pickType,
+        league,
+        competition: matched[i]?.competition,
       })),
       stake: stakeN,
       capturedPayout,

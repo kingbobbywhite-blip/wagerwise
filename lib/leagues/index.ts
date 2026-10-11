@@ -170,6 +170,11 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     // quarter of a blowout, and the backfield split is far less knowable than
     // in the NFL. All three widen the outcome and pull every probability back
     // toward a coin flip, which is the honest answer here.
+    //
+    // UNFITTED: 1.2 is reasoned from those three facts, not measured against
+    // realised results. The tracker's per-competition calibration is where it
+    // gets checked once there are enough settled college legs to check it
+    // with; until then it is a prior and is labelled as one on screen.
     dispersionScale: 1.2,
     markets: CFB_MARKETS,
     books: NBA_BOOKS,

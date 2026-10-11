@@ -12,6 +12,7 @@ import type { BuiltSlip } from "@/lib/quant/optimizer"
 import type { CapturedPayout } from "@/lib/quant/payouts"
 import { recommendStake } from "@/lib/quant/staking"
 import { useStore } from "@/lib/store/provider"
+import type { LeagueId } from "@/lib/leagues"
 import type { TrackedSlip } from "@/lib/store/schema"
 import { money, multiple, pct, signedNumber, signedPct } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -21,11 +22,14 @@ export function SlipCard({
   appId,
   modeId,
   capturedPayout,
+  league,
 }: {
   slip: BuiltSlip
   appId: string
   modeId: string
   capturedPayout: CapturedPayout
+  /** The section this slip was built in, recorded on every leg it logs. */
+  league?: LeagueId
 }) {
   const { state, addSlip } = useStore()
   const [open, setOpen] = React.useState(false)
@@ -50,6 +54,8 @@ export function SlipCard({
         app: l.app,
         result: "PENDING",
         actual: null,
+        league,
+        competition: l.competition,
       })),
       stake: Number(advice.stake.toFixed(2)),
       evAtEntry: e.ev,

@@ -183,7 +183,7 @@ export default function SettingsPage() {
               onChange={(v) =>
                 setSettings((p) => ({ ...p, projection: { ...p.projection, dispersion: { ...p.projection.dispersion, global: v } } }))
               }
-              hint="Scales how volatile every stat is assumed to be. Raise it if the tracker says the model is overconfident: wider outcomes pull every probability toward 50%."
+              hint="Scales how volatile every stat is assumed to be. Raise it if the tracker says the model is overconfident: wider outcomes pull every probability toward 50%. The tracker's calibration table prints the multiplier your own settled legs imply, per competition and per market, which is the number to move this toward. The dispersion priors it scales — including college football's 1.2 and the yardage spread floors — are reasoned rather than fitted, so this dial is how you correct them until there is enough history to fit them properly."
             />
             <SliderRow
               label="Correlation strength"

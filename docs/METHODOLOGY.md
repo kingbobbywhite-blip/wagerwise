@@ -149,6 +149,24 @@ depth-chart and weather news; the price was correct for what was known when it w
 the rest is uncertainty that belongs in the distribution. Under four percent on a slate pulled
 the same evening, so it is a football correction in practice.
 
+UNFITTED, and the app says so wherever it shows. What would fit it is the same prop's line seen
+twice at different distances from kick-off: the spread of that movement IS the uncertainty the
+factor prices, because what the factor says is "we do not yet know what the line will be at
+kick-off". Each pull therefore keeps a compact row per prop and the tracker prints the measured
+variance per day beside the 4% in use, scaled against the outcome's own variance so a 12-yard move
+on a 250-yard line and a half-shot move on a 3-shot line are comparable numbers. The spread is
+measured about the mean move rather than about zero, so a market that drifts one way all week is
+treated as a bias to correct rather than noise to widen for.
+
+**The gap between what was predicted and what happened implies a spread.** Under a normal
+approximation a prediction p sits z = Phi^-1(p) standard deviations from the line, so a realised
+rate p' implies the distribution should have been z/z' times as wide and the variance (z/z')^2.
+That is the number the outcome-spread dial multiplies, and the tracker prints it per competition
+and per market. Three limits, all stated beside it: it is a normal approximation to count
+distributions; a leg on a coefficient-of-variation floor does not scale with it; and because the
+stored probability already carried every correction the app applies, it measures what is LEFT
+rather than any one correction, so it cannot be used to fit the widening above.
+
 Uncertainty about the projection is folded into the outcome spread. A shaky projection
 produces probabilities closer to 50%, which is the honest response to not knowing.
 

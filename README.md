@@ -8,10 +8,10 @@ Sportsbook bets and parlays are only ever recommended at FanDuel. Pinnacle, BetO
 DraftKings and the rest are pulled to price the market and never shown as the place to bet.
 Add a book under Settings if you open an account there.
 
-Three tabs: **NBA**, **NFL** and **NHL**. **College football rides inside the NFL tab**: one
-press pulls both, each priced with its own numbers, and a college row is badged CFB wherever it
-appears. Each tab keeps its own cached pull, so switching never throws away a slate you already
-paid feed credits for.
+Three tabs: **NBA**, **NFL** and **NHL**. **College football rides inside the NFL tab**, off by
+default: turn the switch on under Settings → Today and one press pulls both, each priced with its
+own numbers, with a college row badged CFB wherever it appears. Each tab keeps its own cached pull,
+so switching never throws away a slate you already paid feed credits for.
 
 **It does not create an edge. It stops you acting on edges that are not there.**
 
@@ -254,15 +254,86 @@ not legal everywhere. Payout tables shipped here are **unverified defaults** and
 without notice. Nothing here is financial advice, and no model makes a negative-expectation
 market profitable by itself.
 
+## A name is not an identity
+
+Across 130 college teams, two different players sharing a normalised name in one slate is
+ordinary rather than freakish. Every map in the app used to be keyed on the name alone, which
+fused them: six books pooled into one consensus and a line that was wrong for both. Player
+identity is now name **and game**, in the quote grouping, the one-decision-per-prop rule, the
+optimizer's one-leg-per-player constraint, the board's row grouping and the pick'em entry. The
+same name in two games is also no longer the same player to the correlation model, where it was
+pricing two unrelated legs as one event.
+
+The pick'em lines still match by name, because they arrive from a different feed than the prices
+and the two spell teams differently — but a line from the same fixture wins, matched on team
+nicknames, and when a name is shared and no line can be tied to the fixture, nothing is shown and
+the row says why. An imported board carries a name and a stat with usually no fixture, so there
+the ambiguity is reported rather than resolved.
+
+## What gets left out, and why you can see it
+
+Two things are hidden from the pick'em targets, and both are counted and nameable on screen:
+
+**Props too lopsided for a board.** A flat payout table only works if both sides of a pick are
+plausible, so an app does not post a prop whose favoured side is a near-certainty however happily
+a sportsbook prices one. The ceiling is a dial in Settings (default 80%), what it removes is
+listed by name under the targets with the reason, and a line PropLine shows an app actually
+posting is never removed by it.
+
+**Lines no board shows.** The thresholds and the probability ladder cover the lines the books are
+actually hanging, widened half a standard deviation, instead of sweeping a fixed window around the
+projection.
+
+## The path to fitting the priors
+
+Three numbers in this app are reasoned rather than measured, and they are labelled as such
+wherever they appear: the kickoff widening (4% of variance per day), college football's volatility
+multiplier (1.2) and the yardage spread floors. Fitting them needs data the app now collects.
+
+**The tracker reads settled legs along three axes**, not one: by predicted probability band as
+before, and now by competition and by market. Each row prints the variance multiplier that would
+reconcile what the model said with what happened — the number to move the outcome-spread slider
+toward. One axis at a time on purpose: competition by market by probability band is thirty cells
+and a hundred settled legs would put five results in each.
+
+That readout **cannot fit the kickoff widening**, and says so. A settled leg's stored probability
+already had the widening applied, so comparing it to the result measures what is left after the
+correction rather than the correction itself.
+
+**What can fit it is the line history.** Each pull keeps one compact row per prop — the consensus
+line, the implied mean and how many books posted it, about 175 bytes, not a copy of the quotes —
+and the same prop seen twice at different distances from kick-off gives the spread of the move,
+which is exactly the uncertainty the widening prices. The tracker prints the measured variance per
+day beside the 4% in use. It needs a game-day pull for games already pulled midweek; nothing here
+can manufacture that second look, so the readout counts its pairs out loud rather than quietly
+fitting six of them.
+
+Legs logged before a competition was recorded sit in their own row. A leg keeps no game and no
+start time, so nothing can work out afterwards whether it was a college prop or an NFL one, and
+folding them into a guess would report college legs as NFL calibration.
+
+## When the browser runs out of room
+
+Everything lives in one localStorage blob, and a 14-game NFL pull at eight books is comfortably
+over a megabyte of JSON — enough that a full Sunday could already fail to save. Until now it
+failed **silently** on the one screen that causes it: the slate lived in React state, looked fine,
+and was gone on the next reload along with the credits that bought it.
+
+A failed save now sheds load instead, cheapest first — older line history, then another league's
+slate, then the rest of the history, then the imported board — and says what it dropped, in a
+banner in the header that every screen shows. Slips are never dropped: they are the only record of
+what the model predicted.
+
 ## Leagues
 
 | | NBA | NFL | CFB | NHL |
 |---|---|---|---|---|
-| Tab | NBA | NFL | inside NFL | NHL |
+| Tab | NBA | NFL | inside NFL, opt-in | NHL |
 | Feed sport key | `basketball_nba` | `americanfootball_nfl` | `americanfootball_ncaaf` | `icehockey_nhl` |
-| Default markets | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions | same as NFL | shots on goal, points, saves, blocked shots |
-| Default game cap | 14 | 14 | 6 | 12 |
-| Volatility prior | baseline | its own markets | +20% on the NFL's | its own markets |
+| Default markets | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions | pass yds, rush yds | shots on goal, points, saves, blocked shots |
+| Default game cap | 14 | 14 | 4 | 12 |
+| Volatility prior | baseline | its own markets | +20% on the NFL's (unfitted) | its own markets |
+| One default press | 56 credits | 56 credits | +8 with the switch on | 48 credits
 
 The **prior mean** is used only when no book has priced the prop: a real market price always
 wins. A **volatility prior** above baseline widens the distribution, which pulls probabilities
@@ -292,6 +363,11 @@ markets is about 56 credits, plus 24 for the college games pulled with it, and t
 shows that total before you press the button.
 
 Two things make the numbers here more honest than a dispersion ratio alone:
+
+**The button asks before an expensive press.** Above 15% of a 500-request month — 75 credits, seven
+presses from an empty month — the pull is a confirm rather than a note beside the button, because a
+note is read after the credits are gone. The figure is summed per competition, since each can be
+asked for a different market list and credits are billed per market per game.
 
 **Yardage carries a floor on its relative spread.** A ratio prior implies that the spread
 grows with the square root of the projection, so a 340-yard passing line came out with a
@@ -324,6 +400,15 @@ and priced with its own numbers rather than the NFL's:
   probability closer to a coin flip.
 - **Its own plausibility ceilings**, because a 500-yard passing game and a 300-yard rushing
   game both happen in college football and NFL ceilings would flag real outcomes as impossible.
+
+**Which four games get the cap is chosen, not taken in start order.** A Saturday lists fifty and
+the earliest kick-off is as likely to be a game no book prices as the one everyone does, so one
+sport-level call for spreads — billed per market per region, so a single credit whatever it
+returns — says who the books are actually pricing. Games are ranked by how many books hang a
+spread, ties to the closer game, and anything over 21 points is skipped because a four-touchdown
+favourite benches the players a yardage prop is on. If that call fails the slate falls back to
+start order and says so, and what the ranking did is reported on screen so a three-game board
+reads as expected rather than broken.
 
 Most of a Saturday slate comes back unpriced and is correctly left out: no sportsbook price,
 no expected value, no exceptions.

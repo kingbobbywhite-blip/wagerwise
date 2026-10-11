@@ -28,6 +28,7 @@ import { bookProfile, isSharp } from "@/lib/quant/books"
 import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import { buildDailyPicks, buildPickemEntry, hasAppLines, upcomingQuotes } from "@/lib/today/build"
+import { snapshotFor } from "@/lib/quant/lines"
 import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForCompetition } from "@/lib/odds-feed/theoddsapi"
 import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
@@ -64,7 +65,7 @@ function appName(id: string): string {
 }
 
 export default function TodayPage() {
-  const { state, setDaily, setSettings, ready } = useStore()
+  const { state, setDaily, setSettings, addLineSnapshot, ready } = useStore()
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [needsKey, setNeedsKey] = React.useState(false)
@@ -293,6 +294,27 @@ export default function TodayPage() {
         pickemNote: data.pickemNote ?? null,
         depthNote: data.depthNote ?? null,
       })
+      // Keep this pull's lines, compacted, beside the slate itself. The slate
+      // is overwritten by the next pull; this is not, and the same prop seen
+      // twice at different distances from kick-off is the only thing that can
+      // fit the kickoff widening without arguing in a circle.
+      if ((data.quotes ?? []).length > 0) {
+        addLineSnapshot(
+          snapshotFor(
+            leagueId,
+            data.quotes as FeedQuote[],
+            {
+              projection: { ...s.projection, league: leagueId },
+              minEdge: s.daily.minEdge,
+              suspiciousEdge: 0.12,
+              requireSharpReference: s.daily.requireSharpReference,
+              maxAmerican: 400,
+            },
+            Date.now(),
+            data.fetchedAt ?? new Date().toISOString(),
+          ),
+        )
+      }
       const n = (data.quotes ?? []).length
       toast.success(
         n > 0
@@ -558,6 +580,7 @@ export default function TodayPage() {
                       slip={p}
                       appId="sportsbook"
                       modeId="parlay"
+                      league={leagueId}
                       capturedPayout={{
                         picks: p.legs.length,
                         tiers: { [p.legs.length]: p.evaluation.topMultiple },

@@ -288,6 +288,7 @@ export default function BuildPage() {
                 appId={state.settings.defaultAppId}
                 modeId={state.settings.defaultModeId}
                 capturedPayout={captured}
+                league={state.slate?.league ?? state.settings.projection.league}
               />
             ))}
           </div>

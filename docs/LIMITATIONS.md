@@ -210,7 +210,49 @@ section (they are never in the same game, so the effect is nil), and it is the l
 assumption in the league work.
 
 **The pick'em ceiling is a prior about boards, not a measurement.** A prop whose every posted
-line leaves the favoured side above 80% is dropped from the pick'em targets, on the reasoning
-that a pick'em app cannot offer a pick that lopsided and still pay a flat multiplier. That
-threshold is judgement. If an app does post one, this hides it; with PropLine attached the
-app's real lines are used instead and the question does not arise.
+line leaves the favoured side above the ceiling is left out of the pick'em targets, on the
+reasoning that a pick'em app cannot offer a pick that lopsided and still pay a flat multiplier.
+That threshold is judgement. It is now a dial in Settings, what it removes is listed by name on
+screen, and a line PropLine shows an app actually posting overrides it — but with no pick'em feed
+attached it is still a guess about what a board would offer.
+
+**Browser storage is the binding constraint, and it was failing silently.** Everything is one
+localStorage blob. A pull stores every book's quote verbatim, so a 14-game NFL Sunday at eight
+books is 1.7-2.8MB of JSON; browsers meter localStorage in UTF-16 code units, so that is 3.4-5.5MiB
+of a roughly 5MiB quota before an NBA or NHL cache sits beside it. A full Sunday can therefore
+fail to save outright. A failed save now sheds load — line history, then other leagues' slates,
+then the imported board — and reports what it dropped in a banner every screen shows, instead of
+looking successful while writing nothing. What it does NOT do is make the underlying allocation
+smaller: a verbatim per-book cache is still what the engine needs to re-price without spending
+credits, so a large enough slate will still shed something.
+
+**Whether an empty market costs a credit is unverified.** This app has said it does. Two
+independent transcriptions of The Odds API docs give the per-event cost as unique markets
+RETURNED times regions, which would mean trimming a market list saves nothing in credits. The
+vendor's own documentation could not be reached from the environment this was checked in, so the
+claim is marked unverified in the code with the one-request experiment that would settle it
+(compare `x-requests-last` with and without a market the game does not post). No behaviour depends
+on the answer: market lists are trimmed because an unpriced prop is a worse board.
+
+**The depth ranking is a proxy, not a measurement.** How many books hang a spread on a game stands
+in for how deep its player-prop market will be. They correlate, because both follow television,
+but the only direct answer costs a credit per game and so defeats the purpose. The 21-point
+blowout cut-off is judgement too, and on an early-season Saturday it can leave fewer games than
+the cap — which is reported rather than quietly filled with worse ones.
+
+**The calibration readout cannot fit the kickoff widening.** A settled leg's stored probability
+already had the widening applied, so comparing it to the outcome measures the residual, not the
+correction. Only the line history is independent of it, and that depends on something the app
+cannot cause: a pull on game day for games already pulled midweek. Without those pairs the history
+accumulates size and yields no fit.
+
+**Splitting calibration thins the sample fast.** The headline number asks for 100 legs and the
+band table refuses to highlight a gap under 20. Per competition and per market are therefore
+separate tables rather than a grid, and the implied multiplier appears only at 25 legs — but even
+so, a new competition will show nothing useful for a long time, and CFB legs mostly reach the
+tracker through the screenshot path, which is the path where the competition is hardest to resolve.
+
+**The implied dispersion multiplier is a normal approximation.** It inverts a hit-rate gap into a
+variance multiplier through the normal quantile, which is not how the count distributions the app
+actually uses behave, and a yardage leg sitting on its coefficient-of-variation floor does not
+scale with it at all. It is a direction and a rough size, and it is labelled that way on screen.

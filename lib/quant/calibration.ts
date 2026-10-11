@@ -1,4 +1,6 @@
-import { clamp } from "./math"
+import { clamp, normalInvCdf } from "./math"
+import type { MarketKey } from "@/lib/nba/markets"
+import type { LeagueId } from "@/lib/leagues"
 
 /**
  * Did the model tell the truth?
@@ -19,6 +21,15 @@ export interface Observation {
   p: number
   /** Did it actually cash? Pushes should be excluded by the caller. */
   win: boolean
+  /**
+   * What the leg was, so the same legs can be read along a second axis.
+   * Absent on legs logged before any of this was recorded, which report in
+   * their own bucket rather than being folded into a guess.
+   */
+  competition?: LeagueId
+  league?: LeagueId
+  market?: MarketKey | null
+  marketLabel?: string
 }
 
 export interface CalibrationBucket {
@@ -122,4 +133,114 @@ export function summarise(
     wins: settled.filter((s) => (s.actualMultiple ?? 0) > 1).length,
     losses: settled.filter((s) => (s.actualMultiple ?? 0) <= 1).length,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Reading the same legs along a second axis
+// ---------------------------------------------------------------------------
+
+export interface GroupedCalibration {
+  /** What this row is: a competition id, a market key, or the absent bucket. */
+  key: string
+  label: string
+  count: number
+  predicted: number
+  actual: number
+  stderr: number
+  /**
+   * The gap, with the sign that matters: positive means the model was more
+   * confident than the results. Negative is not good news either; it means the
+   * distribution is wider than it needs to be and edges are being missed.
+   */
+  bias: number
+  /**
+   * The variance multiplier that would reconcile the two, or null when the
+   * sample is too small or the arithmetic degenerate. See impliedDispersion.
+   */
+  impliedDispersion: number | null
+  /** True when the gap is larger than two standard errors on this sample. */
+  significant: boolean
+}
+
+/**
+ * How much wider the distribution would have to be for the predictions to
+ * match the results.
+ *
+ * Under a normal approximation a prediction p sits z = Phi^-1(p) standard
+ * deviations from the line. If the realised rate is p', the spread that would
+ * have produced it is z/z' times as wide, so variance scales by (z/z')^2 —
+ * which is the number the outcome-spread dial in settings multiplies. Above 1
+ * means the model is overconfident and the dial should go up.
+ *
+ * Three honest limits, all of which belong next to the number on screen:
+ *
+ *   It is a normal approximation to count distributions, so it is a direction
+ *   and a rough size, not a fitted parameter.
+ *
+ *   It measures what is LEFT after every correction the app already applies,
+ *   including the kickoff widening, because the stored probability had those
+ *   baked in. It cannot be used to fit them; it says whether the total was
+ *   enough.
+ *
+ *   A leg sitting on a market's coefficient-of-variation floor does not scale
+ *   as sqrt(k) at all, so for yardage markets this is looser still.
+ */
+export function impliedDispersion(predicted: number, actual: number, count: number, minCount = 25): number | null {
+  if (count < minCount) return null
+  const p = clamp(predicted, 1e-4, 1 - 1e-4)
+  const a = clamp(actual, 1e-4, 1 - 1e-4)
+  const z = normalInvCdf(p)
+  const za = normalInvCdf(a)
+  // A bucket centred on a coin flip says nothing about spread: every width
+  // gives 50%, so the ratio is noise over noise.
+  if (Math.abs(z) < 0.1 || Math.abs(za) < 1e-6) return null
+  // Opposite signs mean the model had the wrong side, not the wrong width.
+  if (z * za < 0) return null
+  return (z / za) ** 2
+}
+
+/**
+ * The same settled legs, grouped along whichever axis is passed.
+ *
+ * Deliberately one axis at a time rather than a cross-product. Competition by
+ * market by probability band is thirty or more cells, and with a hundred-odd
+ * settled legs almost every one of them would render a number built on five
+ * results. Two separate tables, each with a floor under it, say something; a
+ * grid of noise says less than nothing because it invites a reaction.
+ */
+export function groupedCalibration(
+  obs: Observation[],
+  axis: (o: Observation) => { key: string; label: string } | null,
+  opts: { minCount?: number } = {},
+): GroupedCalibration[] {
+  const minCount = opts.minCount ?? 25
+  const groups = new Map<string, { label: string; obs: Observation[] }>()
+  for (const o of obs) {
+    const at = axis(o)
+    const key = at?.key ?? "unrecorded"
+    const label = at?.label ?? "Before this was recorded"
+    const g = groups.get(key)
+    if (g) g.obs.push(o)
+    else groups.set(key, { label, obs: [o] })
+  }
+
+  const out: GroupedCalibration[] = []
+  for (const [key, g] of groups) {
+    const count = g.obs.length
+    const predicted = g.obs.reduce((a, o) => a + o.p, 0) / count
+    const actual = g.obs.filter((o) => o.win).length / count
+    const stderr = Math.sqrt(Math.max(actual * (1 - actual), 1e-9) / count)
+    out.push({
+      key,
+      label: g.label,
+      count,
+      predicted,
+      actual,
+      stderr,
+      bias: predicted - actual,
+      impliedDispersion: impliedDispersion(predicted, actual, count, minCount),
+      significant: Math.abs(predicted - actual) > 2 * stderr && count >= 20,
+    })
+  }
+  return out.sort((a, b) => b.count - a.count)
 }

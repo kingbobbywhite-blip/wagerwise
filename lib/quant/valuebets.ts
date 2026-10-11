@@ -202,12 +202,22 @@ export function ambiguousPlayers(quotes: FeedQuote[]): Set<string> {
  * spread about six percent and pulls every probability back toward a coin flip.
  * Deliberately modest: it is a known unknown, not a reason to stop pricing.
  */
+/**
+ * UNFITTED. Reasoned from how far a football line moves in a week, not
+ * measured against anything. lib/quant/lines can measure it from two looks at
+ * the same prop; until that has pairs, this is a prior.
+ */
+export const KICKOFF_VARIANCE_PER_DAY = 0.04
+
+/** UNFITTED. The cap, at three days out. */
+export const KICKOFF_VARIANCE_CAP = 0.12
+
 export function kickoffVarianceFactor(commenceTime: string | null | undefined, now: number): number {
   const t = commenceTime ? Date.parse(commenceTime) : NaN
   if (!Number.isFinite(t)) return 1
   const days = (t - now) / 86_400_000
   if (!(days > 0)) return 1
-  return 1 + Math.min(0.12, 0.04 * days)
+  return 1 + Math.min(KICKOFF_VARIANCE_CAP, KICKOFF_VARIANCE_PER_DAY * days)
 }
 
 export function referenceProjection(

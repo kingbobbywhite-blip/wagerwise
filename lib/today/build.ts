@@ -742,6 +742,7 @@ export function valueBetsToCandidates(bets: ValueBet[]): CandidateLeg[] {
     pPush: 0,
     american: b.price,
     status: "priced" as const,
+    competition: b.competition,
     confidence: b.confidence,
     lineEdge: b.side === "OVER" ? b.consensusMean - b.line : b.line - b.consensusMean,
     lineEdgeZ:

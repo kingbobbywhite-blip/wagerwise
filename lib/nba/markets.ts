@@ -55,6 +55,12 @@ export interface MarketConfig {
    * into a phantom edge. Below the crossover the ratio still governs, because
    * a low-volume receiver genuinely is more erratic than a proportional
    * spread would allow.
+   *
+   * UNFITTED. These are read off typical starter game logs, not fitted to
+   * realised results, and the tracker labels them as priors wherever it
+   * reports on them. Note also that a leg sitting on this floor does not
+   * scale as the square root of the dispersion dial, so the implied-spread
+   * number in the tracker is looser for yardage than for counts.
    */
   cv?: number
   /** Component stats, used by the correlation model for combo markets. */
