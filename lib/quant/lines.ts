@@ -50,6 +50,12 @@ export function snapshotRows(quotes: FeedQuote[], settings: ValueBetSettings, no
   for (const group of groupQuotes(quotes)) {
     const lines = group.quotes.map((q) => q.line)
     if (lines.length === 0) continue
+    // Only games still ahead of us. Once a game starts its line moves with the
+    // score, and pairing a pregame look against a live one would measure the
+    // game rather than the market's revision of its own opinion — which is the
+    // one thing this is for.
+    const hours = hoursTo(group.commenceTime, now)
+    if (hours == null || hours <= 0) continue
     const ref = referenceProjection(group, group.quotes, settings, now)
     rows.push({
       // The same identity groupQuotes builds, so a later pull joins on it and
@@ -58,7 +64,7 @@ export function snapshotRows(quotes: FeedQuote[], settings: ValueBetSettings, no
       player: group.player,
       market: group.market,
       competition: group.competition,
-      hoursToStart: hoursTo(group.commenceTime, now),
+      hoursToStart: hours,
       line: marketLineOf(lines, ref?.mean ?? lines[0]),
       mean: ref?.status === "priced" ? ref.mean : null,
       books: new Set(group.quotes.map((q) => q.book)).size,

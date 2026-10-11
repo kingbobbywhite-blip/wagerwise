@@ -127,6 +127,15 @@ describe("line history", () => {
     expect(JSON.stringify(rows[0]).length).toBeLessThan(260)
   })
 
+  it("leaves out a game that has already started", () => {
+    // Its line now moves with the score, and pairing a pregame look against a
+    // live one would measure the game rather than the market's revision.
+    const now = Date.parse("2026-11-04T18:00:00Z")
+    expect(pull(245.5, -2, now).rows).toEqual([])
+    expect(pull(245.5, 0, now).rows).toEqual([])
+    expect(pull(245.5, 1, now).rows).toHaveLength(1)
+  })
+
   it("pairs the same prop seen days out and again near kick-off", () => {
     const now = Date.parse("2026-11-04T18:00:00Z")
     const moves = lineMoves([pull(245.5, 96, now), pull(258.5, 2, now + 94 * 3_600_000)])

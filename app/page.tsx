@@ -147,7 +147,15 @@ export default function TodayPage() {
   const plannedCredits = React.useMemo(
     () =>
       pullPlan(leagueId, Math.min(s.daily.maxGames, league.maxGames), { companions: wantCompanions }).reduce(
-        (a, p) => a + p.games * marketsForCompetition(p.league, s.daily.markets).length,
+        (a, p) =>
+          a +
+          p.games * marketsForCompetition(p.league, s.daily.markets).length +
+          // A competition that chooses its games by market depth buys one
+          // sport-level call to do it. Whether it fires depends on the slate
+          // being bigger than the cap, which cannot be known before the press,
+          // so it is counted: the gate asking a credit early is the safe way
+          // to be wrong about it.
+          (p.league.depthRanked ? 1 : 0),
         0,
       ),
     [leagueId, s.daily.maxGames, s.daily.markets, league.maxGames, wantCompanions],

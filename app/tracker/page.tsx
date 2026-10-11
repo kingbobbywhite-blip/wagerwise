@@ -75,9 +75,14 @@ export default function TrackerPage() {
   )
   const byMarket = React.useMemo(
     () =>
-      groupedCalibration(observations, (o) =>
-        o.market ? { key: o.market, label: MARKETS[o.market].label } : o.marketLabel ? { key: o.marketLabel, label: o.marketLabel } : null,
-      ),
+      groupedCalibration(observations, (o) => {
+        // Stored slips are never normalised on load, so a leg can carry a
+        // market key this version no longer models. Indexing the table by it
+        // blind would take the whole page down with it.
+        const label = o.market ? MARKETS[o.market]?.label : undefined
+        if (o.market && label) return { key: o.market, label }
+        return o.marketLabel ? { key: o.marketLabel, label: o.marketLabel } : null
+      }),
     [observations],
   )
   // Line history: the only estimate of the kickoff widening that is not
