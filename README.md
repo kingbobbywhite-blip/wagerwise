@@ -149,7 +149,7 @@ from. Three things cause it:
   PowerShell 5 UTF-16 trap above still applies.
 
 ```bash
-npm test         # 625 unit tests over the probability engine, the feeds and screenshot reading
+npm test         # 633 unit tests over the probability engine, the feeds and screenshot reading
 npm run lint
 npm run build
 ```

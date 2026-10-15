@@ -550,7 +550,7 @@ describe("key hygiene", () => {
   })
 
   it("refuses the placeholders that ship in example files", () => {
-    for (const v of ["your_api_key", "YOUR-API-KEY", "changeme", "<your key>", "xxxx", "TODO"]) {
+    for (const v of ["your_api_key", "YOUR-API-KEY", "changeme", "xxxx", "TODO"]) {
       expect(isPlaceholderKey(v)).toBe(true)
       expect(usableKey(v)).toBeNull()
     }

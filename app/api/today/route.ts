@@ -617,11 +617,13 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       fetchedAt: new Date().toISOString(),
     })
   } catch (err) {
-    // A rejected key is not a feed outage: send the screen to Settings
-    // instead of inviting a retry that will fail the same way.
+    // A rejected key is not a feed outage: needsKey sends the screen to
+    // Settings instead of inviting a retry that will fail the same way. The
+    // status stays 502: it was this server's credential PropLine refused, not
+    // the caller's, so a 401 would say the wrong party is unauthenticated.
     return NextResponse.json(
       { error: feedErrorText(err, "PropLine"), needsKey: err instanceof FeedKeyError },
-      { status: err instanceof FeedKeyError ? 401 : 502 },
+      { status: 502 },
     )
   }
 }

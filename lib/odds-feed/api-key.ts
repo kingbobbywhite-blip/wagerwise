@@ -5,10 +5,10 @@
  * Both routes used to take `process.env.X ?? body.x` and trim it. That trim is
  * not enough. A key copied out of a dashboard arrives with a newline; a key
  * written into .env.local as `KEY="abc"` keeps its quotes through some dotenv
- * versions; and a .env.example copied across leaves a placeholder sitting in
- * the environment, where it beats the real key in Settings and sends the feed a
+ * versions; and a placeholder typed into .env.local from a tutorial or another
+ * project's example file beats the real key in Settings and sends the feed a
  * string that was never a key. Each of those comes back as a 401 that reads as
- * "your key is wrong" when the key itself is fine.
+ * "your key is wrong" when the real key is fine.
  */
 
 /** A key's two possible homes, so an error can name the one that was rejected. */
@@ -66,7 +66,7 @@ const PLACEHOLDERS = new Set([
 /** Whether a cleaned value is a placeholder rather than a key. */
 export function isPlaceholderKey(value: string): boolean {
   const normalized = value.toLowerCase().replace(/[\s-]+/g, "_")
-  return PLACEHOLDERS.has(normalized) || /^<.*>$/.test(value) || /^x{4,}$/i.test(value)
+  return PLACEHOLDERS.has(normalized) || /^x{4,}$/i.test(value)
 }
 
 /** A cleaned value that is neither empty nor a placeholder. */

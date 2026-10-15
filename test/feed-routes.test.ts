@@ -557,3 +557,73 @@ describe("pullPropline with a clock", () => {
     expect(asked.filter((u) => !u.endsWith("/events"))).toHaveLength(1)
   })
 })
+
+describe("a PropLine key the feed rejects", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  /** PropLine's own body on a bad key: `detail` is an object, not a sentence. */
+  const REJECTED = {
+    detail: { error: "invalid_api_key", message: "Invalid API key.", signup_url: "https://prop-line.com/" },
+  }
+
+  /** Every PropLine request answers 401, and the keys it was sent are recorded. */
+  function stubRejecting() {
+    const sent: (string | null)[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        sent.push(new Headers(init?.headers).get("X-API-Key"))
+        return json(REJECTED, 401)
+      }),
+    )
+    return sent
+  }
+
+  for (const [name, call] of [
+    ["/api/today", today],
+    ["/api/odds", odds],
+  ] as const) {
+    it(`${name} sends the screen to Settings with PropLine's sentence, not its JSON`, async () => {
+      vi.stubEnv("PROPLINE_API_KEY", "")
+      stubRejecting()
+      const res = await call({ provider: "propline", proplineKey: "wrong-key", league: "nba" })
+      const body = (await res.json()) as { error: string; needsKey?: boolean }
+      // This server's credential was refused upstream, not the caller's: 502, with needsKey.
+      expect(res.status).toBe(502)
+      expect(body.needsKey).toBe(true)
+      expect(body.error).toContain("PropLine rejected the API key. Invalid API key.")
+      expect(body.error).toContain("Settings")
+      expect(body.error).not.toContain("{")
+    })
+  }
+
+  it("names the environment when that is where the rejected key came from", async () => {
+    vi.stubEnv("PROPLINE_API_KEY", "stale-env-key")
+    const sent = stubRejecting()
+    const body = (await (await today({ provider: "propline", proplineKey: "settings-key", league: "nba" })).json()) as {
+      error: string
+    }
+    expect(sent[0]).toBe("stale-env-key")
+    expect(body.error).toContain("PROPLINE_API_KEY in the environment, which takes precedence")
+  })
+
+  it("never sends a placeholder left in the environment, and uses the Settings key instead", async () => {
+    vi.stubEnv("PROPLINE_API_KEY", "your_api_key")
+    const sent = stubRejecting()
+    await today({ provider: "propline", proplineKey: ' "settings-key"\n', league: "nba" })
+    expect(sent.length).toBeGreaterThan(0)
+    expect(sent.every((k) => k === "settings-key")).toBe(true)
+  })
+
+  it("does not reach PropLine at all when the only key is a placeholder", async () => {
+    vi.stubEnv("PROPLINE_API_KEY", "changeme")
+    const sent = stubRejecting()
+    const res = await today({ provider: "propline", proplineKey: "your_api_key", league: "nba" })
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { needsKey?: boolean }).needsKey).toBe(true)
+    expect(sent).toHaveLength(0)
+  })
+})

@@ -165,7 +165,7 @@ export async function POST(request: Request) {
     // instead of inviting a retry that will fail the same way.
     return NextResponse.json(
       { error: feedErrorText(err, "PropLine"), needsKey: err instanceof FeedKeyError },
-      { status: err instanceof FeedKeyError ? 401 : 502 },
+      { status: 502 },
     )
     }
   }
