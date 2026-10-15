@@ -15,6 +15,7 @@ import { DEVIG_METHODS, type DevigMethod } from "@/lib/quant/odds"
 import { payoutMultiple, supportedPickCounts } from "@/lib/quant/payouts"
 import { exportState, importState } from "@/lib/store/local"
 import { useStore } from "@/lib/store/provider"
+import { StoragePanel } from "@/components/storage-panel"
 import { companionsOf, creditPlan, leagueFor, pullPlan } from "@/lib/leagues"
 import { marketsForCompetition, marketsForLeague } from "@/lib/odds-feed/theoddsapi"
 import { DEFAULT_SETTINGS, type OddsProvider } from "@/lib/store/schema"
@@ -23,7 +24,15 @@ import { money } from "@/lib/format"
 const TAB = "px-1.5 text-xs sm:px-2 sm:text-sm"
 
 export default function SettingsPage() {
-  const { state, setSettings, replaceAll, saveError, ready } = useStore()
+  const { state, setSettings, replaceAll, saveError, unsaved, ready } = useStore()
+  // The storage banner links to #data, so arriving that way opens the Data tab.
+  const [tab, setTab] = React.useState("bankroll")
+  React.useEffect(() => {
+    if (window.location.hash === "#data") setTab("data")
+  }, [])
+  // With storage full or failing, the readout is the reason you came, so it
+  // sits above the tabs rather than behind one.
+  const storageProblem = saveError != null || unsaved.length > 0
   const s = state.settings
   const dailyLeague = leagueFor(s.daily.league)
   const dailyMarkets = marketsForLeague(dailyLeague.id, s.daily.markets)
@@ -50,16 +59,26 @@ export default function SettingsPage() {
     const a = document.createElement("a")
     a.href = url
     a.download = `wagerwise-${new Date().toISOString().slice(0, 10)}.json`
+    // In the document for the click, and revoked only after the download has
+    // started: revoking in the same tick can cancel it in Safari and Firefox.
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    a.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
 
   async function importJson(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+    const input = e.target
+    const file = input.files?.[0]
+    // Cleared so choosing the same file again fires again.
+    input.value = ""
     if (!file) return
     try {
+      // A restore replaces everything, slips included, so the state it
+      // replaced is one press away.
+      const before = state
       replaceAll(importState(await file.text()))
-      toast.success("Data restored")
+      toast.success("Data restored", { action: { label: "Undo", onClick: () => replaceAll(before) } })
     } catch (err) {
       toast.error("Could not read that file", { description: err instanceof Error ? err.message : String(err) })
     }
@@ -80,8 +99,9 @@ export default function SettingsPage() {
           {saveError}
         </p>
       ) : null}
+      {storageProblem ? <StoragePanel onExport={exportJson} /> : null}
 
-      <Tabs defaultValue="bankroll">
+      <Tabs value={tab} onValueChange={setTab}>
         {/* Five tabs at full size overflow a 360px phone and push Data off the
             edge, so they shrink below sm and scroll rather than widen the page. */}
         <TabsList className="max-w-full justify-start overflow-x-auto font-mono text-xs">
@@ -608,6 +628,7 @@ export default function SettingsPage() {
               include any API keys entered here, so a restore brings them back; keep the file private.
             </p>
           </div>
+          {storageProblem ? null : <StoragePanel onExport={exportJson} />}
         </TabsContent>
       </Tabs>
     </div>

@@ -334,15 +334,29 @@ folding them into a guess would report college legs as NFL calibration.
 
 ## When the browser runs out of room
 
-Everything lives in one localStorage blob, and a 14-game NFL pull at eight books is comfortably
-over a megabyte of JSON — enough that a full Sunday could already fail to save. Until now it
-failed **silently** on the one screen that causes it: the slate lived in React state, looked fine,
-and was gone on the next reload along with the credits that bought it.
+Everything lives in this browser's localStorage, which browsers cap per site: Chrome takes about
+5.2 million characters, and Safari's 5MB allowance is no larger. A pull used to be stored
+verbatim, every quote repeating its team names, game and kick-off, so a 14-game NFL Sunday at
+eight books ran to millions of characters, enough to fill the allowance nearly alone. The old shed
+loop then dropped the line history, every other slate, the imported board and finally the pull
+itself, from the screen as well as from storage.
 
-A failed save now sheds load instead, cheapest first — older line history, then another league's
-slate, then the rest of the history, then the imported board — and says what it dropped, in a
-banner in the header that every screen shows. Slips are never dropped: they are the only record of
-what the model predicted.
+Three changes fix that:
+
+- **Pulls are packed.** Quotes and the line history are stored by column, with each repeated
+  string kept once (`lib/store/pack.ts`). A full NFL Sunday drops from millions of characters to
+  about 220,000, losslessly. Exports stay unpacked and readable.
+- **The state is stored in pieces.** Settings and slips have their own key, each league's slate
+  another, the line history and imported board theirs. A save writes only what changed, so a
+  setting no longer re-serialises every slate, and a slate that does not fit can never stop a slip
+  from being saved.
+- **A full quota trims storage, never the screen.** If something still does not fit, the stored
+  copy sheds in order (older line history, other leagues' slates oldest first, the rest of the
+  history, the imported board, the newest pull last). What is on screen stays whole until the
+  tab is closed, and a banner names exactly what will not survive a reload. Slips are never shed.
+
+Settings → Data shows what each piece takes and lets you clear a slate, the history or the board,
+with an undo.
 
 ## Leagues
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import {
   DISPERSION_DIAL_RANGE,
   groupedCalibration,
@@ -9,8 +9,6 @@ import { fitMovement, lineMoves, snapshotFor, snapshotRows, summariseHistory } f
 import { DEFAULT_VALUE_SETTINGS, KICKOFF_VARIANCE_PER_DAY, type FeedQuote } from "@/lib/quant/valuebets"
 import { DEFAULT_PROJECTION_SETTINGS } from "@/lib/quant/projection"
 import { MAX_LINE_SNAPSHOTS, migrate, type LineSnapshot } from "@/lib/store/schema"
-import { reduceForQuota } from "@/lib/store/local"
-import { EMPTY_STATE } from "@/lib/store/schema"
 
 /**
  * The path to fitting the priors, not the fit.
@@ -281,74 +279,5 @@ describe("the line history cannot grow without bound", () => {
     })
     expect(migrated.lines.map((l) => l.pulledAt)).toEqual(["2026-11-03T18:00:00Z"])
     expect(migrate({ version: 1 }).lines).toEqual([])
-  })
-})
-
-describe("a save that fails for some other reason", () => {
-  it("is not a reason to delete anything", async () => {
-    // Shedding is the right answer to a full quota and the wrong answer to
-    // every other failure: storage switched off, or a value that will not
-    // serialise, would otherwise have the app delete slate after slate
-    // trying to fix a problem that was never about size.
-    const { saveState } = await import("@/lib/store/local")
-    const store: Record<string, string> = {}
-    const setItem = () => {
-      const err = new Error("The quota has been exceeded.")
-      err.name = "QuotaExceededError"
-      throw err
-    }
-    vi.stubGlobal("window", { localStorage: { setItem, getItem: (k: string) => store[k] ?? null } })
-    expect(saveState(EMPTY_STATE)).toMatchObject({ ok: false, quota: true })
-
-    vi.stubGlobal("window", {
-      localStorage: {
-        setItem: () => {
-          throw new Error("Access is denied for this document.")
-        },
-        getItem: () => null,
-      },
-    })
-    const denied = saveState(EMPTY_STATE)
-    expect(denied.ok).toBe(false)
-    expect(denied.quota).toBeFalsy()
-    expect(denied.error).toContain("Could not save")
-    vi.unstubAllGlobals()
-  })
-})
-
-describe("when browser storage is full", () => {
-  it("sheds the cheapest thing first and never the slips", () => {
-    const state = {
-      ...EMPTY_STATE,
-      slips: [{ id: "s1" }] as never,
-      slate: { id: "x", label: "x", importedAt: "x", rows: [], source: "x" },
-      daily: {
-        nba: { league: "nba" as const, fetchedAt: "2026-01-01T00:00:00Z", quotes: [], events: [], requestsRemaining: null, creditsSpent: 0 },
-        nfl: { league: "nfl" as const, fetchedAt: "2026-01-02T00:00:00Z", quotes: [], events: [], requestsRemaining: null, creditsSpent: 0 },
-      },
-      lines: Array.from({ length: 5 }, (_, i) => ({ pulledAt: `2026-01-0${i + 1}T00:00:00Z`, league: "nfl" as const, rows: [] })),
-    }
-    // 1. Line history thins first: it is research, not a paid-for slate.
-    const first = reduceForQuota(state, "nfl")!
-    expect(first.dropped).toContain("line snapshots")
-    expect(first.state.lines).toHaveLength(2)
-    // 2. Then another league's slate, oldest, never the one on screen.
-    const second = reduceForQuota(first.state, "nfl")!
-    expect(second.dropped).toContain("NBA")
-    expect(second.state.daily.nfl).toBeDefined()
-    // 3. Then the rest of the history, then the imported board, then the slate.
-    let s = second.state
-    const dropped: string[] = []
-    for (let i = 0; i < 6; i++) {
-      const r = reduceForQuota(s, "nfl")
-      if (!r) break
-      dropped.push(r.dropped)
-      s = r.state
-    }
-    expect(dropped).toEqual(["the line history", "the imported board", "every cached slate"])
-    // The slips survive every step, because they are the only record of what
-    // the model predicted.
-    expect(s.slips).toHaveLength(1)
-    expect(reduceForQuota(s, "nfl")).toBeNull()
   })
 })

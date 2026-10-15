@@ -357,6 +357,11 @@ export interface LineSnapshot {
  *
  * Eight pulls is still a month of weekends, which is what the comparison
  * needs. The row cap is the backstop for a slate far bigger than the NFL's.
+ *
+ * Those figures are for the history verbatim. It is now stored packed (see
+ * lib/store/pack.ts), and eight full NFL pulls come to about 340,000
+ * characters rather than 1.8 million, so the cap could rise a long way before
+ * storage was the reason not to.
  */
 export const MAX_LINE_SNAPSHOTS = 8
 
@@ -414,7 +419,11 @@ export function migrate(raw: unknown): AppState {
       defaultAppId: s.defaultAppId ?? DEFAULT_SETTINGS.defaultAppId,
       defaultModeId: s.defaultModeId ?? DEFAULT_SETTINGS.defaultModeId,
     },
-    slate: o.slate ? { ...o.slate, league: isLeagueId(o.slate.league) ? o.slate.league : undefined } : null,
+    // A board without rows would take the board screen down; it is dropped instead.
+    slate:
+      o.slate && typeof o.slate === "object" && Array.isArray(o.slate.rows)
+        ? { ...o.slate, league: isLeagueId(o.slate.league) ? o.slate.league : undefined }
+        : null,
     slips: Array.isArray(o.slips) ? o.slips : [],
     daily: migrateDaily(o.daily),
     lines: migrateLines(o.lines),
@@ -455,7 +464,9 @@ function migrateDaily(raw: unknown): Partial<Record<LeagueId, DailyCache>> {
   for (const [k, v] of Object.entries(o)) {
     if (!isLeagueId(k) || !v || typeof v !== "object") continue
     const cache = v as DailyCache
-    if (!Array.isArray(cache.quotes)) continue
+    // The Today screen reads all three on every render; a cache missing one
+    // is dropped here rather than crashing it.
+    if (!Array.isArray(cache.quotes) || !Array.isArray(cache.events) || typeof cache.fetchedAt !== "string") continue
     out[k] = { ...cache, league: k }
   }
   return out

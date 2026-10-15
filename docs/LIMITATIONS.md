@@ -135,7 +135,8 @@ headline calibration figure stays neutral until roughly a hundred legs have sett
 ## 11. Everything lives in one browser
 
 No server, no account. Clearing site data deletes your history. Export from settings
-regularly.
+regularly. Two tabs open at once each keep their own copy in memory, and the one that saves last
+wins for settings and slips: log entries in one tab at a time.
 
 ## 12. Exchange and prediction-market support is partial
 
@@ -217,15 +218,15 @@ That threshold is judgement. It is now a dial in Settings, what it removes is li
 screen, and a line PropLine shows an app actually posting overrides it — but with no pick'em feed
 attached it is still a guess about what a board would offer.
 
-**Browser storage is the binding constraint, and it was failing silently.** Everything is one
-localStorage blob. A pull stores every book's quote verbatim, so a 14-game NFL Sunday at eight
-books is 1.7-2.8MB of JSON; browsers meter localStorage in UTF-16 code units, so that is 3.4-5.5MiB
-of a roughly 5MiB quota before an NBA or NHL cache sits beside it. A full Sunday can therefore
-fail to save outright. A failed save now sheds load — line history, then other leagues' slates,
-then the imported board — and reports what it dropped in a banner every screen shows, instead of
-looking successful while writing nothing. What it does NOT do is make the underlying allocation
-smaller: a verbatim per-book cache is still what the engine needs to re-price without spending
-credits, so a large enough slate will still shed something.
+**Browser storage is still the binding constraint, just a much looser one.** localStorage takes
+about 5.2 million characters a site in Chrome, and Safari's 5MB is no more. Pulls are now packed
+by column, which takes a 14-game NFL Sunday at eight books from about 3.7 million characters to
+about 220,000, and the state is stored in pieces so a
+slate that does not fit can never block a slip or a setting from saving. A full quota sheds only
+the stored copy, so the screen keeps the pull until the tab closes. What this does NOT do is move
+the caches to IndexedDB, which has a far larger allowance; that is the next step if four leagues of
+caches plus a season of line history ever outgrow it. The quota is also per origin, so another app
+run on the same localhost port counts against it; Settings → Data shows how much.
 
 **Whether an empty market costs a credit is unverified.** This app has said it does. Two
 independent transcriptions of The Odds API docs give the per-event cost as unique markets

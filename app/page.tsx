@@ -229,8 +229,8 @@ export default function TodayPage() {
   const built = useDailyPicks(pickInputs)
   // Picks are shown only while the pull they were built from is the one on
   // screen: never another league's, never a pull a refresh has replaced, and
-  // never one storage has since shed to make room, which would leave picks up
-  // with no pull behind them. A rebuild from the same pull (the minute clock, a
+  // never one cleared from Settings, which would leave picks up with no pull
+  // behind them. A rebuild from the same pull (the minute clock, a
   // settings change) keeps the last picks up until the new ones land, so the
   // screen does not blank once a minute.
   const builtHere = !!daily && built.builtFrom?.pull === daily

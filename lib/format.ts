@@ -29,3 +29,16 @@ export function shortDate(iso: string): string {
 export function possessive(name: string): string {
   return /s$/i.test(name) ? `${name}'` : `${name}'s`
 }
+
+/** "a", "a and b", "a, b and c". */
+export function listJoin(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? ""
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`
+}
+
+/** A size in characters as UTF-16 bytes, which is how the strictest browsers meter storage: "640 KB", "1.4 MB". */
+export function storageSize(chars: number): string {
+  const bytes = chars * 2
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}

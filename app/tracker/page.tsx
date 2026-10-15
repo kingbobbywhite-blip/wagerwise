@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { toast } from "sonner"
 import { Trash2 } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { SideBadge } from "@/components/side-badge"
@@ -41,7 +42,7 @@ import { cn } from "@/lib/utils"
 const CALIBRATION_MIN = 100
 
 export default function TrackerPage() {
-  const { state, updateSlip, removeSlip, ready } = useStore()
+  const { state, updateSlip, removeSlip, addSlip, ready } = useStore()
   const slips = state.slips
 
   const perf = React.useMemo(() => summarise(slips), [slips])
@@ -500,7 +501,13 @@ export default function TrackerPage() {
                     variant="ghost"
                     size="icon"
                     className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => removeSlip(s.id)}
+                    onClick={() => {
+                      // One tap, so one tap back: a slip is the only record of
+                      // what the model said, and a mis-tap should not cost it.
+                      const at = slips.indexOf(s)
+                      removeSlip(s.id)
+                      toast.success("Entry deleted", { action: { label: "Undo", onClick: () => addSlip(s, at) } })
+                    }}
                     aria-label="Delete entry"
                   >
                     <Trash2 className="size-3.5" />
