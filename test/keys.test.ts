@@ -38,6 +38,18 @@ describe("parseServerKeys", () => {
   })
 })
 
+describe("placeholders are not keys", () => {
+  it("does not report a placeholder in the environment as a key the server holds", () => {
+    expect(serverKeysFrom({ ODDS_API_KEY: "your_api_key", PROPLINE_API_KEY: "changeme" })).toEqual(NO_SERVER_KEYS)
+    expect(serverKeysFrom({ PROPLINE_API_KEY: ' "real-key" ' })).toEqual({ oddsApi: false, propline: true })
+  })
+
+  it("does not enable a pull for a placeholder typed into Settings", () => {
+    expect(hasFeedKey(propline("your_api_key"), NO_SERVER_KEYS)).toBe(false)
+    expect(hasFeedKey(oddsApi("xxxx"), NO_SERVER_KEYS)).toBe(false)
+  })
+})
+
 describe("hasFeedKey", () => {
   it("is ready with only ODDS_API_KEY in the environment and nothing in Settings", () => {
     expect(hasFeedKey(oddsApi(), { oddsApi: true, propline: false })).toBe(true)

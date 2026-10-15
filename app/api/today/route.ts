@@ -17,11 +17,13 @@ import {
   onlyPricedPlayers,
   pickemNoteFor,
   pullPropline,
-  resolveProplineKey,
+  FeedKeyError,
+  resolveProplineKeySource,
   type PickemLine,
   type ProplineNormalizeResult,
 } from "@/lib/odds-feed/propline"
 import { feedErrorText, fetchOddsApi, noneCouldBePriced, notStarted } from "@/lib/odds-feed/http"
+import { resolveKey as resolveApiKey, type ResolvedKey } from "@/lib/odds-feed/api-key"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
 import {
   DEFAULT_LEAGUE,
@@ -85,10 +87,10 @@ interface RequestBody {
 }
 
 function resolveKey(body: RequestBody): string | null {
-  const fromEnv = process.env.ODDS_API_KEY
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim()
-  if (body.apiKey && body.apiKey.trim()) return body.apiKey.trim()
-  return null
+  return resolveApiKey(process.env.ODDS_API_KEY, body.apiKey, {
+    env: "ODDS_API_KEY",
+    settings: "Settings \u2192 Odds feed \u2192 API key",
+  })?.key ?? null
 }
 
 /** The empty-slate note, naming games that were skipped for having started. */
@@ -124,7 +126,8 @@ export async function POST(request: Request) {
   }
 
   const provider = body.provider === "propline" ? "propline" : "theoddsapi"
-  const proplineKey = resolveProplineKey(body.proplineKey)
+  const proplineKeySource = resolveProplineKeySource(body.proplineKey)
+  const proplineKey = proplineKeySource?.key ?? null
   const apiKey = resolveKey(body)
 
   if (provider === "propline" && !proplineKey) {
@@ -169,6 +172,7 @@ export async function POST(request: Request) {
   if (provider === "propline") {
     return fromPropline({
       apiKey: proplineKey!,
+      keySource: proplineKeySource,
       leagueId,
       markets: body.markets ?? null,
       maxGames,
@@ -302,6 +306,7 @@ export async function POST(request: Request) {
       body.pickemLines && proplineKey
         ? await pickemFromPropline({
             apiKey: proplineKey,
+            keySource: proplineKeySource,
             leagueId,
             markets: body.markets ?? null,
             maxGames,
@@ -516,6 +521,8 @@ async function pullCompetition(
 
 interface PullArgs {
   apiKey: string
+  /** Where the PropLine key came from, so a rejected key says where to correct it. */
+  keySource?: ResolvedKey | null
   leagueId: LeagueId
   /** The market list from Settings, or null to follow each competition's own. */
   markets: string[] | null
@@ -610,7 +617,14 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       fetchedAt: new Date().toISOString(),
     })
   } catch (err) {
-    return NextResponse.json({ error: feedErrorText(err, "PropLine") }, { status: 502 })
+    // A rejected key is not a feed outage: needsKey sends the screen to
+    // Settings instead of inviting a retry that will fail the same way. The
+    // status stays 502: it was this server's credential PropLine refused, not
+    // the caller's, so a 401 would say the wrong party is unauthenticated.
+    return NextResponse.json(
+      { error: feedErrorText(err, "PropLine"), needsKey: err instanceof FeedKeyError },
+      { status: 502 },
+    )
   }
 }
 

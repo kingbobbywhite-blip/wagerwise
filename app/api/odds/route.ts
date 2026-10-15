@@ -7,7 +7,8 @@ import {
   eventsUrl,
   normalizeMany,
 } from "@/lib/odds-feed/theoddsapi"
-import { normalizeProplineMany, pullPropline, resolveProplineKey } from "@/lib/odds-feed/propline"
+import { FeedKeyError, normalizeProplineMany, pullPropline, resolveProplineKeySource } from "@/lib/odds-feed/propline"
+import { resolveKey as resolveApiKey } from "@/lib/odds-feed/api-key"
 import { feedErrorText, fetchOddsApi, noneCouldBePriced, notStarted } from "@/lib/odds-feed/http"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
 import { DEFAULT_LEAGUE, LEAGUE_IDS, isLeagueId, leagueFor } from "@/lib/leagues"
@@ -52,10 +53,10 @@ interface RequestBody {
 }
 
 function resolveKey(body: RequestBody): string | null {
-  const fromEnv = process.env.ODDS_API_KEY
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim()
-  if (body.apiKey && body.apiKey.trim()) return body.apiKey.trim()
-  return null
+  return resolveApiKey(process.env.ODDS_API_KEY, body.apiKey, {
+    env: "ODDS_API_KEY",
+    settings: "Settings \u2192 Odds feed \u2192 API key",
+  })?.key ?? null
 }
 
 export async function POST(request: Request) {
@@ -78,7 +79,8 @@ export async function POST(request: Request) {
   }
 
   const usePropline = body.provider === "propline"
-  const proplineKey = usePropline ? resolveProplineKey(body.proplineKey) : null
+  const proplineKeySource = usePropline ? resolveProplineKeySource(body.proplineKey) : null
+  const proplineKey = proplineKeySource?.key ?? null
   const apiKey = usePropline ? null : resolveKey(body)
   if (usePropline && !proplineKey) {
     return NextResponse.json(
@@ -110,6 +112,7 @@ export async function POST(request: Request) {
     try {
       const pull = await pullPropline({
         apiKey: proplineKey!,
+        keySource: proplineKeySource,
         league: leagueId,
         fromMs,
         toMs,
@@ -158,7 +161,12 @@ export async function POST(request: Request) {
         requestsUsed: pull.quota?.used ?? null,
       })
     } catch (err) {
-      return NextResponse.json({ error: feedErrorText(err, "PropLine") }, { status: 502 })
+      // A rejected key is not a feed outage: send the screen to Settings
+    // instead of inviting a retry that will fail the same way.
+    return NextResponse.json(
+      { error: feedErrorText(err, "PropLine"), needsKey: err instanceof FeedKeyError },
+      { status: 502 },
+    )
     }
   }
 

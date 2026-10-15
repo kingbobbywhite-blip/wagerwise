@@ -134,8 +134,22 @@ same Settings tab, or on the `PROPLINE_API_KEY=` line of `.env.local`.
 The same caution about public deployments applies: leave `PROPLINE_API_KEY` unset on an
 unprotected URL and enter the key in Settings instead.
 
+**"PropLine rejected the API key"** means PropLine received a key and did not recognise it,
+so the fix is the key itself, not the app. The message names where the key it sent came
+from. Three things cause it:
+
+- The key is wrong, revoked, or from somewhere else. Check it against the one on
+  [prop-line.com](https://prop-line.com); an Odds API key is not a PropLine key, and the two
+  fields in Settings are not interchangeable.
+- `PROPLINE_API_KEY` in `.env.local` holds something stale, and it takes precedence over
+  Settings, so retyping the key in Settings changes nothing. Correct it in the file, or
+  delete the line and restart. A placeholder such as `your_api_key` is ignored rather than
+  sent, so it can no longer shadow a real key in Settings.
+- The key was pasted with a newline or wrapping quotes. Those are stripped now, but the
+  PowerShell 5 UTF-16 trap above still applies.
+
 ```bash
-npm test         # 513 unit tests over the probability engine, the feeds and screenshot reading
+npm test         # 633 unit tests over the probability engine, the feeds and screenshot reading
 npm run lint
 npm run build
 ```

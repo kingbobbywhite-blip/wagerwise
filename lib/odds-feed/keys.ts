@@ -1,4 +1,5 @@
 import type { OddsFeedSettings } from "@/lib/store/schema"
+import { usableKey } from "./api-key"
 
 /**
  * Which feed keys the server holds in its own environment.
@@ -16,9 +17,13 @@ export interface ServerKeys {
 
 export const NO_SERVER_KEYS: ServerKeys = { oddsApi: false, propline: false }
 
-/** Same test the routes apply before they use an environment key. */
+/**
+ * Same test the routes apply before they use a key: blank is no key, and
+ * neither is a placeholder left behind by a copied example file. Reporting one
+ * as present lights up the pull button for a key that cannot work.
+ */
 function present(value: string | undefined): boolean {
-  return !!value && value.trim().length > 0
+  return usableKey(value) != null
 }
 
 /** Read from the server's environment. Server-side only: pass `process.env`. */

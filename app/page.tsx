@@ -33,6 +33,7 @@ import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForCompetition } from "@/lib/odds-feed/theoddsapi"
 import { PROPLINE_FREE_DAILY } from "@/lib/odds-feed/propline"
 import { NO_SERVER_KEYS, hasFeedKey, parseServerKeys, type ServerKeys } from "@/lib/odds-feed/keys"
+import { usableKey } from "@/lib/odds-feed/api-key"
 import { notStarted } from "@/lib/odds-feed/http"
 import { useStore } from "@/lib/store/provider"
 import {
@@ -755,7 +756,7 @@ export default function TodayPage() {
                               ? `none of ${possessive(entryApp?.name ?? "your app")} lines matched these props, so type its line in`
                               : `${entryApp?.name ?? "your default app"} posted none in this pull, so type its line in`
                         }. `
-                      : s.oddsFeed.proplineKey.trim() || serverKeys?.propline
+                      : usableKey(s.oddsFeed.proplineKey) || serverKeys?.propline
                         ? "No pick'em lines came through in this pull, so if your app shows a different line, type it in. "
                         : "Nothing here can see what PrizePicks or Underdog are offering unless a PropLine key is set in Settings, so if your app shows a different line, type it in. "}
                   You get one answer: the over, the under, or pass. Never both: on a pick&apos;em app one

@@ -8,6 +8,7 @@ import { teamNickname } from "./games"
 import type { PickType } from "@/lib/store/schema"
 import { feedMarketFor, normalizeEventOdds, sportOfFeedKey, type NormalizeResult } from "./theoddsapi"
 import { feedErrorText, notStarted } from "./http"
+import { keySourceHint, resolveKey, type ResolvedKey } from "./api-key"
 import type { FeedBookmaker, FeedEvent, FeedEventOdds, FeedOutcome } from "./types"
 
 /**
@@ -361,13 +362,21 @@ export function proplineEventOddsUrl(
 
 /**
  * PROPLINE_API_KEY in the environment wins over a key sent from Settings, the
- * same precedence ODDS_API_KEY has. Server-side only: never call from the page.
+ * same precedence ODDS_API_KEY has, except that a placeholder left in the
+ * environment is not a key: it would otherwise shadow the real one in Settings
+ * and there is no way to tell from the 401 that it had. Server-side only:
+ * never call from the page.
  */
+export function resolveProplineKeySource(fromBody: string | undefined | null): ResolvedKey | null {
+  return resolveKey(process.env.PROPLINE_API_KEY, fromBody, {
+    env: "PROPLINE_API_KEY",
+    settings: "Settings \u2192 Odds feed \u2192 PropLine key",
+  })
+}
+
+/** The key alone, for callers that do not report errors. */
 export function resolveProplineKey(fromBody: string | undefined | null): string | null {
-  const fromEnv = process.env.PROPLINE_API_KEY
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim()
-  if (fromBody && fromBody.trim()) return fromBody.trim()
-  return null
+  return resolveProplineKeySource(fromBody)?.key ?? null
 }
 
 /** The key travels in a header, so it never sits in a URL that might get logged. */
@@ -391,21 +400,124 @@ export function proplineQuota(headers: Headers): ProplineQuota | null {
   return { limit, used, remaining }
 }
 
-/** A readable sentence from a PropLine error, including its upgrade link when it sends one. */
-export async function proplineErrorText(res: Response): Promise<string> {
-  const text = await res.text().catch(() => "")
-  let detail = text.slice(0, 300)
+/**
+ * PropLine's structured error body. `detail` is a plain sentence on some
+ * errors and an object on the ones worth acting on, which is why reading only
+ * the string form put raw JSON in front of the user on a bad key.
+ */
+export interface ProplineErrorBody {
+  /** Stable code: invalid_api_key, missing_api_key, daily_limit_exceeded, burst_limit_exceeded, upgrade_required. */
+  code: string | null
+  /** PropLine's own sentence, when it sent one. */
+  message: string | null
+  /** Whichever of signup_url, upgrade_url or docs_url it sent, in that order. */
+  url: string | null
+}
+
+function stringAt(o: Record<string, unknown>, key: string): string | null {
+  const v = o[key]
+  return typeof v === "string" && v.trim() ? v.trim() : null
+}
+
+/** Read a PropLine error body, whether `detail` is a sentence or an object. */
+export function parseProplineError(text: string): ProplineErrorBody {
+  const empty: ProplineErrorBody = { code: null, message: null, url: null }
+  let body: unknown
   try {
-    const body = JSON.parse(text) as { detail?: unknown; message?: unknown; upgrade_url?: unknown }
-    const msg = typeof body.detail === "string" ? body.detail : typeof body.message === "string" ? body.message : null
-    if (msg) detail = msg
-    if (typeof body.upgrade_url === "string") detail += ` (${body.upgrade_url})`
+    body = JSON.parse(text)
   } catch {
-    // Not JSON: the raw text is the best there is.
+    return empty
   }
-  if (res.status === 401) return `PropLine rejected the API key. ${detail}`.trim()
-  if (res.status === 429) return `PropLine's daily request limit is used up. ${detail}`.trim()
-  return `PropLine returned ${res.status}. ${detail}`.trim()
+  if (!body || typeof body !== "object") return empty
+  const top = body as Record<string, unknown>
+  const detail = top.detail
+  // A string detail carries the sentence; an object carries the code and links too.
+  const info: Record<string, unknown> =
+    detail && typeof detail === "object" ? (detail as Record<string, unknown>) : top
+  return {
+    code: stringAt(info, "error") ?? stringAt(info, "error_code") ?? stringAt(top, "error_code"),
+    message: (typeof detail === "string" ? detail.trim() : null) || stringAt(info, "message"),
+    url: stringAt(info, "signup_url") ?? stringAt(info, "upgrade_url") ?? stringAt(info, "docs_url"),
+  }
+}
+
+/**
+ * A feed failure the key is to blame for. Separate from any other error
+ * because no retry fixes it and the screen should offer Settings rather than
+ * invite a retry that fails the same way.
+ */
+export class FeedKeyError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "FeedKeyError"
+  }
+}
+
+/**
+ * What a failed PropLine response means, read once: the sentence to show and
+ * whether the key was what it refused.
+ *
+ * A rejected key names the place the key came from. The environment beats
+ * Settings, so without that the obvious fix (retype it in Settings) changes
+ * nothing and the same error comes back.
+ */
+function describeFailure(
+  text: string,
+  status: number,
+  key: ResolvedKey | null,
+): { message: string; keyRejected: boolean } {
+  const parsed = parseProplineError(text)
+  // Fall back to the raw body only when nothing could be read out of it, and
+  // never to raw JSON: an unparsed object is noise to whoever reads the screen.
+  const raw = text.trim().startsWith("{") ? "" : text.trim().slice(0, 300)
+  const said = parsed.message ?? raw
+  const sentence = (...s: (string | null | undefined)[]) =>
+    s
+      .map((x) => (x ?? "").trim())
+      .filter(Boolean)
+      .join(" ")
+  /** PropLine's own words, with the link it sent, when it sent either. */
+  const detail = sentence(said, parsed.url ? `(${parsed.url})` : null)
+  const where = keySourceHint(key)
+
+  if (parsed.code === "missing_api_key") {
+    return { message: sentence("PropLine received no API key.", detail, where), keyRejected: true }
+  }
+  if (status === 401 || parsed.code === "invalid_api_key") {
+    return {
+      // Without PropLine's link: on this error it is the signup page, and the
+      // closing sentence already says where a key comes from.
+      message: sentence(
+        "PropLine rejected the API key.",
+        said,
+        where,
+        "A key is free at prop-line.com and gives 1,000 requests a day; check the one in use against it.",
+      ),
+      keyRejected: true,
+    }
+  }
+  const message =
+    parsed.code === "burst_limit_exceeded"
+      ? sentence("PropLine is limiting requests. Wait a few seconds and try again.", detail)
+      : parsed.code === "upgrade_required"
+        ? sentence("This needs a paid PropLine plan.", detail)
+        : status === 429 || parsed.code === "daily_limit_exceeded"
+          ? sentence("PropLine's daily request limit is used up. It resets at 00:00 UTC.", detail)
+          : sentence(`PropLine returned ${status}.`, detail)
+  return { message, keyRejected: false }
+}
+
+/** A readable sentence from a failed PropLine response, saying what to do about it. */
+export async function proplineErrorText(res: Response, key?: ResolvedKey | null): Promise<string> {
+  const text = await res.text().catch(() => "")
+  return describeFailure(text, res.status, key ?? null).message
+}
+
+/** The error to throw for a failed PropLine response, typed so a bad key is recognisable. */
+export async function proplineFailure(res: Response, key?: ResolvedKey | null): Promise<Error> {
+  const text = await res.text().catch(() => "")
+  const { message, keyRejected } = describeFailure(text, res.status, key ?? null)
+  return keyRejected ? new FeedKeyError(message) : new Error(message)
 }
 
 /**
@@ -464,6 +576,8 @@ export interface ProplinePull {
  */
 export async function pullPropline(opts: {
   apiKey: string
+  /** Where `apiKey` came from, so a rejected key says where to correct it. */
+  keySource?: ResolvedKey | null
   league: LeagueId
   fromMs: number
   toMs: number
@@ -488,7 +602,7 @@ export async function pullPropline(opts: {
   const init: RequestInit = { headers: proplineHeaders(opts.apiKey), cache: "no-store" }
 
   const res = await doFetch(proplineEventsUrl(opts.league), init)
-  if (!res.ok) throw new Error(await proplineErrorText(res))
+  if (!res.ok) throw await proplineFailure(res, opts.keySource)
   let quota = proplineQuota(res.headers)
   const raw = (await res.json()) as ProplineEvent[]
   const events: FeedEvent[] = (Array.isArray(raw) ? raw : []).map((e) => ({
@@ -531,7 +645,7 @@ export async function pullPropline(opts: {
           proplineEventOddsUrl(e.id, { markets: opts.markets, bookmakers: opts.bookmakers, league: opts.league }),
           init,
         )
-        if (!r.ok) throw new Error(await proplineErrorText(r))
+        if (!r.ok) throw await proplineFailure(r, opts.keySource)
         quota = proplineQuota(r.headers) ?? quota
         const body = (await r.json()) as ProplineEventOdds
         // The event block can come back without its teams; the listing has them.
