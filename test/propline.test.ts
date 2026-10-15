@@ -454,3 +454,162 @@ describe("onlyPricedPlayers", () => {
     expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards" }])).toHaveLength(r.pickemLines.length)
   })
 })
+
+import { parseProplineError, proplineErrorText, resolveProplineKeySource } from "@/lib/odds-feed/propline"
+import { cleanApiKey, isPlaceholderKey, keySourceHint, resolveKey, usableKey } from "@/lib/odds-feed/api-key"
+
+/** The body PropLine actually sends on a bad key: `detail` is an object, not a sentence. */
+const INVALID_KEY = JSON.stringify({
+  detail: {
+    error: "invalid_api_key",
+    message: "Invalid API key.",
+    signup_url: "https://prop-line.com/",
+    docs_url: "https://prop-line.com/docs#authentication",
+  },
+})
+
+describe("parseProplineError", () => {
+  it("reads the code, sentence and link out of an object detail", () => {
+    expect(parseProplineError(INVALID_KEY)).toEqual({
+      code: "invalid_api_key",
+      message: "Invalid API key.",
+      url: "https://prop-line.com/",
+    })
+  })
+
+  it("still reads a plain string detail", () => {
+    expect(parseProplineError(JSON.stringify({ detail: "Daily limit reached" })).message).toBe("Daily limit reached")
+  })
+
+  it("gives up quietly on a body that is not JSON", () => {
+    expect(parseProplineError("<html>502</html>")).toEqual({ code: null, message: null, url: null })
+  })
+})
+
+describe("proplineErrorText", () => {
+  const res = (body: string, status: number) => new Response(body, { status })
+
+  it("says what PropLine said, never raw JSON", async () => {
+    const text = await proplineErrorText(res(INVALID_KEY, 401))
+    expect(text).toContain("PropLine rejected the API key.")
+    expect(text).toContain("Invalid API key.")
+    expect(text).not.toContain("{")
+    expect(text).not.toContain("signup_url")
+  })
+
+  it("names the environment when the key it rejected came from there, since Settings cannot override it", async () => {
+    const key = { key: "k", source: "environment" as const, label: "PROPLINE_API_KEY" }
+    const text = await proplineErrorText(res(INVALID_KEY, 401), key)
+    expect(text).toContain("PROPLINE_API_KEY")
+    expect(text).toContain("takes precedence")
+  })
+
+  it("points at Settings when that is where the key came from", async () => {
+    const key = { key: "k", source: "settings" as const, label: "Settings → Odds feed → PropLine key" }
+    expect(await proplineErrorText(res(INVALID_KEY, 401), key)).toContain("Settings → Odds feed → PropLine key")
+    expect(await proplineErrorText(res(INVALID_KEY, 401), key)).not.toContain("takes precedence")
+  })
+
+  it("tells the daily cap apart from a burst and from a paywall", async () => {
+    const daily = JSON.stringify({ detail: { error: "daily_limit_exceeded", message: "1000/1000 used." } })
+    expect(await proplineErrorText(res(daily, 429))).toContain("resets at 00:00 UTC")
+    const burst = JSON.stringify({ detail: { error: "burst_limit_exceeded", message: "Slow down." } })
+    expect(await proplineErrorText(res(burst, 429))).toContain("Wait a few seconds")
+    const gated = JSON.stringify({ detail: { error: "upgrade_required", message: "Hobby and up." } })
+    expect(await proplineErrorText(res(gated, 403))).toContain("paid PropLine plan")
+  })
+
+  it("falls back to the status for a body it cannot read", async () => {
+    expect(await proplineErrorText(res("", 503))).toBe("PropLine returned 503.")
+  })
+
+  it("carries the rejected key's error through a pull", async () => {
+    const fetcher = async () => new Response(INVALID_KEY, { status: 401 })
+    await expect(
+      pullPropline({
+        apiKey: "wrong",
+        keySource: { key: "wrong", source: "environment", label: "PROPLINE_API_KEY" },
+        league: "nba",
+        fromMs: 0,
+        toMs: 1,
+        markets: [],
+        maxGames: 1,
+        fetcher,
+      }),
+    ).rejects.toThrow(/rejected the API key[\s\S]*PROPLINE_API_KEY/)
+  })
+})
+
+describe("key hygiene", () => {
+  it("strips the quotes and whitespace a .env line or a copy-paste leaves behind", () => {
+    expect(cleanApiKey('  "abc123"  ')).toBe("abc123")
+    expect(cleanApiKey("'abc123'")).toBe("abc123")
+    expect(cleanApiKey("abc123\n")).toBe("abc123")
+    expect(cleanApiKey('"abc123",')).toBe("abc123")
+    expect(cleanApiKey(undefined)).toBe("")
+  })
+
+  it("refuses the placeholders that ship in example files", () => {
+    for (const v of ["your_api_key", "YOUR-API-KEY", "changeme", "<your key>", "xxxx", "TODO"]) {
+      expect(isPlaceholderKey(v)).toBe(true)
+      expect(usableKey(v)).toBeNull()
+    }
+    expect(usableKey("abc123")).toBe("abc123")
+  })
+
+  it("lets a real environment key win, but never a placeholder one", () => {
+    const labels = { env: "PROPLINE_API_KEY", settings: "Settings" }
+    expect(resolveKey("env-key", "settings-key", labels)).toEqual({
+      key: "env-key",
+      source: "environment",
+      label: "PROPLINE_API_KEY",
+    })
+    // The trap this fixes: a placeholder in .env.local silently beat the real
+    // key in Settings, so retyping the key in Settings changed nothing.
+    expect(resolveKey("your_api_key", "settings-key", labels)?.key).toBe("settings-key")
+    expect(resolveKey("  ", "settings-key", labels)?.source).toBe("settings")
+    expect(resolveKey(undefined, undefined, labels)).toBeNull()
+  })
+
+  it("resolves the PropLine key from the environment and from Settings", () => {
+    const before = process.env.PROPLINE_API_KEY
+    try {
+      process.env.PROPLINE_API_KEY = ' "env-key" '
+      expect(resolveProplineKeySource("settings-key")).toEqual({
+        key: "env-key",
+        source: "environment",
+        label: "PROPLINE_API_KEY",
+      })
+      process.env.PROPLINE_API_KEY = "your_api_key_here"
+      expect(resolveProplineKeySource("settings-key")?.key).toBe("settings-key")
+      delete process.env.PROPLINE_API_KEY
+      expect(resolveProplineKeySource(" ")).toBeNull()
+    } finally {
+      if (before === undefined) delete process.env.PROPLINE_API_KEY
+      else process.env.PROPLINE_API_KEY = before
+    }
+  })
+
+  it("says nothing when there is no key to name", () => {
+    expect(keySourceHint(null)).toBe("")
+  })
+})
+
+import { FeedKeyError, proplineFailure } from "@/lib/odds-feed/propline"
+
+describe("proplineFailure", () => {
+  it("marks a rejected key as a key problem, and nothing else", async () => {
+    const rejected = await proplineFailure(new Response(INVALID_KEY, { status: 401 }))
+    expect(rejected).toBeInstanceOf(FeedKeyError)
+    expect(rejected.message).toContain("rejected the API key")
+
+    const missing = JSON.stringify({ detail: { error: "missing_api_key", message: "No API key." } })
+    expect(await proplineFailure(new Response(missing, { status: 403 }))).toBeInstanceOf(FeedKeyError)
+
+    const limit = JSON.stringify({ detail: { error: "daily_limit_exceeded", message: "1000/1000 used." } })
+    const capped = await proplineFailure(new Response(limit, { status: 429 }))
+    expect(capped).not.toBeInstanceOf(FeedKeyError)
+    expect(capped).toBeInstanceOf(Error)
+    expect(await proplineFailure(new Response("", { status: 503 }))).not.toBeInstanceOf(FeedKeyError)
+  })
+})
