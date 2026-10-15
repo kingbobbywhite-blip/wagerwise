@@ -204,6 +204,7 @@ export default function TodayPage() {
     if (!daily || upcoming.length === 0) return null
     return {
       leagueId,
+      pull: daily,
       quotes: upcoming,
       options: {
         value: {
@@ -226,12 +227,17 @@ export default function TodayPage() {
     }
   }, [daily, upcoming, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable, s.apps])
   const built = useDailyPicks(pickInputs)
-  // Picks built for another league are never shown under this one's heading,
-  // even for the moment it takes to price the new one. A rebuild of the same
-  // league (the minute clock, a settings change) keeps the last picks up until
-  // the new ones land, so the screen does not blank once a minute.
-  const picks = built.picks && built.builtFrom?.leagueId === leagueId ? built.picks : null
+  // Picks are shown only while the pull they were built from is the one on
+  // screen: never another league's, never a pull a refresh has replaced, and
+  // never one storage has since shed to make room, which would leave picks up
+  // with no pull behind them. A rebuild from the same pull (the minute clock, a
+  // settings change) keeps the last picks up until the new ones land, so the
+  // screen does not blank once a minute.
+  const builtHere = !!daily && built.builtFrom?.pull === daily
+  const picks = builtHere ? built.picks : null
   const pricing = built.pricing
+  // A build that failed says so, rather than reading as a slate with nothing in it.
+  const buildError = builtHere ? built.error : null
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)
@@ -863,6 +869,11 @@ export default function TodayPage() {
             <Loader2 className="size-4 animate-spin" />
             Pricing the {league.label} slate
           </section>
+        ) : buildError ? (
+          <p className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs leading-relaxed text-destructive">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+            <span>Could not price this slate: {buildError}</span>
+          </p>
         ) : hasKey && !busy ? (
           <section className="rounded-xl border border-dashed border-border/70 bg-card/30 p-8 text-center">
             <p className="font-mono text-sm uppercase tracking-[0.14em] text-muted-foreground">

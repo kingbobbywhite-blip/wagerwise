@@ -7,6 +7,12 @@ import type { PicksRequest, PicksResponse } from "@/lib/today/picks.worker"
 /** Everything the day's picks are built from. A new object means a new build. */
 export interface PickInputs {
   leagueId: LeagueId
+  /**
+   * The stored pull the quotes were taken from, compared by identity. Picks are
+   * shown only while that pull is still the one on screen: storage running out
+   * of room can shed it, and a refresh replaces it.
+   */
+  pull: unknown
   quotes: FeedQuote[]
   options: BuildOptions
 }
@@ -53,11 +59,19 @@ export function useDailyPicks(inputs: PickInputs | null): DailyPicksState {
   )
 
   React.useEffect(() => {
+    // Every change of inputs retires the request before it, so an answer still
+    // on its way is dropped rather than shown for inputs that are gone.
+    const id = ++latest.current
     if (!inputs) {
+      // Nothing to build: stop any build in flight instead of letting it finish.
+      if (worker.current && busy.current) {
+        worker.current.terminate()
+        worker.current = null
+      }
+      busy.current = false
       setBuilt(null)
       return
     }
-    const id = ++latest.current
     const settle = (picks: DailyPicks | null, error: string | null) => {
       // An answer to anything but the newest request is out of date.
       if (id !== latest.current) return
