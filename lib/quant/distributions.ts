@@ -33,8 +33,23 @@ export interface OutcomeDistribution {
 
 const MAX_SUPPORT = 1000
 
+/**
+ * Tabulate a pmf over 0..support.
+ *
+ * Every family here has a closed-form ratio pmf(k+1)/pmf(k), so only the mode
+ * is computed from logPmf and the rest of the table is walked out from it with
+ * one multiply per outcome. Computing logPmf at every k instead costs three
+ * logGamma calls per outcome, and a yardage stat has a thousand outcomes: priced
+ * that way, inverting one book's line took tens of milliseconds and a football
+ * slate froze the page for half a minute. Starting at the mode keeps every step
+ * moving away from the largest value, so the walk only ever shrinks toward the
+ * tails, where it underflows to zero exactly as exp(logPmf) would.
+ */
 function tabulate(
   logPmf: (k: number) => number,
+  /** pmf(k + 1) / pmf(k). */
+  ratio: (k: number) => number,
+  mode: number,
   mean: number,
   variance: number,
   family: OutcomeDistribution["family"],
@@ -43,13 +58,27 @@ function tabulate(
   const support = Math.min(MAX_SUPPORT, Math.max(8, Math.ceil(mean + 14 * sd + 12)))
 
   const pmfArr = new Float64Array(support + 1)
-  let total = 0
-  for (let k = 0; k <= support; k++) {
-    const v = Math.exp(logPmf(k))
-    const safe = Number.isFinite(v) && v > 0 ? v : 0
-    pmfArr[k] = safe
-    total += safe
+  const start = Math.min(support, Math.max(0, Math.floor(mode)))
+  const peak = Math.exp(logPmf(start))
+  if (Number.isFinite(peak) && peak > 0) {
+    pmfArr[start] = peak
+    for (let k = start; k < support; k++) {
+      const v = pmfArr[k] * ratio(k)
+      pmfArr[k + 1] = Number.isFinite(v) && v > 0 ? v : 0
+    }
+    for (let k = start - 1; k >= 0; k--) {
+      const v = pmfArr[k + 1] / ratio(k)
+      pmfArr[k] = Number.isFinite(v) && v > 0 ? v : 0
+    }
+  } else {
+    // Degenerate parameters: fall back to evaluating every outcome directly.
+    for (let k = 0; k <= support; k++) {
+      const v = Math.exp(logPmf(k))
+      pmfArr[k] = Number.isFinite(v) && v > 0 ? v : 0
+    }
   }
+  let total = 0
+  for (let k = 0; k <= support; k++) total += pmfArr[k]
   // Renormalise so the truncated tail does not leak probability.
   if (total > 0) {
     for (let k = 0; k <= support; k++) pmfArr[k] /= total
@@ -92,7 +121,14 @@ function tabulate(
 
 function poisson(mean: number): OutcomeDistribution {
   const m = Math.max(mean, 1e-6)
-  return tabulate((k) => -m + k * Math.log(m) - logFactorial(k), m, m, "poisson")
+  return tabulate(
+    (k) => -m + k * Math.log(m) - logFactorial(k),
+    (k) => m / (k + 1),
+    Math.floor(m),
+    m,
+    m,
+    "poisson",
+  )
 }
 
 function negativeBinomial(mean: number, variance: number): OutcomeDistribution {
@@ -101,9 +137,12 @@ function negativeBinomial(mean: number, variance: number): OutcomeDistribution {
   // Mean/variance parameterisation: p = m/v, r = m^2/(v-m)
   const p = m / v
   const r = (m * m) / (v - m)
+  const q = 1 - p
   const logPmf = (k: number) =>
-    logGamma(k + r) - logGamma(r) - logFactorial(k) + r * Math.log(p) + k * Math.log(1 - p)
-  return tabulate(logPmf, m, v, "negbin")
+    logGamma(k + r) - logGamma(r) - logFactorial(k) + r * Math.log(p) + k * Math.log(q)
+  // The mode is floor((r - 1) q / p) when r > 1, and 0 otherwise.
+  const mode = r > 1 ? ((r - 1) * q) / p : 0
+  return tabulate(logPmf, (k) => ((k + r) / (k + 1)) * q, mode, m, v, "negbin")
 }
 
 function binomialUnderdispersed(mean: number, variance: number): OutcomeDistribution {
@@ -116,7 +155,9 @@ function binomialUnderdispersed(mean: number, variance: number): OutcomeDistribu
     if (k > n) return -Infinity
     return logFactorial(n) - logFactorial(k) - logFactorial(n - k) + k * Math.log(p) + (n - k) * Math.log(1 - p)
   }
-  return tabulate(logPmf, m, v, "binomial")
+  // Zero past n, which the walk carries to every outcome above it.
+  const ratio = (k: number) => (k >= n ? 0 : ((n - k) / (k + 1)) * (p / (1 - p)))
+  return tabulate(logPmf, ratio, Math.floor((n + 1) * p), m, v, "binomial")
 }
 
 /**

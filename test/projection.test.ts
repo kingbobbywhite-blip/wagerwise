@@ -281,3 +281,32 @@ describe("projectSlate", () => {
     expect(new Set(projectSlate(rows).map((p) => p.id)).size).toBe(2)
   })
 })
+
+import { meanImpliedByLine } from "@/lib/quant/distributions"
+import { distributionFor } from "@/lib/nba/markets"
+import { fairTwoWay } from "@/lib/quant/odds"
+
+describe("memoised line inversion", () => {
+  // The inversion is cached on the distribution model, the line and the fair
+  // probability. Settings that change the model must never be answered from
+  // another model's entry, whichever order they are asked in.
+  const row: RawPropRow = { ...base, quotes: [pinnacle(24.5, -125, 105)] }
+  const settingsAt = (global: number, perMarket?: number) => ({
+    ...DEFAULT_PROJECTION_SETTINGS,
+    dispersion: { ...DEFAULT_PROJECTION_SETTINGS.dispersion, global, perMarket: perMarket ? { PTS: perMarket } : {} },
+  })
+  const uncached = (global: number, perMarket = 1) => {
+    const fair = fairTwoWay(-125, 105, DEFAULT_PROJECTION_SETTINGS.devigMethod, DEFAULT_PROJECTION_SETTINGS.assumedHoldPct)!
+    return meanImpliedByLine(24.5, fair.pOver, (m) => distributionFor("PTS", m, { global, perMarket: { PTS: perMarket } }))
+  }
+  const implied = (global: number, perMarket?: number) =>
+    projectProp(row, settingsAt(global, perMarket))!.books.find((b) => b.book === "pinnacle")!.impliedMean
+
+  it("gives each dispersion setting its own answer, in any order", () => {
+    for (const [g, pm] of [[1, undefined], [1.6, undefined], [1, 1.4], [1.6, undefined], [1, undefined]] as const) {
+      expect(implied(g, pm)).toBe(uncached(g, pm ?? 1))
+    }
+    expect(implied(1.6)).not.toBe(implied(1))
+    expect(implied(1, 1.4)).not.toBe(implied(1))
+  })
+})

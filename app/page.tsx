@@ -27,7 +27,8 @@ import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
 import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import { buildDailyPicks, buildPickemEntry, hasAppLines, upcomingQuotes } from "@/lib/today/build"
+import { buildPickemEntry, hasAppLines, upcomingQuotes } from "@/lib/today/build"
+import { useDailyPicks, type PickInputs } from "@/hooks/use-daily-picks"
 import { snapshotFor } from "@/lib/quant/lines"
 import { entryExpectation } from "@/lib/tracker/entries"
 import { marketsForCompetition } from "@/lib/odds-feed/theoddsapi"
@@ -195,27 +196,42 @@ export default function TodayPage() {
     return breakEvenLegProb(mode, s.constraints.picks) ?? 0.56
   }, [s.apps, s.defaultAppId, s.defaultModeId, s.constraints.picks])
 
-  const picks = React.useMemo(() => {
+  // Everything the picks are built from, as one value. The build takes a second
+  // or more on a full football Sunday, so it runs off the page's thread (see
+  // useDailyPicks): built during render, it froze the page, and a click on the
+  // NFL tab could not even highlight it until the build was done.
+  const pickInputs = React.useMemo((): PickInputs | null => {
     if (!daily || upcoming.length === 0) return null
-    return buildDailyPicks(upcoming, {
-      value: {
-        projection: { ...s.projection, league: leagueId },
-        minEdge: s.daily.minEdge,
-        suspiciousEdge: 0.12,
-        requireSharpReference: s.daily.requireSharpReference,
-        maxAmerican: 400,
-        // Exchanges take commission on winnings (ProphetX 2%); the app ids match the feed's book keys.
-        commission: Object.fromEntries(s.apps.filter((a) => (a.commission ?? 0) > 0).map((a) => [a.id, a.commission!])),
+    return {
+      leagueId,
+      quotes: upcoming,
+      options: {
+        value: {
+          projection: { ...s.projection, league: leagueId },
+          minEdge: s.daily.minEdge,
+          suspiciousEdge: 0.12,
+          requireSharpReference: s.daily.requireSharpReference,
+          maxAmerican: 400,
+          // Exchanges take commission on winnings (ProphetX 2%); the app ids match the feed's book keys.
+          commission: Object.fromEntries(s.apps.filter((a) => (a.commission ?? 0) > 0).map((a) => [a.id, a.commission!])),
+        },
+        correlation: s.correlation ?? DEFAULT_CORRELATION,
+        constraints: { ...s.constraints, picks: s.daily.parlayLegs },
+        dfsBreakEven,
+        pickemMaxProb: s.daily.pickemMaxProb,
+        parlayCount: 4,
+        bettableBooks: s.oddsFeed.bettable,
+        pickemLines,
       },
-      correlation: s.correlation ?? DEFAULT_CORRELATION,
-      constraints: { ...s.constraints, picks: s.daily.parlayLegs },
-      dfsBreakEven,
-      pickemMaxProb: s.daily.pickemMaxProb,
-      parlayCount: 4,
-      bettableBooks: s.oddsFeed.bettable,
-      pickemLines,
-    })
+    }
   }, [daily, upcoming, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable, s.apps])
+  const built = useDailyPicks(pickInputs)
+  // Picks built for another league are never shown under this one's heading,
+  // even for the moment it takes to price the new one. A rebuild of the same
+  // league (the minute clock, a settings change) keeps the last picks up until
+  // the new ones land, so the screen does not blank once a minute.
+  const picks = built.picks && built.builtFrom?.leagueId === leagueId ? built.picks : null
+  const pricing = built.pricing
 
   // A ready-to-play pick'em entry at the default app's size and table.
   const entryApp = findApp(s.apps, s.defaultAppId)
@@ -839,6 +855,14 @@ export default function TodayPage() {
               </div>
             </section>
           </>
+        ) : pricing ? (
+          <section
+            role="status"
+            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-card/30 p-8 font-mono text-sm uppercase tracking-[0.14em] text-muted-foreground"
+          >
+            <Loader2 className="size-4 animate-spin" />
+            Pricing the {league.label} slate
+          </section>
         ) : hasKey && !busy ? (
           <section className="rounded-xl border border-dashed border-border/70 bg-card/30 p-8 text-center">
             <p className="font-mono text-sm uppercase tracking-[0.14em] text-muted-foreground">

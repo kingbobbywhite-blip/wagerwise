@@ -229,6 +229,34 @@ interface MarketPricing {
 }
 
 /**
+ * Inverting a price into a mean is the expensive step: a bisection over a
+ * distribution with up to a thousand outcomes. A slate asks for the same
+ * inversion many times over. Every leave-one-out consensus re-inverts the other
+ * books, and the board and the summary price each prop again, so a seven-book
+ * prop asked for some fifty inversions of seven distinct prices. The answer
+ * depends only on the distribution model, the line and the fair probability, so
+ * it is memoised on exactly those and comes back bit for bit the same.
+ */
+const IMPLIED_MEAN_CACHE = new Map<string, number>()
+/** Several slates' worth; cleared when full rather than grown without bound. */
+const IMPLIED_MEAN_CACHE_MAX = 50_000
+
+function impliedMeanCached(
+  distKey: string,
+  line: number,
+  pOver: number,
+  buildDist: (mean: number) => OutcomeDistribution,
+): number {
+  const key = `${distKey}|${line}|${pOver}`
+  const hit = IMPLIED_MEAN_CACHE.get(key)
+  if (hit !== undefined) return hit
+  const value = meanImpliedByLine(line, pOver, buildDist)
+  if (IMPLIED_MEAN_CACHE.size >= IMPLIED_MEAN_CACHE_MAX) IMPLIED_MEAN_CACHE.clear()
+  IMPLIED_MEAN_CACHE.set(key, value)
+  return value
+}
+
+/**
  * Convert every book quote into an implied mean, then take the weighted
  * consensus.
  *
@@ -242,6 +270,8 @@ function priceFromMarket(
   settings: ProjectionSettings,
   buildDist: (mean: number) => OutcomeDistribution,
   now: number,
+  /** Everything buildDist depends on, as a string: the memo key for its inversions. */
+  distKey: string,
 ): MarketPricing | null {
   const warnings: string[] = []
   const usable: { book: string; value: number; line: number; weight: number }[] = []
@@ -262,7 +292,7 @@ function priceFromMarket(
       warnings.push(`${bookProfile(q.book).name} priced only one side, so its margin had to be assumed.`)
     }
 
-    const impliedMean = meanImpliedByLine(q.line, fair.pOver, buildDist)
+    const impliedMean = impliedMeanCached(distKey, q.line, fair.pOver, buildDist)
     if (!Number.isFinite(impliedMean) || impliedMean <= 0) continue
 
     usable.push({ book: q.book, value: impliedMean, line: q.line, weight: bookProfile(q.book).weight })
@@ -413,7 +443,9 @@ export function projectProp(
   const build = (m: number) => distributionFor(norm.key, m, leagueDispersion)
 
   const quotes = collectQuotes(row)
-  const market = quotes.length > 0 ? priceFromMarket(quotes, norm.key, settings, build, now) : null
+  // distributionFor reads only the market, the global dial and that market's own dial.
+  const distKey = `${norm.key}|${leagueDispersion.global ?? 1}|${(norm.key && leagueDispersion.perMarket?.[norm.key]) || 1}`
+  const market = quotes.length > 0 ? priceFromMarket(quotes, norm.key, settings, build, now, distKey) : null
 
   let status: PricingStatus
   let unpricedReason: string | null = null

@@ -247,9 +247,13 @@ export function optimizeSlips(all: CandidateLeg[], opts: OptimizeOptions): Built
 
   const pool = buildPool(filtered, cfg)
   const results: BuiltSlip[] = []
+  // Every objective's search starts from the same legs with the same seeds, so a
+  // combination the "ev" search scored is the same evaluation the "growth"
+  // search would compute. Shared within this call, where the pool is fixed.
+  const searched = new Map<string, SlipEvaluation>()
 
   for (const objective of objectives) {
-    const best = beamSearch(pool, makePayout, c, cfg, objective, beamWidth, searchSims)
+    const best = beamSearch(pool, makePayout, c, cfg, objective, beamWidth, searchSims, searched)
     for (const idx of best) {
       const legs = idx.map((i) => pool.legs[i])
       const evaluation = evaluateSlip(legs, makePayout(legs), {
@@ -316,6 +320,8 @@ function beamSearch(
   objective: Objective,
   beamWidth: number,
   sims: number,
+  /** Search evaluations already made in this optimizeSlips call, by leg indices. */
+  searched: Map<string, SlipEvaluation>,
 ): number[][] {
   const n = pool.legs.length
   let beam: { idx: number[]; s: number }[] = []
@@ -339,13 +345,19 @@ function beamSearch(
         if (seen.has(key)) continue
         seen.add(key)
 
-        const legs = idx.map((i) => pool.legs[i])
-        const evaluation = evaluateSlip(legs, makePayout(legs), {
-          simulations: sims,
-          correlation: cfg,
-          matrix: submatrix(pool, idx),
-          seed: hashString(key),
-        })
+        let evaluation = searched.get(key)
+        if (!evaluation) {
+          const legs = idx.map((i) => pool.legs[i])
+          evaluation = evaluateSlip(legs, makePayout(legs), {
+            simulations: sims,
+            correlation: cfg,
+            matrix: submatrix(pool, idx),
+            seed: hashString(key),
+            // score() never reads it; the kept slips are re-evaluated in full below.
+            independentBaseline: false,
+          })
+          searched.set(key, evaluation)
+        }
         next.push({ idx, s: score(objective, evaluation) })
       }
     }
