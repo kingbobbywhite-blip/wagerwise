@@ -294,3 +294,25 @@ describe("oddsParlayPayout", () => {
     expect(oddsParlayPayout(two)(2, 0, 2, Int8Array.from([1, 1]))).toBeCloseTo(3.6446, 3)
   })
 })
+
+describe("the independence baseline switch", () => {
+  const mode = findMode(findApp(DEFAULT_APPS, "prizepicks"), "power")!
+  const legs: EvalLeg[] = [
+    leg({ id: "a", pWin: 0.58, player: "Anthony Edwards", market: "PTS", team: "MIN", opponent: "OKC", gameId: "g3" }),
+    leg({ id: "b", pWin: 0.58, player: "Anthony Edwards", market: "3PM", team: "MIN", opponent: "OKC", gameId: "g3" }),
+    leg({ id: "c", pWin: 0.58, player: "Rudy Gobert", market: "REB", team: "MIN", opponent: "OKC", gameId: "g3" }),
+  ]
+
+  it("leaves everything the optimizer ranks on untouched, and only drops evIndependent", () => {
+    const full = evaluateSlip(legs, dfsPayout(mode), { simulations: 20000, seed: 11 })
+    const lean = evaluateSlip(legs, dfsPayout(mode), { simulations: 20000, seed: 11, independentBaseline: false })
+    expect(Number.isNaN(lean.evIndependent)).toBe(true)
+    expect(Number.isFinite(full.evIndependent)).toBe(true)
+    // The correlated simulation is the same draw either way.
+    expect(lean.ev).toBe(full.ev)
+    expect(lean.kelly).toBe(full.kelly)
+    expect(lean.pProfit).toBe(full.pProfit)
+    expect(lean.topMultiple).toBe(full.topMultiple)
+    expect(lean.outcomes).toEqual(full.outcomes)
+  })
+})

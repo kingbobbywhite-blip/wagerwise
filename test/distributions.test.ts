@@ -109,3 +109,74 @@ describe("normalDistribution", () => {
     expect(total).toBeCloseTo(1, 6)
   })
 })
+
+import { logFactorial, logGamma } from "@/lib/quant/math"
+
+/**
+ * The tables are walked out from the mode by the pmf's own ratio rather than
+ * evaluated outcome by outcome, which made a football slate thirty times
+ * faster. This is the outcome-by-outcome definition they replaced, kept to
+ * prove the two agree.
+ */
+function directTable(logPmf: (k: number) => number, mean: number, variance: number): number[] {
+  const sd = Math.sqrt(Math.max(variance, 1e-12))
+  const support = Math.min(1000, Math.max(8, Math.ceil(mean + 14 * sd + 12)))
+  const raw = Array.from({ length: support + 1 }, (_, k) => {
+    const v = Math.exp(logPmf(k))
+    return Number.isFinite(v) && v > 0 ? v : 0
+  })
+  const total = raw.reduce((a, b) => a + b, 0)
+  return raw.map((v) => v / total)
+}
+
+function negbinLogPmf(m: number, v: number) {
+  const p = m / v
+  const r = (m * m) / (v - m)
+  return (k: number) => logGamma(k + r) - logGamma(r) - logFactorial(k) + r * Math.log(p) + k * Math.log(1 - p)
+}
+
+describe("tabulated distributions match their definition", () => {
+  const cases: [string, number, number, (k: number) => number][] = [
+    // Small counts, where basketball lives.
+    ["negbin threes", 2.2, 2.9, negbinLogPmf(2.2, 2.9)],
+    ["negbin points", 24.5, 66, negbinLogPmf(24.5, 66)],
+    // Yardage, where a table runs to a thousand outcomes.
+    ["negbin receiving yards", 48, 48 * 16, negbinLogPmf(48, 48 * 16)],
+    ["negbin passing yards", 235, 235 * 19, negbinLogPmf(235, 235 * 19)],
+    ["negbin long tail", 600, 12000, negbinLogPmf(600, 12000)],
+    ["poisson", 4, 4, (k) => -4 + k * Math.log(4) - logFactorial(k)],
+    ["poisson tiny", 0.3, 0.3, (k) => -0.3 + k * Math.log(0.3) - logFactorial(k)],
+  ]
+
+  for (const [name, m, v, logPmf] of cases) {
+    it(name, () => {
+      const d = countDistribution(m, v)
+      const expected = directTable(logPmf, m, v)
+      expect(d.support).toBe(expected.length - 1)
+      let worst = 0
+      for (let k = 0; k < expected.length; k++) worst = Math.max(worst, Math.abs(d.pmf(k) - expected[k]))
+      expect(worst).toBeLessThan(1e-12)
+      let acc = 0
+      for (let k = 0; k < expected.length; k++) {
+        acc += expected[k]
+        expect(Math.abs(d.cdf(k) - Math.min(1, acc))).toBeLessThan(1e-12)
+      }
+    })
+  }
+
+  it("binomial, including the zeros past n", () => {
+    const m = 4
+    const v = 2
+    const p = 1 - v / m
+    const n = Math.round(m / p)
+    const d = countDistribution(m, v)
+    expect(d.family).toBe("binomial")
+    const expected = directTable(
+      (k) => (k > n ? -Infinity : logFactorial(n) - logFactorial(k) - logFactorial(n - k) + k * Math.log(p) + (n - k) * Math.log(1 - p)),
+      m,
+      v,
+    )
+    for (let k = 0; k < expected.length; k++) expect(Math.abs(d.pmf(k) - expected[k])).toBeLessThan(1e-12)
+    expect(d.pmf(n + 1)).toBe(0)
+  })
+})

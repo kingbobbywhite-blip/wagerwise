@@ -155,6 +155,13 @@ export interface EvaluateOptions {
    * cost from the inner search loop.
    */
   matrix?: number[][]
+  /**
+   * Also simulate the slip with correlations switched off, for evIndependent.
+   * On by default. The optimizer's search turns it off: it ranks thousands of
+   * candidates on EV and growth alone and throws them away, and this second
+   * simulation was half the cost of each. evIndependent is NaN when skipped.
+   */
+  independentBaseline?: boolean
 }
 
 /**
@@ -406,14 +413,17 @@ export function evaluateSlip(
   const variance = Math.max(0, secondMoment - expectedReturn * expectedReturn)
 
   // Independence baseline: same payout function, correlations switched off.
-  const identity = legs.map((_, i) => legs.map((__, j) => (i === j ? 1 : 0)))
-  const indep = simulateSlip(legs, payout, {
-    ...opts,
-    matrix: identity,
-    simulations: Math.min(opts.simulations ?? 20000, 8000),
-    correlation: { strength: 0, teammateUsage: 0, gamePace: 0, assistLink: 0 },
-  })
-  const evIndependent = indep.outcomes.reduce((acc, o) => acc + o.prob * o.multiple, 0) - 1
+  let evIndependent = NaN
+  if (opts.independentBaseline !== false) {
+    const identity = legs.map((_, i) => legs.map((__, j) => (i === j ? 1 : 0)))
+    const indep = simulateSlip(legs, payout, {
+      ...opts,
+      matrix: identity,
+      simulations: Math.min(opts.simulations ?? 20000, 8000),
+      correlation: { strength: 0, teammateUsage: 0, gamePace: 0, assistLink: 0 },
+    })
+    evIndependent = indep.outcomes.reduce((acc, o) => acc + o.prob * o.multiple, 0) - 1
+  }
 
   const avgLegProb = legs.length > 0 ? legs.reduce((a, l) => a + l.pWin, 0) / legs.length : 0
   const benchmark = opts.benchmarkMode ?? null
