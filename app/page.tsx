@@ -27,7 +27,7 @@ import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
 import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import { buildPickemEntry, hasAppLines, upcomingQuotes } from "@/lib/today/build"
+import { buildPickemEntry, hasAppLines, pickemPlays, upcomingQuotes } from "@/lib/today/build"
 import { useDailyPicks, type PickInputs } from "@/hooks/use-daily-picks"
 import { snapshotFor } from "@/lib/quant/lines"
 import { entryExpectation } from "@/lib/tracker/entries"
@@ -243,23 +243,56 @@ export default function TodayPage() {
   const entryApp = findApp(s.apps, s.defaultAppId)
   const entryMode = findMode(entryApp, s.defaultModeId)
   const entry = React.useMemo(
-    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, dfsBreakEven, 2, s.defaultAppId) : null),
-    [picks, s.constraints.picks, dfsBreakEven, s.defaultAppId],
+    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, dfsBreakEven, 2, s.defaultAppId, now) : null),
+    [picks, s.constraints.picks, dfsBreakEven, s.defaultAppId, now],
+  )
+  // What the entry could not use, and why. An entry at the app's own lines
+  // leaves out every prop it has no line for, and the difference between "the
+  // app is not offering it" and "we never heard" is the user's to see.
+  const plays = React.useMemo(
+    () => (picks ? pickemPlays(picks.dfsTargets, s.defaultAppId, now) : null),
+    [picks, s.defaultAppId, now],
   )
   // Whether this pull carried the default app's own lines, so the entry and
   // the targets can say which line they are at.
   const appLinesLive = !!picks && hasAppLines(picks.dfsTargets, s.defaultAppId)
   const pickemAppsSeen = Array.from(new Set((pickemLines ?? []).map((l) => l.app)))
   const entryExp = entry && entryMode ? entryExpectation(entry.map((l) => l.prob), entryMode) : null
+  // Nothing disappears without being counted. "Not offering it" and "we never
+  // heard" are different facts and lead to different next steps, so they are
+  // never merged into one number.
+  const leftOutText = React.useMemo(() => {
+    if (!plays || !plays.live) return null
+    const name = entryApp?.name ?? "the app"
+    const parts: string[] = []
+    if (plays.notOffered > 0) {
+      parts.push(`${plays.notOffered} ${name} covers and is not posting`)
+    }
+    if (plays.unknown > 0) {
+      parts.push(`${plays.unknown} no ${name} line reached at all`)
+    }
+    if (parts.length === 0) return null
+    return `Left out: ${parts.join("; ")}. They are still in the table below, at the books' line, to check against your screen.`
+  }, [plays, entryApp])
   // The table shows the 30 likeliest at the books' line, but the entry ranks by
   // the app's own line, so a leg can come from further down. Its row is where
   // its line can be checked and overridden, so it is always shown.
   const shownTargets = React.useMemo(() => {
     if (!picks) return []
-    const top = picks.dfsTargets.slice(0, 30)
+    // Ranked by the chance at the line you can actually play. Ranking by the
+    // books' line put props at the top of the table that the app posts at a
+    // different number, or is not posting at all, so the order described a
+    // board nobody was looking at.
+    const playable = new Map((plays?.plays ?? []).map((p) => [p.target.key, p.prob]))
+    const ranked = appLinesLive
+      ? [...picks.dfsTargets].sort(
+          (a, b) => (playable.get(b.key) ?? -1) - (playable.get(a.key) ?? -1) || b.marketProb - a.marketProb,
+        )
+      : picks.dfsTargets
+    const top = ranked.slice(0, 30)
     const extra = (entry ?? []).map((l) => l.target).filter((t) => !top.includes(t))
     return [...top, ...extra]
-  }, [picks, entry])
+  }, [picks, entry, plays, appLinesLive])
 
   // Books you bet at that the cached pull has no prices from, usually because
   // the pull predates adding them. Refreshing brings them in.
@@ -720,9 +753,6 @@ export default function TodayPage() {
                           </span>
                           <span className="flex items-center gap-1.5 font-mono text-xs">
                             <SideBadge side={l.side} /> {l.line} · {pct(l.prob, 0)}
-                            {appLinesLive && l.source === "books" ? (
-                              <span className="text-[10px] text-muted-foreground">books&apos; line</span>
-                            ) : null}
                           </span>
                         </li>
                       ))}
@@ -733,8 +763,8 @@ export default function TodayPage() {
                         : ""}
                       One leg per player and at most two per game, so it never holds both sides of a prop.{" "}
                       {appLinesLive
-                        ? `Lines are ${possessive(entryApp?.name ?? "the app")} own, read through PropLine at ${shortDate(daily!.fetchedAt)}, and each chance is the books' consensus at that exact line. Props ${entryApp?.name ?? "the app"} was not offering are left out.${entry.some((l) => l.source === "books") ? ` A leg marked "books' line" is from a game ${possessive(entryApp?.name ?? "the app")} lines did not come through for: check its line on your screen before playing it.` : ""} Lines move: if one on your screen differs, check it in the table below.`
-                        : `Lines are the books' own, which PrizePicks, Underdog, Sleeper and Real almost always post: if a line in your app differs, check it in the table below before playing it.`}{" "}
+                        ? `Every line here is ${possessive(entryApp?.name ?? "the app")} own, read through PropLine at ${shortDate(daily!.fetchedAt)}, and each chance is the books' consensus at that exact line. The entry is never built at a line ${entryApp?.name ?? "the app"} may not be posting, so a prop with no line from it is left out whichever reason it has.${leftOutText ? ` ${leftOutText}` : ""} Lines move: if one on your screen differs, check it in the table below.`
+                        : `No ${entryApp?.name ?? "app"} lines came through in this pull, so every line here is the books' own — the number to go and look for, not one ${entryApp?.name ?? "the app"} is known to be posting. PrizePicks, Underdog, Sleeper and Real almost always copy it; check each one on your screen before playing it.`}{" "}
                       Standard picks only; a goblin or demon changes the payout. Legs are treated as independent.
                     </p>
                   </>
@@ -743,6 +773,7 @@ export default function TodayPage() {
                     Fewer than {s.constraints.picks} props clear the {pct(dfsBreakEven)} bar on this slate, one per
                     player{appLinesLive ? `, at the lines ${entryApp?.name ?? "the app"} is actually posting` : ""}.
                     Padding the entry with coin flips is the bet the bar exists to stop: play a smaller entry, or pass.
+                    {appLinesLive && leftOutText ? ` ${leftOutText}` : ""}
                   </p>
                 )}
               </section>
@@ -766,8 +797,10 @@ export default function TodayPage() {
                       : "hidden"
                   }
                 >
-                  Most likely to hit first. Chance is the side the books favour, at the line they hang, which is
-                  the line a pick&apos;em app almost always copies.{" "}
+                  Most likely to hit first.{" "}
+                  {appLinesLive
+                    ? `Chance is the favoured side at ${possessive(entryApp?.name ?? "your app")} own line where this pull carried one, and at the books' line where it did not. The row always names which, because only one of the two is on your screen.`
+                    : "Chance is the side the books favour, at the line they hang, which is the line a pick'em app almost always copies — not a line any app is known to be posting."}{" "}
                   {!wantPickem
                     ? "The pick'em apps' own lines are switched off in Settings, so if your app shows a different line, type it in. "
                     : pickemAppsSeen.length > 0

@@ -324,7 +324,7 @@ describe("a pick'em entry to play", () => {
   })
 })
 
-import { appPlay, hasAppLines, type AppLine } from "@/lib/today/build"
+import { appPlay, hasAppLines, pickemPlays, priceAppLines, type AppLine } from "@/lib/today/build"
 import type { PickemLine } from "@/lib/odds-feed/propline"
 
 describe("pick'em lines from the apps", () => {
@@ -388,7 +388,35 @@ describe("pick'em lines from the apps", () => {
     underMultiplier: null,
     overOffered: true,
     underOffered: true,
+    fetchedAt: null,
+    ageMinutes: null,
+    isStale: false,
     ...extra,
+  })
+
+  it("says how old an app's line is, and flags one the app has probably moved", () => {
+    // A pick'em app moves its lines. The books' prices were already checked
+    // for age; the apps' were not, so a line read three hours ago was
+    // indistinguishable from one read a minute ago.
+    const now = Date.parse("2026-01-15T18:00:00Z")
+    const at = (mins: number) => new Date(now - mins * 60_000).toISOString()
+    const dist = distributionFor("PTS", 25)
+    const [fresh, old, undated] = priceAppLines(
+      [
+        pp("A Fresh", 24.5, { fetchedAt: at(5) }),
+        pp("B Old", 24.5, { fetchedAt: at(200) }),
+        pp("C Undated", 24.5, { fetchedAt: null }),
+      ],
+      dist,
+      { now, staleMinutes: 45 },
+    )
+    expect(fresh.ageMinutes).toBeCloseTo(5, 6)
+    expect(fresh.isStale).toBe(false)
+    expect(old.ageMinutes).toBeCloseTo(200, 6)
+    expect(old.isStale).toBe(true)
+    // No timestamp is not the same as a fresh one, and must not read as one.
+    expect(undated.ageMinutes).toBeNull()
+    expect(undated.isStale).toBe(false)
   })
 
   it("plays the likelier side of the app's standard line", () => {
@@ -436,20 +464,40 @@ describe("pick'em lines from the apps", () => {
     expect(buildPickemEntry(targets, 2, 0.55, 2, "prizepicks")).toBeNull()
   })
 
-  it("keeps a prop from a game the app's lines never arrived for, at the books' line", () => {
+  it("never mixes the books' line into an entry at the app's own lines", () => {
+    // The old behaviour put B in at the books' 24.5 and labelled it, reasoning
+    // that a game the app's lines never reached is unknown rather than absent.
+    // It is, and it is still not a line anyone can place: the card is headed
+    // with PrizePicks and a payout table, and its expectation multiplies every
+    // leg's chance at the line beside it. In practice half a card's lines were
+    // not the app's, with no way to tell which half.
     const targets = [
       target("A", "g1", 0.7, [line(0.58, { line: 26.5 })]),
       // No PrizePicks line came through for g2 at all: unknown, not absent.
       target("B", "g2", 0.68),
     ]
-    const entry = buildPickemEntry(targets, 2, 0.55, 2, "prizepicks")!
-    expect(entry.map((l) => [l.target.player, l.line, l.source])).toEqual([
-      ["B", 24.5, "books"],
-      ["A", 26.5, "app"],
-    ])
+    expect(buildPickemEntry(targets, 2, 0.55, 2, "prizepicks")).toBeNull()
+    const one = buildPickemEntry(targets, 1, 0.55, 2, "prizepicks")!
+    expect(one.map((l) => [l.target.player, l.line, l.source])).toEqual([["A", 26.5, "app"]])
   })
 
-  it("marks a game covered when the app posted any player in it", () => {
+  it("counts what it left out, and why, rather than dropping it silently", () => {
+    const targets = [
+      target("A", "g1", 0.7, [line(0.58, { line: 26.5 })]),
+      // Covered for this game and market, and no line for B: not offered.
+      target("B", "g2", 0.68, undefined, ["prizepicks"]),
+      // Never heard about C at all.
+      target("C", "g3", 0.66),
+    ]
+    const plays = pickemPlays(targets, "prizepicks")
+    expect(plays.live).toBe(true)
+    expect(plays.plays.map((p) => p.target.player)).toEqual(["A"])
+    expect(plays.notOffered).toBe(1)
+    expect(plays.unknown).toBe(1)
+    expect(plays.started).toBe(0)
+  })
+
+  it("marks a game and market covered when the app posted any player in it", () => {
     const targets = buildDfsTargets(
       [...quotes, q("Rudy Gobert", "PTS", "pinnacle", 12.5, -135, 115), q("Rudy Gobert", "PTS", "betonlineag", 12.5, -140, 118)],
       { ...OPTS, pickemLines: [pp("Anthony Edwards", 24.5)] },
@@ -457,6 +505,28 @@ describe("pick'em lines from the apps", () => {
     const gobert = targets.find((t) => t.player === "Rudy Gobert")!
     expect(gobert.appLines).toEqual([])
     expect(gobert.appCoverage).toEqual(["prizepicks"])
+  })
+
+  it("does not read a points line as covering the rebounds market in the same game", () => {
+    // PrizePicks posts points for Edwards and no rebounds line anywhere in the
+    // game. Keyed on the game alone, Gobert's rebounds read as "offered, and
+    // he is not on it", which is a different claim from the truth.
+    const targets = buildDfsTargets(
+      [
+        ...quotes,
+        q("Rudy Gobert", "REB", "pinnacle", 11.5, -125, 105),
+        q("Rudy Gobert", "REB", "betonlineag", 11.5, -128, 108),
+      ],
+      { ...OPTS, pickemLines: [pp("Anthony Edwards", 24.5)] },
+    )
+    const rebounds = targets.find((t) => t.market === "REB")!
+    expect(rebounds.appLines).toEqual([])
+    expect(rebounds.appCoverage).toEqual([])
+    // So it is unknown rather than not offered, and the entry still leaves it
+    // out: an entry is never built at a line the app may not be posting.
+    const plays = pickemPlays(targets, "prizepicks", OPTS.now)
+    expect(plays.unknown).toBeGreaterThan(0)
+    expect(plays.notOffered).toBe(0)
   })
 
   it("falls back to the books' line when the pull had nothing from that app", () => {
@@ -491,7 +561,8 @@ describe("appVerdict: the target row's answer at the app's own line", () => {
     appLines: [
       {
         app: "underdog", line: 25.5, pickType: "standard", over, under: 1 - over, push: 0,
-        overMultiplier: null, underMultiplier: null, overOffered: true, underOffered: true, ...extra,
+        overMultiplier: null, underMultiplier: null, overOffered: true, underOffered: true,
+        fetchedAt: null, ageMinutes: null, isStale: false, ...extra,
       },
     ],
   })

@@ -16,7 +16,10 @@ function describeAppLine(l: AppLine): string {
   const sides: string[] = []
   if (l.overOffered) sides.push(`over ${pct(l.over, 0)}${l.overMultiplier != null ? ` ×${l.overMultiplier}` : ""}`)
   if (l.underOffered) sides.push(`under ${pct(l.under, 0)}${l.underMultiplier != null ? ` ×${l.underMultiplier}` : ""}`)
-  return `${name}${flavour} ${l.line}: ${sides.join(", ")}`
+  // An app moves its lines, so one read a while ago is a guess about the
+  // present rather than a reading of it, and the row has to say which it is.
+  const age = l.isStale && l.ageMinutes != null ? ` · ${Math.round(l.ageMinutes)}m old` : ""
+  return `${name}${flavour} ${l.line}: ${sides.join(", ")}${age}`
 }
 
 /**
@@ -33,6 +36,25 @@ function describeAppLine(l: AppLine): string {
  */
 export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?: string | null }) {
   const atApp = app ? appVerdict(t, app, bar) : null
+  const appLabel = (app && findApp(DEFAULT_APPS, app)?.name) || app || "the app"
+  // The chance the row leads with is the chance at the line you can play: the
+  // app's own when the pull carried it, the books' when it did not. Both are
+  // real numbers; only one of them is on your screen, so the row names which.
+  const atAppLine = atApp ? t.appLines?.find((l) => l.app === app && Math.abs(l.line - atApp.line) < 1e-9) : undefined
+  const chanceSide: "OVER" | "UNDER" | null = atApp
+    ? atAppLine
+      ? atAppLine.over >= atAppLine.under
+        ? "OVER"
+        : "UNDER"
+      : atApp.side
+    : t.marketSide
+  const chanceProb = atApp
+    ? atAppLine
+      ? Math.max(atAppLine.over, atAppLine.under)
+      : (atApp.prob ?? t.marketProb)
+    : t.marketProb
+  // A line the app posted a long time ago has very likely moved since.
+  const staleAppLine = t.appLines?.find((l) => l.app === app && l.isStale)
   const [typed, setTyped] = React.useState<string | null>(null)
   const fromApp = typed == null && atApp != null
   const line = typed ?? (atApp ? String(atApp.line) : "")
@@ -90,17 +112,26 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
         <div className="text-[10px] text-muted-foreground">fair {t.fairLine}</div>
       </td>
       <td className="px-3 py-2">
+        {/* The chance at the line you can actually play, which is the app's own
+            when the pull carried it. Reading the books' number as the app's is
+            the single easiest mistake to make on this screen, so the line is
+            always named and the two are never shown as one. */}
         {/* Below the bar, neither side is a pick'em play, so no side is shown:
             a 52% "under" here beside a sportsbook's priced "over" read as two picks. */}
-        {t.marketProb >= bar ? (
+        {chanceProb >= bar && chanceSide ? (
           <div className="flex items-center gap-1.5">
-            <SideBadge side={t.marketSide} />
-            <span className="font-mono text-xs tabular-nums">{pct(t.marketProb, 0)}</span>
+            <SideBadge side={chanceSide} />
+            <span className="font-mono text-xs tabular-nums">{pct(chanceProb, 0)}</span>
           </div>
         ) : (
-          <div className="font-mono text-xs text-muted-foreground">Pass · {pct(t.marketProb, 0)} at most</div>
+          <div className="font-mono text-xs text-muted-foreground">Pass · {pct(chanceProb, 0)} at most</div>
         )}
-        <div className="font-mono text-[10px] text-muted-foreground">at the books&apos; {t.marketLine}</div>
+        <div className="font-mono text-[10px] text-muted-foreground">
+          {atApp ? `at ${possessive(appLabel)} ${atApp.line}` : `at the books' ${t.marketLine}`}
+        </div>
+        {atApp && Math.abs(atApp.line - t.marketLine) > 1e-9 ? (
+          <div className="font-mono text-[10px] text-muted-foreground/70">books&apos; {t.marketLine}</div>
+        ) : null}
       </td>
       <td className="px-3 py-2">
         <Input
@@ -113,7 +144,12 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
         />
         {fromApp ? (
           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-            {possessive(findApp(DEFAULT_APPS, app!)?.name ?? app!)} line
+            {possessive(appLabel)} line
+          </div>
+        ) : null}
+        {staleAppLine && staleAppLine.ageMinutes != null ? (
+          <div className="mt-0.5 font-mono text-[10px] leading-snug text-accent">
+            read {Math.round(staleAppLine.ageMinutes)}m ago; check it
           </div>
         ) : null}
       </td>
