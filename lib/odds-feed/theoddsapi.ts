@@ -138,13 +138,32 @@ export function sportOfFeedKey(sportKey: string | undefined): Sport | undefined 
  * UNVERIFIED_EMPTY_MARKET_COST). Nothing
  * left, or nothing asked for, means the league's own defaults.
  */
-export function marketsForLeague(league: LeagueId, requested?: string[] | null): string[] {
-  const sport = leagueFor(league).sport
+export function marketsForLeague(
+  league: LeagueId,
+  requested?: string[] | null,
+  opts: MarketBreadth = {},
+): string[] {
+  const config = leagueFor(league)
+  const sport = config.sport
   const kept = (requested ?? []).filter((k) => {
     const m = feedMarketFor(k, sport)
     return !!m && marketSport(m) === sport
   })
-  return kept.length > 0 ? kept : leagueFor(league).markets
+  if (kept.length > 0) return kept
+  return opts.billsPerRequest ? (config.deepMarkets ?? config.markets) : config.markets
+}
+
+/**
+ * How the feed bills, which is the only thing that decides how wide to ask.
+ *
+ * The Odds API charges markets x games, so a market list is a budget. PropLine
+ * charges one request per game whatever the list, so the same budget buys
+ * nothing and every market left out is a pick'em line that could have been
+ * read and was not.
+ */
+export interface MarketBreadth {
+  /** True for a feed billed per request rather than per market per game. */
+  billsPerRequest?: boolean
 }
 
 /**
@@ -156,8 +175,15 @@ export function marketsForLeague(league: LeagueId, requested?: string[] | null):
  * come back empty there: letting a four-market NFL list travel across would
  * quietly undo the saving and bill for the empty responses again.
  */
-export function marketsForCompetition(competition: LeagueConfig, requested?: string[] | null): string[] {
-  return competition.companionOnly ? competition.markets : marketsForLeague(competition.id, requested)
+export function marketsForCompetition(
+  competition: LeagueConfig,
+  requested?: string[] | null,
+  opts: MarketBreadth = {},
+): string[] {
+  if (competition.companionOnly) {
+    return opts.billsPerRequest ? (competition.deepMarkets ?? competition.markets) : competition.markets
+  }
+  return marketsForLeague(competition.id, requested, opts)
 }
 
 /** Reverse lookup, used when requesting only the markets on your board. */

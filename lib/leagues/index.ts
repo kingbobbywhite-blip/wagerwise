@@ -94,8 +94,28 @@ export interface LeagueConfig {
   meanScale: number
   /** Multiplier on each market's variance/mean ratio. See the note above. */
   dispersionScale: number
-  /** Feed market keys this league actually posts often enough to be worth asking for. */
+  /**
+   * Feed market keys this league posts often enough to be worth asking for,
+   * when the feed bills per market per game.
+   *
+   * This list is a budget, not an opinion about what exists. The Odds API
+   * charges markets x games, so every entry here multiplies the cost of a
+   * press by the size of the slate.
+   */
   markets: string[]
+  /**
+   * The markets to ask for when the feed bills per REQUEST instead.
+   *
+   * PropLine charges one request per game whatever the market list, so the
+   * budget above buys nothing there and breadth is free. Asking narrowly on a
+   * feed that does not charge for width is pure loss: every market left out is
+   * a pick'em line that could have been read and was not, and the entry is
+   * built only at lines an app is really posting, so a market nobody asked for
+   * is a leg that cannot be played.
+   *
+   * Omit where the league has nothing more worth asking for.
+   */
+  deepMarkets?: string[]
   /** Books that reliably post player props for this league. */
   books: string[]
   /** Default cap on games per pull, sized to the league's slate and the credit cost. */
@@ -130,6 +150,34 @@ export interface LeagueConfig {
 
 const NBA_BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel", "betmgm", "caesars", "espnbet"]
 
+/**
+ * The NBA markets to ask a per-request feed for: everything the pick'em apps
+ * post and the engine models.
+ *
+ * Points, rebounds, assists and threes are the board's spine. The four combos
+ * are most of the rest of a PrizePicks NBA board and are modelled with their
+ * own correlation between the components, so they are priced properly rather
+ * than as a sum of independent parts. Steals, blocks and the combined
+ * steals+blocks are thin but real, and bounded enough that a pick'em app will
+ * hang them. Turnovers, field goals made and free throws made round it out.
+ */
+const NBA_DEEP_MARKETS = [
+  "player_points",
+  "player_rebounds",
+  "player_assists",
+  "player_threes",
+  "player_points_rebounds_assists",
+  "player_points_rebounds",
+  "player_points_assists",
+  "player_rebounds_assists",
+  "player_steals",
+  "player_blocks",
+  "player_blocks_steals",
+  "player_turnovers",
+  "player_field_goals",
+  "player_frees_made",
+]
+
 const FOOTBALL_MARKETS = ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"]
 
 export const LEAGUES: Record<LeagueId, LeagueConfig> = {
@@ -142,13 +190,30 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     gameMinutes: 48,
     meanScale: 1,
     dispersionScale: 1,
-    markets: ["player_points", "player_rebounds", "player_assists", "player_threes"],
+    // The spine of the board, plus the combo every pick'em app leads with.
+    // Five markets across a full 14-game night is about 70 credits, under the
+    // share of a month that makes the button stop and ask. The rest of the
+    // board is in NBA_DEEP_MARKETS and costs nothing on a per-request feed.
+    markets: [
+      "player_points",
+      "player_rebounds",
+      "player_assists",
+      "player_threes",
+      "player_points_rebounds_assists",
+    ],
+    deepMarkets: NBA_DEEP_MARKETS,
     books: NBA_BOOKS,
     maxGames: 14,
     typicalSlate: 11,
     season: [10, 11, 12, 1, 2, 3, 4, 5, 6],
-    caps: { PTS: 60, REB: 30, AST: 25, "3PM": 14, STL: 8, BLK: 10 },
-    note: "Deepest basketball prop market. Every game is priced by every book, so the consensus is meaningful and stale lines are rare.",
+    // Ceilings on a plausible projected mean, not on a plausible game. They
+    // sit above anything a real starter projects at and below arithmetic that
+    // has gone wrong, which is all a "this is not believable" warning can do.
+    caps: {
+      PTS: 60, REB: 30, AST: 25, "3PM": 14, STL: 8, BLK: 10, TOV: 12,
+      FGM: 25, FTM: 25, PRA: 80, PR: 70, PA: 70, RA: 40, STL_BLK: 15,
+    },
+    note: "Deepest basketball prop market, and the league this board is built for. Every game is priced by every book, so the consensus is meaningful and stale lines are rare. On PropLine the whole board is pulled, because width costs nothing there; on The Odds API it is the five markets with the deepest pick'em interest, and the rest can be added under Settings.",
   },
   nfl: {
     id: "nfl",

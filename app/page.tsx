@@ -157,11 +157,12 @@ export default function TodayPage() {
       // The cap the REQUEST sends, not the league's default. Clamping the
       // preview to the league default while the body sent the dial's value
       // meant a raised cap was never priced and the gate never opened: 20 NBA
-      // games at four markets is 80 credits shown as 56.
+      // games at five markets is 100 credits shown as 70. The market list
+      // depends on the feed too, since width is free on a per-request one.
       pullPlan(leagueId, requestedMaxGames, { companions: wantCompanions }).reduce(
         (a, p) =>
           a +
-          p.games * marketsForCompetition(p.league, s.daily.markets).length +
+          p.games * marketsForCompetition(p.league, s.daily.markets, { billsPerRequest: usePropline }).length +
           // A competition that chooses its games by market depth buys one
           // sport-level call to do it. Whether it fires depends on the slate
           // being bigger than the cap, which cannot be known before the press,
@@ -170,7 +171,7 @@ export default function TodayPage() {
           (p.league.depthRanked ? 1 : 0),
         0,
       ),
-    [leagueId, requestedMaxGames, s.daily.markets, wantCompanions],
+    [leagueId, requestedMaxGames, s.daily.markets, wantCompanions, usePropline],
   )
   const cost = usePropline
     ? { message: null, severe: false, confirm: false, prompt: null, credits: 0 }

@@ -97,6 +97,48 @@ describe("league config", () => {
     expect(LEAGUES.cfb.typicalSlate).toBeGreaterThan(LEAGUES.nfl.typicalSlate)
   })
 
+  it("asks a per-request feed for the whole NBA board, and a per-market feed for a budget", () => {
+    // The Odds API charges markets x games, so its list is a budget. PropLine
+    // charges one request per game whatever the list, so the same budget buys
+    // nothing there and every market left out is a pick'em line that could
+    // have been read and was not.
+    const budget = marketsForLeague("nba", null)
+    const whole = marketsForLeague("nba", null, { billsPerRequest: true })
+    expect(budget).toEqual(LEAGUES.nba.markets)
+    expect(whole).toEqual(LEAGUES.nba.deepMarkets)
+    expect(whole.length).toBeGreaterThan(budget.length)
+    // The budget is a subset: nothing in the narrow list is missing from the
+    // wide one, or switching feeds would lose a market rather than add some.
+    for (const k of budget) expect(whole, k).toContain(k)
+    // The combos are most of a PrizePicks NBA board and the budget leads with
+    // the one every app does.
+    expect(budget).toContain("player_points_rebounds_assists")
+    expect(whole).toContain("player_points_rebounds")
+    expect(whole).toContain("player_blocks_steals")
+    // A market list set by hand still wins over both.
+    expect(marketsForLeague("nba", ["player_threes"], { billsPerRequest: true })).toEqual(["player_threes"])
+  })
+
+  it("maps and caps every NBA market it asks for", () => {
+    // A market the feed map does not know is a credit spent on a response
+    // nothing can read; one with no plausibility ceiling can print a
+    // nonsense projection with no warning beside it.
+    for (const k of LEAGUES.nba.deepMarkets!) {
+      const market = FEED_MARKET_MAP[k]
+      expect(market, k).toBeDefined()
+      expect(LEAGUES.nba.caps[market], `${k} -> ${market}`).toBeGreaterThan(0)
+    }
+  })
+
+  it("keeps a full NBA night under the share of a month that makes the button ask", () => {
+    // The whole point of the budget. A default press that trips the confirm
+    // gate every time trains you to click through it, which is worse than no
+    // gate at all.
+    const credits = LEAGUES.nba.maxGames * LEAGUES.nba.markets.length
+    expect(creditWarning("nba", LEAGUES.nba.maxGames, LEAGUES.nba.markets.length).confirm).toBe(false)
+    expect(credits / 500).toBeLessThan(CONFIRM_PCT_OF_QUOTA)
+  })
+
   it("retires the NHL as a league Today prices, while keeping it loggable", () => {
     // The tab is gone and nothing pulls it. What survives is the ability to
     // read a logged NHL entry, because settled history is the only thing that

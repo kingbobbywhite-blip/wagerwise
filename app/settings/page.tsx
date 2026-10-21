@@ -26,7 +26,10 @@ export default function SettingsPage() {
   const { state, setSettings, replaceAll, saveError, ready } = useStore()
   const s = state.settings
   const dailyLeague = leagueFor(s.daily.league)
-  const dailyMarkets = marketsForLeague(dailyLeague.id, s.daily.markets)
+  // Width is free on a per-request feed, so what a press actually asks for
+  // depends on which feed is selected.
+  const billsPerRequest = s.oddsFeed.provider === "propline"
+  const dailyMarkets = marketsForLeague(dailyLeague.id, s.daily.markets, { billsPerRequest })
   const companions = companionsOf(dailyLeague.id)
   // What one press of the selected league's button would spend, companions
   // included, billed per market per game at each competition's own list.
@@ -35,7 +38,9 @@ export default function SettingsPage() {
   }).reduce(
     // Including the ranking call a depth-ranked companion buys, so this agrees
     // with the figure the Today screen gates on.
-    (a, p) => a + p.games * marketsForCompetition(p.league, s.daily.markets).length + (p.league.depthRanked ? 1 : 0),
+    (a, p) =>
+      a + p.games * marketsForCompetition(p.league, s.daily.markets, { billsPerRequest }).length +
+      (p.league.depthRanked ? 1 : 0),
     0,
   )
   const dailyCost = creditPlan(dailyLeague.id, dailyCredits)
@@ -507,7 +512,7 @@ export default function SettingsPage() {
                 </Label>
                 <Input
                   value={s.daily.markets?.join(", ") ?? ""}
-                  placeholder={dailyLeague.markets.join(", ")}
+                  placeholder={dailyMarkets.join(", ")}
                   onChange={(e) => {
                     const parsed = e.target.value.split(",").map((x) => x.trim()).filter(Boolean)
                     setSettings((p) => ({
@@ -521,9 +526,15 @@ export default function SettingsPage() {
                   className="mt-1.5 font-mono text-xs"
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  Billed per market per game. Every extra market multiplies the cost. Leave this blank to follow the
-                  selected league, which is currently {dailyLeague.label}: {dailyLeague.markets.join(", ")}. Markets
-                  from another sport are ignored for that league, so a basketball list is never billed on NFL games.
+                  {billsPerRequest
+                    ? `PropLine bills per request, one per game whatever this says, so width costs nothing and a blank box pulls the whole board: ${dailyMarkets.join(", ")}. Narrowing it only loses pick'em lines.`
+                    : `Billed per market per game. Every extra market multiplies the cost, so a blank box pulls the markets with the deepest pick'em interest rather than all of them: ${dailyMarkets.join(", ")}.${
+                        dailyLeague.deepMarkets
+                          ? ` The rest of the ${dailyLeague.label} board is ${dailyLeague.deepMarkets.filter((m) => !dailyMarkets.includes(m)).join(", ")}; add any of them here, or switch the feed to PropLine, where they are free.`
+                          : ""
+                      }`}{" "}
+                  Markets from another sport are ignored for that league, so a basketball list is never billed on NFL
+                  games.
                 </p>
               </div>
             </div>

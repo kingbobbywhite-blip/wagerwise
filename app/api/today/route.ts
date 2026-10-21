@@ -546,7 +546,9 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
         pull: await pullPropline({
           ...args,
           league: comp.id,
-          markets: marketsForCompetition(comp, args.markets),
+          // PropLine bills per request, one per game whatever the market
+          // list, so the whole board costs what four markets would.
+          markets: marketsForCompetition(comp, args.markets, { billsPerRequest: true }),
           maxGames: comp.id === args.leagueId ? args.maxGames : comp.maxGames,
         }),
       })),
@@ -637,7 +639,12 @@ async function pickemFromPropline(
 ): Promise<{ lines: PickemLine[]; note: string | null; remaining: number | null }> {
   try {
     // One PropLine pull per competition, each asking only for the games that
-    // competition actually priced.
+    // competition actually priced, and only for the markets it priced. Not the
+    // whole board, although PropLine would charge the same for it: a pick'em
+    // line for a market no sportsbook priced has no target to attach to and
+    // nothing that could price it, so pulling it only fills this browser's
+    // storage. Width is worth paying nothing for when PropLine prices the
+    // slate itself, which is where it is asked for.
     const results = await Promise.all(
       args.pulls
         .filter((p) => p.selected.length > 0)
