@@ -5,7 +5,7 @@ import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow }
 import { MARKETS, type MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import type { PickemLine } from "@/lib/odds-feed/propline"
-import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId } from "@/lib/leagues"
+import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId, type LoggedLeagueId } from "@/lib/leagues"
 import { PICKEM_MAX_PROB } from "@/lib/today/build"
 
 export const STATE_VERSION = 1
@@ -221,7 +221,7 @@ export interface TrackedLeg {
    * — exactly the split this exists to show. Those legs report in their own
    * bucket rather than being folded into a guess.
    */
-  league?: LeagueId
+  league?: LoggedLeagueId
   competition?: LeagueId
 }
 

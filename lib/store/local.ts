@@ -67,7 +67,7 @@ export function saveState(state: AppState): SaveResult {
  * This is not hypothetical. One 14-game NFL pull at eight books is roughly
  * 1,100 props x 8 quotes x ~320 bytes, which is 2.8MB of JSON; browsers meter
  * localStorage in UTF-16 code units, so that is over 5MiB of a ~5MiB quota
- * before an NBA or NHL cache sits beside it. A pull can therefore fail to save
+ * before an NBA or NFL cache sits beside it. A pull can therefore fail to save
  * at all, and until now it failed silently on the one screen that causes it:
  * the slate lived in React state, looked fine, and vanished on reload along
  * with the feed credits that bought it.

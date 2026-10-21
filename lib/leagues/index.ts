@@ -18,10 +18,6 @@ import type { MarketKey, Sport } from "@/lib/nba/markets"
  *   own spreads (see lib/nba/markets), so the NFL needs no scaling of the
  *   basketball numbers: its scales are 1 and its markets are its own.
  *
- *   A third sport (NHL). Low counts on half-point lines: shots, points, saves.
- *   Its markets are its own, like the NFL's, and so are its feed keys, even
- *   where they share a name with basketball ("player_points").
- *
  *   Market depth. The NBA has props on every book at every game. The NFL is the
  *   deepest prop market there is, but posts a week ahead and moves hard on
  *   injury news. College football is priced for the games on television and
@@ -35,7 +31,48 @@ import type { MarketKey, Sport } from "@/lib/nba/markets"
  * priced with NFL numbers. See `competitionsFor`.
  */
 
-export type LeagueId = "nba" | "nfl" | "cfb" | "nhl"
+/** The leagues Today can pull and price. */
+export type LeagueId = "nba" | "nfl" | "cfb"
+
+/**
+ * Leagues that are gone from Today but still have to read back.
+ *
+ * A league is removed from LEAGUES when it stops being worth pulling, and the
+ * NHL was: its markets are thin where a pick'em app will post them, and the
+ * effort belongs on the NBA. What CANNOT be removed with it is the ability to
+ * read an entry that was already logged. Settled history is the only thing in
+ * this app that can tell you the model was wrong, so dropping the hockey
+ * reading would quietly destroy the only evidence worth keeping.
+ *
+ * This matters more for hockey than it did for the WNBA. A WNBA screen's
+ * "Points" really is the basketball market, so forgetting the league costs
+ * nothing. An NHL screen's "Points", "Assists" and "Blocked Shots" are
+ * different stats with different spreads, and read as basketball they would be
+ * silently mis-typed. Hence a retired league keeps its sport, and nothing else.
+ */
+export type RetiredLeagueId = "nhl"
+
+/** A league id that can appear on a logged entry, pullable or retired. */
+export type LoggedLeagueId = LeagueId | RetiredLeagueId
+
+export interface RetiredLeague {
+  id: RetiredLeagueId
+  label: string
+  short: string
+  sport: Sport
+  /** Shown wherever a logged entry still names it, so it reads as retired rather than broken. */
+  note: string
+}
+
+export const RETIRED_LEAGUES: Record<RetiredLeagueId, RetiredLeague> = {
+  nhl: {
+    id: "nhl",
+    label: "NHL",
+    short: "NHL",
+    sport: "hockey",
+    note: "The NHL is no longer pulled or priced. Logged NHL entries still read and settle, so the tracker can still tell you how they went.",
+  },
+}
 
 export interface LeagueConfig {
   id: LeagueId
@@ -187,33 +224,6 @@ export const LEAGUES: Record<LeagueId, LeagueConfig> = {
     depthRanked: true,
     note: "Priced inside the NFL section with its own, wider numbers. Only the games on television carry real prop pricing, so most of a Saturday slate comes back unpriced and is correctly left out. Blowouts are routine and starters sit: treat a projection here as less certain than the same number in the NFL.",
   },
-  nhl: {
-    id: "nhl",
-    label: "NHL",
-    short: "NHL",
-    sportKey: "icehockey_nhl",
-    sport: "hockey",
-    gameMinutes: 60,
-    // Hockey markets carry their own means and spreads; nothing is scaled across.
-    meanScale: 1,
-    dispersionScale: 1,
-    // Only the four markets PrizePicks, Underdog and FanDuel all actually post
-    // with both sides near a coin flip: shots on goal, points, goalie saves and
-    // blocked shots. Goals and power-play points are deliberately NOT here.
-    // Their only posted line is 0.5 against a mean near 0.25, so the favoured
-    // side is an 80% under, no pick'em app posts the prop at all, and pulling
-    // them filled the board with picks that could not be placed anywhere.
-    // They stay mapped, for reading a logged entry; add their feed keys under
-    // Settings if a book ever hangs a line worth taking.
-    markets: ["player_shots_on_goal", "player_points", "player_total_saves", "player_blocked_shots"],
-    books: NBA_BOOKS,
-    // A busy night is 12 to 15 games. Four markets across 12 is 48 credits.
-    maxGames: 12,
-    typicalSlate: 9,
-    season: [10, 11, 12, 1, 2, 3, 4, 5, 6],
-    caps: { SOG: 12, SAVES: 60, HKY_PTS: 6, HKY_AST: 5, HKY_GOALS: 4, HKY_BLK: 10, HKY_PPP: 4 },
-    note: "Low counts on half-point lines, so one side of a standard line is often far from a coin flip: shots on goal 2.5 and points 0.5 are where pick'em lines most often lag the books. Only the markets the apps actually post are pulled. Starting goalies are confirmed late and a backup in net moves every save line and the other team's shots, so refresh close to puck drop. The feed does not say which team a player is on, so a goalie's saves and the other team's shots are linked only as same-game.",
-  },
 }
 
 export const LEAGUE_IDS = Object.keys(LEAGUES) as LeagueId[]
@@ -223,6 +233,16 @@ export const LEAGUE_IDS = Object.keys(LEAGUES) as LeagueId[]
  * priced inside its parent's section, so it is not one of these.
  */
 export const TAB_LEAGUE_IDS = LEAGUE_IDS.filter((id) => !LEAGUES[id].companionOnly)
+
+/**
+ * Every league id a logged entry may carry: the pullable ones, then the
+ * retired ones. The log form offers these, so an NHL entry can still be typed
+ * in or read off a screenshot.
+ */
+export const LOGGED_LEAGUE_IDS: LoggedLeagueId[] = [
+  ...LEAGUE_IDS,
+  ...(Object.keys(RETIRED_LEAGUES) as RetiredLeagueId[]),
+]
 
 export const DEFAULT_LEAGUE: LeagueId = "nba"
 
@@ -238,6 +258,35 @@ export function leagueFor(id: unknown): LeagueConfig {
 /** Sport key for the feed, or null if the id is not one we support. */
 export function sportKeyFor(id: unknown): string | null {
   return isLeagueId(id) ? LEAGUES[id].sportKey : null
+}
+
+export function isRetiredLeagueId(v: unknown): v is RetiredLeagueId {
+  return typeof v === "string" && Object.prototype.hasOwnProperty.call(RETIRED_LEAGUES, v)
+}
+
+/** True for any league a logged entry may name, pullable or retired. */
+export function isLoggedLeagueId(v: unknown): v is LoggedLeagueId {
+  return isLeagueId(v) || isRetiredLeagueId(v)
+}
+
+/** "NBA", "College football", "NHL" — whichever kind of league id this is. */
+export function loggedLeagueLabel(id: LoggedLeagueId): string {
+  return isRetiredLeagueId(id) ? RETIRED_LEAGUES[id].label : LEAGUES[id].label
+}
+
+/** Badge text for either kind of league id. */
+export function loggedLeagueShort(id: LoggedLeagueId): string {
+  return isRetiredLeagueId(id) ? RETIRED_LEAGUES[id].short : LEAGUES[id].short
+}
+
+/**
+ * The sport a logged league's stats belong to.
+ *
+ * This is the whole reason retired leagues are kept: it decides whether the
+ * "Points" on a logged entry is the basketball market or the hockey one.
+ */
+export function sportOfLoggedLeague(id: LoggedLeagueId): Sport {
+  return isRetiredLeagueId(id) ? RETIRED_LEAGUES[id].sport : LEAGUES[id].sport
 }
 
 /**

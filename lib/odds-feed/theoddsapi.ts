@@ -23,8 +23,8 @@ export const NBA_SPORT_KEY = "basketball_nba"
 /**
  * Feed market keys the API exposes per league.
  *
- * The map below covers every basketball and NFL market we model; the NHL has
- * its own further down. Which of these a given league
+ * The map below covers every basketball and NFL market we model; the hockey
+ * keys have their own map further down. Which of these a given league
  * actually posts is a league question, answered in lib/leagues, because asking
  * for a market a league never posts may cost a credit and return nothing. See
  * UNVERIFIED_EMPTY_MARKET_COST below before leaning on that.
@@ -91,7 +91,12 @@ export const FEED_MARKET_MAP: Record<string, MarketKey> = {
 export const DEFAULT_FEED_MARKETS = Object.keys(FEED_MARKET_MAP)
 
 /**
- * NHL feed markets. Several share a key with basketball ("player_points",
+ * NHL feed markets, kept for reading rather than for pulling.
+ *
+ * No league Today prices is hockey any more (see RETIRED_LEAGUES), so nothing
+ * requests these. They stay because a stored or imported payload can still
+ * name them, and because feedKeyFor has to answer for a hockey market on a
+ * logged entry. Several share a key with basketball ("player_points",
  * "player_assists", "player_blocked_shots") but mean a different stat with a
  * different spread, so hockey has its own map rather than entries in the one
  * above.

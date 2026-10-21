@@ -105,19 +105,21 @@ describe("PropLine requests", () => {
     expect(proplineSportKey("nba")).toBe("basketball_nba")
     expect(proplineSportKey("nfl")).toBe("football_nfl")
     expect(proplineSportKey("cfb")).toBe("football_ncaaf")
-    expect(proplineSportKey("nhl")).toBe("hockey_nhl")
   })
 
   it("keeps the key out of the URL", () => {
     const url = proplineEventOddsUrl(4821, { markets: ["player_points"], league: "nba" })
     expect(url).toBe("https://api.prop-line.com/v1/sports/basketball_nba/events/4821/odds?markets=player_points")
-    expect(proplineEventsUrl("nhl")).toBe("https://api.prop-line.com/v1/sports/hockey_nhl/events")
+    expect(proplineEventsUrl("nfl")).toBe("https://api.prop-line.com/v1/sports/football_nfl/events")
   })
 
-  it("translates the goalie saves key and drops duplicates", () => {
-    expect(proplineMarkets(["player_shots_on_goal", "player_total_saves", "goalie_saves"])).toEqual([
-      "player_shots_on_goal",
-      "goalie_saves",
+  it("drops duplicate market keys from a request", () => {
+    // Nothing is aliased while both feeds name every market Today pulls the
+    // same way (hockey's "goalie_saves" was the last one and the NHL is gone),
+    // so this is the de-duplication alone.
+    expect(proplineMarkets(["player_points", "player_rebounds", "player_points"])).toEqual([
+      "player_points",
+      "player_rebounds",
     ])
   })
 

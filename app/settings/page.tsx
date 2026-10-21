@@ -283,7 +283,7 @@ export default function SettingsPage() {
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                 {s.oddsFeed.provider === "propline"
-                  ? "PropLine: billed per request, 1,000 a day free, so a full slate is about one request per game whatever the markets. Carries FanDuel, DraftKings, Bovada, BetOnline, LowVig and exchanges, plus PrizePicks and Underdog lines. Its Pinnacle feed has no basketball or football player props (NHL goalie saves only), so BetOnline and LowVig are the sharp references; a prop neither of them posts is left unpriced while \"require a sharp book\" is on."
+                  ? "PropLine: billed per request, 1,000 a day free, so a full slate is about one request per game whatever the markets. Carries FanDuel, DraftKings, Bovada, BetOnline, LowVig and exchanges, plus PrizePicks and Underdog lines. Its Pinnacle feed carries no basketball or football player props, so BetOnline and LowVig are the sharp references; a prop neither of them posts is left unpriced while \"require a sharp book\" is on."
                   : "The Odds API: carries Pinnacle's player props, the strongest reference there is, but bills per market per game against 500 credits a month."}
               </p>
             </div>

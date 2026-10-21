@@ -98,7 +98,9 @@ const STAT_CORR: Partial<Record<string, number>> = {
   "PASS_YDS|REC": 0.30,
   "PASS_COMP|REC": 0.30,
   "PASS_YDS|RUSH_YDS": -0.10,
-  // NHL, same player. Shots drive goals; power-play time drives both scoring
+  // NHL, same player. Retired as a league Today prices, so nothing builds a
+  // hockey slip any more; kept so a logged hockey entry still reads.
+  // Shots drive goals; power-play time drives both scoring
   // and shots. Goals and assists on one player barely move together.
   "SOG|HKY_GOALS": 0.30,
   "SOG|HKY_AST": 0.10,

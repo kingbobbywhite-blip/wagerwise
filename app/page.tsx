@@ -117,7 +117,7 @@ export default function TodayPage() {
   const companions = companionsOf(leagueId)
   const wantCompanions = s.daily.companions && companions.length > 0
   // Only ever show the cache belonging to the league on screen. Rendering an
-  // NBA pull under an NHL heading would be worse than showing nothing.
+  // NBA pull under an NFL heading would be worse than showing nothing.
   const daily = state.daily[leagueId] ?? null
   // Only games still to start are worth a pick; the rest of the pull is kept,
   // so this undoes itself if the clock was wrong.
@@ -179,7 +179,7 @@ export default function TodayPage() {
   function selectLeague(next: LeagueId) {
     setSettings((prev) => ({
       ...prev,
-      // The game cap travels with the league: an NHL cap on an NBA slate
+      // The game cap travels with the league: an NFL cap on an NBA slate
       // misses part of it, and each league's cap is sized to its own slate.
       daily: { ...prev.daily, league: next, maxGames: LEAGUES[next].maxGames },
     }))

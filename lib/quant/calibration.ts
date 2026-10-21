@@ -1,6 +1,6 @@
 import { clamp, normalCdf, normalInvCdf } from "./math"
 import type { MarketKey } from "@/lib/nba/markets"
-import type { LeagueId } from "@/lib/leagues"
+import type { LeagueId, LoggedLeagueId } from "@/lib/leagues"
 
 /**
  * Did the model tell the truth?
@@ -27,7 +27,8 @@ export interface Observation {
    * their own bucket rather than being folded into a guess.
    */
   competition?: LeagueId
-  league?: LeagueId
+  /** Wider than competition: a retired league's legs still have to report. */
+  league?: LoggedLeagueId
   market?: MarketKey | null
   marketLabel?: string
 }

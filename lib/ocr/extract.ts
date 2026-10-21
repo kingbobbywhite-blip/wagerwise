@@ -1,5 +1,5 @@
 import { MARKETS, normalizeMarket, type MarketKey } from "@/lib/nba/markets"
-import type { LeagueId } from "@/lib/leagues"
+import type { LoggedLeagueId } from "@/lib/leagues"
 import type { Boost } from "./boost"
 
 /**
@@ -173,7 +173,11 @@ const CFB_TEAM_CODES = new Set([
  * Which league a screenshot is of, from its own text.
  *
  * Every game on an entry screen is headed by its league: "NHL MIN 2 vs NYL 87",
- * "CFB OSU 24 vs PSU 17". Three things this has to get right:
+ * "CFB OSU 24 vs PSU 17". The NHL is still read here although Today no longer
+ * prices it: an NHL screen's "Points" is the hockey market, and a read that
+ * forgot the league would type it as basketball. See RETIRED_LEAGUES.
+ *
+ * Three things this has to get right:
  *
  *   The apps do not all write it the same way. PrizePicks says CFB; others
  *   say NCAAF, and the odds feeds say NCAAF too, so both have to resolve to
@@ -188,15 +192,15 @@ const CFB_TEAM_CODES = new Set([
  *   a WNBA screen names no league we price, which is correct: the WNBA is gone
  *   from Today and its entries still have to read back.
  */
-const LEAGUE_WORDS: { league: LeagueId; pattern: RegExp }[] = [
+const LEAGUE_WORDS: { league: LoggedLeagueId; pattern: RegExp }[] = [
   { league: "nba", pattern: /\bnba\b/gi },
   { league: "nfl", pattern: /\bnfl\b/gi },
   { league: "cfb", pattern: /\b(?:cfb|ncaaf|ncaa\s*fb|cfp)\b/gi },
   { league: "nhl", pattern: /\bnhl\b/gi },
 ]
 
-export function leagueFromScreen(text: string): LeagueId | null {
-  let best: LeagueId | null = null
+export function leagueFromScreen(text: string): LoggedLeagueId | null {
+  let best: LoggedLeagueId | null = null
   let bestCount = 0
   let tied = false
   for (const { league, pattern } of LEAGUE_WORDS) {
@@ -222,7 +226,7 @@ export function leagueFromScreen(text: string): LeagueId | null {
  * No hint means exactly today's set: the extractor has no idea what sport it
  * is looking at unless the caller says, and guessing wrong here costs a prop.
  */
-export function teamCodesFor(league?: LeagueId | null): ReadonlySet<string> {
+export function teamCodesFor(league?: LoggedLeagueId | null): ReadonlySet<string> {
   return league === "cfb" ? new Set([...BASE_TEAM_CODES, ...CFB_TEAM_CODES]) : BASE_TEAM_CODES
 }
 
@@ -881,7 +885,7 @@ function medianLineHeight(items: Classified[]): number {
  * this searches a small window around each stat, which handles both and degrades
  * predictably when the OCR drops a line.
  */
-export function extractProps(lines: OcrLine[], hint?: { league?: LeagueId | null }): ExtractResult {
+export function extractProps(lines: OcrLine[], hint?: { league?: LoggedLeagueId | null }): ExtractResult {
   // Resolved once per read. Without a hint this is the same set the extractor
   // has always used, so every existing caller behaves exactly as before.
   const items = classify(lines, teamCodesFor(hint?.league))

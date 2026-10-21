@@ -42,17 +42,21 @@ const SPORT_KEYS: Record<LeagueId, string> = {
   nba: "basketball_nba",
   nfl: "football_nfl",
   cfb: "football_ncaaf",
-  nhl: "hockey_nhl",
 }
 
 export function proplineSportKey(league: LeagueId = DEFAULT_LEAGUE): string {
   return SPORT_KEYS[league] ?? SPORT_KEYS[DEFAULT_LEAGUE]
 }
 
-/** Where PropLine names a market differently from The Odds API. */
-const REQUEST_ALIASES: Record<string, string> = {
-  player_total_saves: "goalie_saves",
-}
+/**
+ * Where PropLine names a market differently from The Odds API.
+ *
+ * Empty while every league Today pulls is one both feeds name the same way.
+ * It stays because the next disagreement belongs here rather than in the
+ * request builder: hockey's "goalie_saves" lived here until the NHL was
+ * dropped.
+ */
+const REQUEST_ALIASES: Record<string, string> = {}
 
 /** Translate a market list into PropLine's keys, without duplicates. */
 export function proplineMarkets(markets: string[]): string[] {
