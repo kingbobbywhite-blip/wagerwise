@@ -491,8 +491,8 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
           <TriangleAlert className="mt-0.5 size-3 shrink-0" />
           <span>
             {RETIRED_LEAGUES[league].note} Its stats are still read as{" "}
-            {sportOfLoggedLeague(league)}, so the legs below are typed correctly, but nothing prices them: there is
-            no {RETIRED_LEAGUES[league].short} slate to compare them against.
+            {sportOfLoggedLeague(league)}, so the legs are typed correctly, but nothing prices them: there is no{" "}
+            {RETIRED_LEAGUES[league].short} slate to compare them against.
           </span>
         </p>
       ) : null}

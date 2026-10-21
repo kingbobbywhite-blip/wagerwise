@@ -53,8 +53,10 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
       ? Math.max(atAppLine.over, atAppLine.under)
       : (atApp.prob ?? t.marketProb)
     : t.marketProb
-  // A line the app posted a long time ago has very likely moved since.
-  const staleAppLine = t.appLines?.find((l) => l.app === app && l.isStale)
+  // A line the app posted a long time ago has very likely moved since. The one
+  // that matters is the line being acted on: a stale demon beside a fresh
+  // standard line is not a reason to doubt the number in the box.
+  const staleAppLine = atAppLine?.isStale ? atAppLine : undefined
   const [typed, setTyped] = React.useState<string | null>(null)
   const fromApp = typed == null && atApp != null
   const line = typed ?? (atApp ? String(atApp.line) : "")
@@ -115,9 +117,11 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
         {/* The chance at the line you can actually play, which is the app's own
             when the pull carried it. Reading the books' number as the app's is
             the single easiest mistake to make on this screen, so the line is
-            always named and the two are never shown as one. */}
-        {/* Below the bar, neither side is a pick'em play, so no side is shown:
-            a 52% "under" here beside a sportsbook's priced "over" read as two picks. */}
+            always named and the two are never shown as one.
+
+            Below the bar, neither side is a pick'em play, so no side is shown:
+            a 52% "under" here beside a sportsbook's priced "over" read as two
+            picks. */}
         {chanceProb >= bar && chanceSide ? (
           <div className="flex items-center gap-1.5">
             <SideBadge side={chanceSide} />
