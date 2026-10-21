@@ -76,14 +76,24 @@ licensed feed (nothing is scraped) and the entry is built at those lines. That n
 gap but does not close it:
 
 - The lines are as fresh as the last pull. A line that moved after it is not the line on
-  your screen; the app fills in what it read, and you can overwrite it.
+  your screen; the app fills in what it read, says how old the reading is once it passes the
+  same staleness threshold the sportsbook prices use, and lets you overwrite it.
 - Only standard picks go into the entry. Goblins, demons and Underdog's boosted or
   discounted sides are listed with their chances but need their own bar, which the app does
   not compute.
 - What PrizePicks posts says nothing about what a pick is worth. PropLine serves PrizePicks
   at a synthetic even-money price, and every such row is kept out of the pricing.
 - Coverage is PropLine's. A player the feed has not mapped, or an app it does not carry
-  (Sleeper, Real, Winible), falls back to the books' line.
+  (Sleeper, Real, Winible), has no line to build at, so the prop is left out of that app's
+  entry and counted under it rather than entering at the books' number. An entry is built at
+  one app's real lines or at the books' lines, never at a mixture: a card headed with an app's
+  name and a payout table, holding legs at numbers the app may not be posting, prints an
+  expectation that is fiction, and nothing on it says which legs those are.
+- Whether an app is "not offering" a prop or merely was not seen offering it is an inference,
+  not a fact the feed states. It is drawn per game and market — if PropLine carried any
+  PrizePicks line for that market in that game, the market is taken as covered there — and it
+  can still be wrong when PropLine's own coverage of a market is partial. The two cases are
+  counted separately on screen so the inference is visible rather than silent.
 
 ## 5. The odds feed costs money and burns quota fast
 
@@ -93,11 +103,14 @@ board, narrow the book list to the ones that carry weight, and expect to re-pull
 rather than continuously.
 
 PropLine bills per request instead: one for the game list and one per game, whatever the
-markets, against 1,000 a day free. The trade is the reference price. PropLine's Pinnacle feed
-carries no basketball or football player props (NHL goalie saves only), so with PropLine
-pricing the slate the sharp reference is BetOnline or LowVig, and a prop neither of them posts
-is left unpriced while "require a sharp book" is on. Pinnacle via The Odds API, with PropLine
-supplying only the pick'em lines, keeps the stronger reference.
+markets, against 1,000 a day free. Because width is free there, the NBA asks PropLine for its
+whole board — fourteen markets for the price of four — and asks The Odds API for five.
+
+The trade is the reference price. PropLine's Pinnacle feed carries no basketball or football
+player props, so with PropLine pricing the slate the sharp reference is BetOnline or LowVig, and
+a prop neither of them posts is left unpriced while "require a sharp book" is on. Pinnacle via
+The Odds API, with PropLine supplying only the pick'em lines, keeps the stronger reference and
+the narrower market list at the same time, which is a real trade rather than a free choice.
 
 If the feed fails, props stay unpriced and the optimizer refuses to build. That is the
 intended behaviour, not a bug.
@@ -161,19 +174,22 @@ legal everywhere. Nothing here is financial advice.
 
 ## League coverage
 
-Three sections are supported: NBA, NFL (with college football inside it) and NHL. What is NOT
-modelled per league:
+Two sections are supported: NBA and NFL (with college football inside it). What is NOT modelled
+per league:
 
-**NHL goalies and line combinations are not known.** Saves depend on who starts in net and on
-the other team's shot volume, and points depend on power-play units. The feed knows neither, so
-a late goalie change makes every save line, and the other side's shots, stale until re-pulled.
-The hockey dispersion values are reasoned from typical game logs, not fitted, like every other
-league's.
+**College basketball, the WNBA and the NHL were removed.** Re-adding any of them is mostly a data
+entry in `lib/leagues`, but their tests and notes went with them. A stored pull or a phone still
+set to one opens on the NBA, and a cache filed under one is dropped on load.
 
-**College basketball and the WNBA were removed.** Re-adding either is a data entry in
-`lib/leagues`, but their tests and notes went with them. A stored pull or a phone still set to
-one of them opens on the NBA. WNBA team codes stay in the screenshot reader, so a settled WNBA
-entry in the tracker still reads back.
+Their settled entries still read back, which is the part that is not optional: settled history is
+the only thing in this app that can tell you the model is wrong. WNBA team codes stay in the
+screenshot reader. The NHL needs more than that, and gets it: a WNBA screen's "Points" really is
+the basketball market, while an NHL screen's "Points", "Assists" and "Blocked Shots" are
+different stats with different spreads. So the hockey market taxonomy stays, the screenshot reader
+still recognises an NHL screen, and the log form still offers the league — enough to read and
+settle what is already logged, and nothing that spends a credit. Nothing prices a hockey leg:
+there is no NHL slate to compare it against, which the log form says rather than showing an empty
+number.
 
 **College football is thin and barely priced away from television.** Only the games on a
 network carry real prop pricing; the rest of a Saturday comes back unpriced and is left out,
@@ -220,7 +236,7 @@ attached it is still a guess about what a board would offer.
 **Browser storage is the binding constraint, and it was failing silently.** Everything is one
 localStorage blob. A pull stores every book's quote verbatim, so a 14-game NFL Sunday at eight
 books is 1.7-2.8MB of JSON; browsers meter localStorage in UTF-16 code units, so that is 3.4-5.5MiB
-of a roughly 5MiB quota before an NBA or NHL cache sits beside it. A full Sunday can therefore
+of a roughly 5MiB quota before an NBA cache sits beside it. A full Sunday can therefore
 fail to save outright. A failed save now sheds load — line history, then other leagues' slates,
 then the imported board — and reports what it dropped in a banner every screen shows, instead of
 looking successful while writing nothing. What it does NOT do is make the underlying allocation

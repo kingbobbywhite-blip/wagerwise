@@ -1,6 +1,6 @@
 # WagerWise
 
-A basketball, football and hockey tool for deciding which props and parlays are worth betting, built
+A basketball and football tool for deciding which props and parlays are worth betting, built
 around the apps in your rotation: PrizePicks, Underdog, Sleeper, Real and Winible for pick'em, FanDuel
 as the one sportsbook, and ProphetX and Polymarket.
 
@@ -8,11 +8,15 @@ Sportsbook bets and parlays are only ever recommended at FanDuel. Pinnacle, BetO
 DraftKings and the rest are pulled to price the market and never shown as the place to bet.
 Add a book under Settings if you open an account there.
 
-Three tabs: **NBA**, **NFL** and **NHL**. **College football rides inside the NFL tab**, off by
-default: turn the switch on under Settings → Today and one press pulls both, each priced with its
-own numbers, with a college row badged CFB wherever it appears — and because that press costs 80
-credits rather than 56, the button asks before spending it. Each tab keeps its own cached pull, so
-switching never throws away a slate you already paid feed credits for.
+Two tabs: **NBA** and **NFL**, with the NBA the one the board is built for. **College football
+rides inside the NFL tab**, off by default: turn the switch on under Settings → Today and one press
+pulls both, each priced with its own numbers, with a college row badged CFB wherever it appears —
+and because that press costs 80 credits rather than 56, the button asks before spending it. Each tab
+keeps its own cached pull, so switching never throws away a slate you already paid feed credits for.
+
+The NHL was removed. Nothing pulls or prices it; a logged NHL entry still reads back off a
+screenshot and still settles, because its stats are hockey's and a read that forgot that would
+silently type them as basketball.
 
 **It does not create an edge. It stops you acting on edges that are not there.**
 
@@ -171,18 +175,36 @@ at FanDuel onto one ticket. Correlation between legs is priced rather than ignor
 
 **Pick'em entry.** The likeliest targets that clear the bar: one leg per player, at most two
 per game, with the chance they all hit and the expected return at your default app's payout
-table. With a PropLine key the legs are at the line your default app is actually posting, and
-a prop it is not offering is left out; without one they are at the books' own line, which the
-pick'em apps almost always copy. If too few clear, it says so rather than padding the entry
-with coin flips.
+table. If too few clear, it says so rather than padding the entry with coin flips.
+
+**Every line on the card is the app's own, or none of them is.** An entry is built at your
+default app's real lines, read through PropLine, or at the books' lines when the pull carried
+none of the app's — never at a mixture of the two. This is the one rule here worth stating on its
+own, because the mixture is what it used to do: a target whose line never arrived went in at the
+sportsbooks' number with a small grey label, on a card headed with the app's name and a payout
+table whose expectation multiplies every leg's chance at the line beside it. The reasoning was
+that a line we never heard about is not the same as one the app is not offering, which is true
+and is still not a line anyone can place. In practice about half a card's lines were not the
+app's, and nothing on the card told you which half.
+
+So a prop with no line from the app is left out, whichever reason it has, and both reasons are
+counted under the card: how many the app covers and is not posting, and how many its lines never
+reached at all. They lead to different next steps — the first is not playable there, the second is
+worth a look on your own screen — so they are never merged into one number. With no PropLine key
+at all, the books' line is all there is, and the card says it is the number to go and look for
+rather than one the app is known to be posting.
 
 **Pick'em targets.** With a PropLine key, the lines PrizePicks and Underdog are posting are
 listed under each player with the chance of each side, priced off the sportsbooks, and your
-default app's line is filled in. Without one, nothing here can see what the apps are offering,
-so type in the line your app shows. Either way you get one answer: the over, the under, or
-pass. Never both. Value bets likewise show one side per player and stat: an over at one
-book and an under at another is a middle, not two picks, and on a pick'em app one of the
-two always loses.
+default app's line is filled in. The table leads with the chance at the line you can actually
+play and names which line that is, so the app's number and the books' number are never shown as
+one; where they differ, both appear. A line the app posted a while ago says how old it is, since
+the apps move them and a stale reading is a guess about the present. Without a key, nothing here
+can see what the apps are offering, so type in the line your app shows.
+
+Either way you get one answer: the over, the under, or pass. Never both. Value bets likewise show
+one side per player and stat: an over at one book and an under at another is a middle, not two
+picks, and on a pick'em app one of the two always loses.
 
 Nothing is fetched until you press the button, and the result is cached, because player
 props are billed per market per game and a page refresh that silently re-pulls the slate
@@ -287,7 +309,8 @@ the ambiguity is reported rather than resolved.
 
 ## What gets left out, and why you can see it
 
-Two things are hidden from the pick'em targets, and both are counted and nameable on screen:
+Three things are kept out of the pick'em section, and every one of them is counted and nameable
+on screen:
 
 **Props too lopsided for a board.** A flat payout table only works if both sides of a pick are
 plausible, so an app does not post a prop whose favoured side is a near-certainty however happily
@@ -298,6 +321,16 @@ posting is never removed by it.
 **Lines no board shows.** The thresholds and the probability ladder cover the lines the books are
 actually hanging, widened half a standard deviation, instead of sweeping a fixed window around the
 projection.
+
+**Props your app has no line for.** Once a pull carries your app's own lines, a target without one
+is out of the entry, because an entry is never built at a line the app may not be posting. The
+count under the card splits the two reasons apart: the app covers that game and market and is not
+posting this prop, or its lines never reached the prop at all. Coverage is judged per market
+rather than per game, because an app covering a game says nothing about which stats it covers in
+it — PrizePicks will post points for every starter in a game and no rebounds line in it anywhere,
+and keyed on the game alone every one of those rebounds props read as "offered, and this player is
+not on it", which is a different claim from the truth. The props are still in the table below at
+the books' line, to check against your screen.
 
 ## The path to fitting the priors
 
@@ -346,21 +379,41 @@ what the model predicted.
 
 ## Leagues
 
-| | NBA | NFL | CFB | NHL |
-|---|---|---|---|---|
-| Tab | NBA | NFL | inside NFL, opt-in | NHL |
-| Feed sport key | `basketball_nba` | `americanfootball_nfl` | `americanfootball_ncaaf` | `icehockey_nhl` |
-| Default markets | pts, reb, ast, 3pm | pass yds, rush yds, rec yds, receptions | same as the NFL | shots on goal, points, saves, blocked shots |
-| Default game cap | 14 | 14 | 6 | 12 |
-| Volatility prior | baseline | its own markets | +20% on the NFL's (unfitted) | its own markets |
-| One default press | 56 credits | 56 credits | +24, and +1 to rank them | 48 credits
+| | NBA | NFL | CFB |
+|---|---|---|---|
+| Tab | NBA | NFL | inside NFL, opt-in |
+| Feed sport key | `basketball_nba` | `americanfootball_nfl` | `americanfootball_ncaaf` |
+| Markets, per-market feed | pts, reb, ast, 3pm, pra | pass yds, rush yds, rec yds, receptions | same as the NFL |
+| Markets, per-request feed | the whole board: 14 | same four | same as the NFL |
+| Default game cap | 14 | 14 | 6 |
+| Volatility prior | baseline | its own markets | +20% on the NFL's (unfitted) |
+| One default press | 70 credits | 56 credits | +24, and +1 to rank them |
+
+**How wide a press asks is a question about billing.** The Odds API charges markets × games, so
+its market list is a budget: the NBA's five put a full 14-game night at 70 credits, 14% of a
+500-request month, which is under the share that makes the button stop and ask. PropLine charges
+one request per game whatever the list, so the same budget buys nothing there — on PropLine the
+NBA pulls its whole board, fourteen markets for the price of four. Every market left out is a
+pick'em line that could have been read and was not, and since an entry is built only at lines an
+app is really posting, a market nobody asked for is a leg you cannot play.
+
+The rest of the NBA board, free on PropLine and addable under Settings → Markets on The Odds API:
+pts+reb, pts+ast, reb+ast, steals, blocks, steals+blocks, turnovers, field goals made, free
+throws made. The combos carry their components, so the correlation model prices PRA against PTS
+for one player properly rather than as unrelated stats, and the entry's one-leg-per-player rule
+already stops both riding together.
 
 The **prior mean** is used only when no book has priced the prop: a real market price always
 wins. A **volatility prior** above baseline widens the distribution, which pulls probabilities
 toward a coin flip — the honest response to a less predictable league.
 
-The WNBA was removed. A phone that still has it selected opens on the NBA, and a settled WNBA
-entry in the tracker still reads back off a screenshot.
+The WNBA and the NHL were both removed, and both still read back. A phone that still has one
+selected opens on the NBA, a cache stored under it is dropped on load, and a settled entry in the
+tracker still reads off a screenshot and still settles. The NHL needs more care than the WNBA did:
+a WNBA screen's "Points" really is the basketball market, while an NHL screen's "Points",
+"Assists" and "Blocked Shots" are different stats with different spreads, so the screenshot reader
+still recognises an NHL screen and the log form still offers the league. Nothing prices it, which
+the form says.
 
 The NFL uses its own markets rather than scaled basketball ones. Yardage is modelled as a
 right-skewed count (a 70-yard catch happens, a minus-70 one does not), with a spread near 70
@@ -436,38 +489,37 @@ as expected rather than broken.
 Most of a Saturday slate comes back unpriced and is correctly left out: no sportsbook price,
 no expected value, no exceptions.
 
-### NHL notes
+### Why the NHL was dropped, and what the board kept from it
 
-Why the NHL was added: it is where a pick'em app's even-money payout is most often wrong.
-Hockey props are small counts on half-point lines. A skater averaging 2.9 shots goes over 2.5
-about 56% of the time; a depth forward's under 0.5 points is often priced near -250, a 70% leg.
-The books price one side well past a coin flip, and the pick'em app pays it as if it were one.
-Pinnacle prices the main NHL props, the season runs from October to April, and a normal night
-has about ten games. None of that guarantees a profit: it is the market where an edge shows up
-most often, not one where it always does.
+The NHL was here because it is where a pick'em app's even-money payout is most often wrong:
+small counts on half-point lines, where the books price one side well past a coin flip and the
+app pays it as if it were even. That is a real effect and it was not enough. The pick'em apps
+post a thin slice of the hockey board, the starting goalie is confirmed too late to price saves
+with any confidence, and every credit and every hour spent on it was one not spent on the NBA,
+which posts more props, prices them deeper, and runs most nights of the week.
 
-Hockey markets are their own (shots on goal, goalie saves, points, assists, goals, blocked shots,
-power-play points), modelled as near-Poisson counts, with saves wider. "Points" and "Assists" on
-a PrizePicks NHL screen are read as the hockey stats when the entry is an NHL one. Starting
-goalies are confirmed late, and a backup in net moves every save line and the other team's
-shots, so pull close to puck drop. Hits, faceoffs and time on ice are logged but not priced.
+Two failures were found there first, and both were general. Both are now pinned on the NBA,
+because they bite on any low-count market — blocks, steals and threes hit the same arithmetic as
+shots and points:
 
-**The NHL board used to fill with picks you could not place anywhere.** Two causes, both fixed:
+1. **Markets no pick'em app posts.** A prop priced at 0.5 against a mean near 0.25 makes the
+   favoured side an 80% under. Sorted by hit rate, those came out on top of the board. No pick'em
+   app offers a prop that lopsided — the payout table only works if both sides are plausible — so
+   a target whose every posted line is more lopsided than 80/20 is dropped from the pick'em
+   section, counted, and named on screen rather than silently missing. The value-bet side of the
+   app still prices it: a lopsided price is still a price, and still worth betting if it is wrong.
+   A line PropLine shows an app really posting is never removed this way, because the ceiling is a
+   prior about what a board offers and a real line beats a prior.
+2. **Lines no board has ever shown.** The thresholds and the probability ladder used to sweep a
+   fixed window around the projection, which gave a 0.4-mean market lines up to 16.5 and a
+   27-point scorer lines down at 11.5. The search now covers the lines the books are actually
+   hanging, widened half a standard deviation for an app that hangs a slightly different number.
+   The same fix cuts a 250-yard passing ladder from two hundred rows to fifty.
 
-1. **Markets no pick'em app posts.** Goals and power-play points are priced by the books at
-   0.5 against a mean near 0.25, so the favoured side is an 80% under. Sorted by hit rate,
-   those came out on top of every NHL board. No pick'em app offers a prop that lopsided — the
-   payout table only works if both sides are plausible — so the default pull is now the four
-   markets PrizePicks, Underdog and FanDuel all post: shots on goal, points, goalie saves and
-   blocked shots. Goals and power-play points stay mapped for reading a logged entry, and can
-   be added back under Settings → Markets. A target whose every posted line is more lopsided
-   than 80/20 is dropped from the pick'em section whatever the league, and the value-bet side
-   of the app still prices it.
-2. **Lines no board has ever shown.** The thresholds and the probability ladder used to sweep
-   a fixed window around the projection, which gave a 0.4-assist market lines up to 16.5 and a
-   27-save goalie lines down to 11.5. The search now covers the lines the books are actually
-   hanging, widened half a standard deviation for an app that hangs a slightly different
-   number. The same fix cuts a 250-yard passing ladder from two hundred rows to fifty.
+Hockey markets stay in the taxonomy — shots on goal, goalie saves, hockey points, assists, goals,
+blocked shots, power-play points — and are read as hockey whenever an entry is an NHL one. That is
+the whole of what remains: enough to read and settle what is already logged, and nothing that
+spends a credit.
 
 College basketball and the WNBA were removed. A phone that still has one selected opens on
 the NBA.
