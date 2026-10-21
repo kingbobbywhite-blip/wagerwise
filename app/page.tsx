@@ -273,21 +273,27 @@ export default function TodayPage() {
       parts.push(`${plays.unknown} no ${name} line reached at all`)
     }
     if (parts.length === 0) return null
-    return `Left out: ${parts.join("; ")}. They are still in the table below, at the books' line, to check against your screen.`
+    return `Left out: ${parts.join("; ")}. They are still in the targets below, at the books' line, to check against your screen.`
   }, [plays, entryApp])
-  // The table shows the 30 likeliest at the books' line, but the entry ranks by
-  // the app's own line, so a leg can come from further down. Its row is where
-  // its line can be checked and overridden, so it is always shown.
+  // The 30 likeliest, plus every leg the entry used. A leg's row is where its
+  // line can be checked and overridden, so it is shown whether or not it made
+  // the top 30.
   const shownTargets = React.useMemo(() => {
     if (!picks) return []
-    // Ranked by the chance at the line you can actually play. Ranking by the
-    // books' line put props at the top of the table that the app posts at a
-    // different number, or is not posting at all, so the order described a
-    // board nobody was looking at.
+    // Ranked by the chance at the line you can actually play, which is exactly
+    // what the Chance column shows: the app's own line where this pull carried
+    // one, the books' line where it did not. Ranking everything by the books'
+    // line put props at the top that the app posts at a different number, so
+    // the order described a board nobody was looking at.
+    //
+    // A prop with no line from the app keeps its books' chance here rather
+    // than sinking below every playable row. It is out of the entry and it is
+    // still a row worth seeing: its own line can be typed in, and the card
+    // under the entry promises it is here.
     const playable = new Map((plays?.plays ?? []).map((p) => [p.target.key, p.prob]))
     const ranked = appLinesLive
       ? [...picks.dfsTargets].sort(
-          (a, b) => (playable.get(b.key) ?? -1) - (playable.get(a.key) ?? -1) || b.marketProb - a.marketProb,
+          (a, b) => (playable.get(b.key) ?? b.marketProb) - (playable.get(a.key) ?? a.marketProb),
         )
       : picks.dfsTargets
     const top = ranked.slice(0, 30)
