@@ -35,15 +35,86 @@ export async function oddsApiErrorText(res: Response): Promise<string> {
   return `The Odds API returned ${res.status}. ${detail}`.trim()
 }
 
-/** GET a JSON payload from The Odds API, with the quota it reports. */
-export async function fetchOddsApi<T>(url: string): Promise<{ data: T; remaining: number | null; used: number | null }> {
+/**
+ * GET a JSON payload from The Odds API, with the quota it reports.
+ *
+ * `last` is what this one request cost, which the feed states and this app
+ * used to throw away. It is the difference between telling someone what a
+ * pull probably cost and telling them what it did cost, and the app's own
+ * rule is that it does not present a number it cannot verify when it can.
+ *
+ * Read per request rather than as an x-requests-used delta on purpose: the
+ * quota counter is per key, so a second device on the same key mid-pull makes
+ * the delta measure someone else's pull as well as this one.
+ */
+export async function fetchOddsApi<T>(
+  url: string,
+): Promise<{ data: T; remaining: number | null; used: number | null; last: number | null }> {
   const res = await fetch(url, { cache: "no-store" })
   if (!res.ok) throw new Error(await oddsApiErrorText(res))
   return {
     data: (await res.json()) as T,
     remaining: headerCount(res.headers, "x-requests-remaining"),
     used: headerCount(res.headers, "x-requests-used"),
+    last: headerCount(res.headers, "x-requests-last"),
   }
+}
+
+/**
+ * What a pull was actually billed, and how much of it could be read.
+ *
+ * `unmeasured` is the honest part. A response with no per-request cost is not
+ * a free request, and the two must not collapse: Number(null) is 0, which is
+ * the same trap headerCount exists to avoid, and a feed that omits the header
+ * would otherwise make every pull look free.
+ */
+export interface MeasuredCost {
+  /** Credits the feed said it charged, across the requests that reported one. */
+  credits: number
+  /** Requests that reported a cost. */
+  measured: number
+  /** Billed requests that reported none, so the total is a floor rather than a sum. */
+  unmeasured: number
+}
+
+export function emptyCost(): MeasuredCost {
+  return { credits: 0, measured: 0, unmeasured: 0 }
+}
+
+/** Fold in a billed request's reported cost, counting silence as a gap. */
+export function addCost(cost: MeasuredCost, last: number | null): MeasuredCost {
+  if (last == null) {
+    cost.unmeasured++
+    return cost
+  }
+  cost.credits += last
+  cost.measured++
+  return cost
+}
+
+/**
+ * Fold in a request the estimate never charged for — the events listing, which
+ * the vendor documents as free.
+ *
+ * Its cost is added when reported and ignored when not. A listing with no
+ * figure is not a hole in the measurement; it is a request that was never in
+ * the total being compared against, so counting it as unmeasured would make
+ * every single pull read as impossible to total.
+ */
+export function addFreeCost(cost: MeasuredCost, last: number | null): MeasuredCost {
+  if (last != null) cost.credits += last
+  return cost
+}
+
+export function sumCosts(costs: MeasuredCost[]): MeasuredCost {
+  return costs.reduce(
+    (a, c) => ({
+      credits: a.credits + c.credits,
+      measured: a.measured + c.measured,
+      unmeasured: a.unmeasured + c.unmeasured,
+    }),
+    emptyCost(),
+  )
 }
 
 /**

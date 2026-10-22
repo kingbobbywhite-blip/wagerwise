@@ -92,3 +92,32 @@ export function sameGameId(a: string | null | undefined, b: string | null | unde
   if (left.length !== 2 || right.length !== 2) return false
   return sameTeamName(left[0], right[0]) && sameTeamName(left[1], right[1])
 }
+
+/**
+ * Which of a player's games a pick'em line belongs to.
+ *
+ * A line arrives from a different feed than the prices, so its game id is
+ * spelled the other feed's way: the fixture has to be matched rather than
+ * compared. Failing a match, a player who appears in exactly one game on the
+ * slate can only have played in that one, so the line is attributed there and
+ * the mismatch is the two feeds disagreeing about a team's name. A player in
+ * two games with no fixture match is attributed to neither, because guessing
+ * would hand one game the other game's line.
+ *
+ * This lives here, shared, because two passes decide this same question —
+ * which lines are worth keeping at all, and which game and market an app is
+ * shown to cover. If they ever disagreed the first would shed a line the
+ * second would have counted, and the screen would then say "no PrizePicks
+ * line reached at all" about a game and market where PrizePicks did post one
+ * and this app threw it away. Same derivation, on purpose.
+ */
+export function attributedGames(
+  gameId: string | null | undefined,
+  playerGames: Iterable<string> | undefined,
+): string[] {
+  const games = playerGames ? Array.from(playerGames) : []
+  if (games.length === 0) return []
+  const matched = games.filter((g) => sameGameId(gameId, g))
+  if (matched.length > 0) return matched
+  return games.length === 1 ? games : []
+}

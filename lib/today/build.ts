@@ -5,7 +5,7 @@ import { probToAmerican } from "@/lib/quant/odds"
 import { optimizeSlips, type BuiltSlip, type CandidateLeg, type OptimizerConstraints } from "@/lib/quant/optimizer"
 import { normalizeName, playerKeyIn, type CorrelationSettings } from "@/lib/quant/correlation"
 import type { PickemLine } from "@/lib/odds-feed/propline"
-import { sameGameId } from "@/lib/odds-feed/games"
+import { attributedGames, sameGameId } from "@/lib/odds-feed/games"
 import { notStarted } from "@/lib/odds-feed/http"
 import type { PickType } from "@/lib/store/schema"
 import {
@@ -514,9 +514,7 @@ function pickemCoverage(quotes: FeedQuote[], lines: PickemLine[] | undefined): M
   for (const l of lines ?? []) {
     const games = gamesByPlayer.get(l.playerKey || normalizeName(l.player))
     if (!games) continue
-    const matched = Array.from(games).filter((g) => sameGameId(l.gameId, g))
-    const targets = matched.length > 0 ? matched : games.size === 1 ? Array.from(games) : []
-    for (const g of targets) {
+    for (const g of attributedGames(l.gameId, games)) {
       const key = coverageKey(g, l.market)
       const set = byGameMarket.get(key) ?? new Set<string>()
       set.add(l.app)

@@ -10,11 +10,13 @@ import {
   rankByDepth,
   sportOddsUrl,
   type DepthRanking,
+  type NormalizedQuote,
 } from "@/lib/odds-feed/theoddsapi"
 import {
   PICKEM_BOOKS,
   normalizeProplineMany,
-  onlyPricedPlayers,
+  unpricedPickemNote,
+  usablePickemLines,
   pickemNoteFor,
   pullPropline,
   FeedKeyError,
@@ -22,7 +24,17 @@ import {
   type PickemLine,
   type ProplineNormalizeResult,
 } from "@/lib/odds-feed/propline"
-import { feedErrorText, fetchOddsApi, noneCouldBePriced, notStarted } from "@/lib/odds-feed/http"
+import {
+  addCost,
+  addFreeCost,
+  emptyCost,
+  feedErrorText,
+  fetchOddsApi,
+  noneCouldBePriced,
+  notStarted,
+  sumCosts,
+  type MeasuredCost,
+} from "@/lib/odds-feed/http"
 import { resolveKey as resolveApiKey, type ResolvedKey } from "@/lib/odds-feed/api-key"
 import type { FeedEvent, FeedEventOdds } from "@/lib/odds-feed/types"
 import {
@@ -236,6 +248,14 @@ export async function POST(request: Request) {
     const cost = creditPlan(leagueId, estimatedCredits)
     const remaining = lastFinite(pulls.map((p) => p.remaining))
     const used = lastFinite(pulls.map((p) => p.used))
+    // What the feed actually charged, against the estimate for the requests
+    // that actually completed. The app has told itself for a long while that
+    // it does not know whether an empty market still costs a credit; the
+    // answer is in a response header it was throwing away.
+    const billed = sumCosts(pulls.map((p) => p.billed))
+    const pricedEstimate = pulls.reduce((a, p) => a + p.pricedCredits, 0)
+    const measuredCredits = billed.measured > 0 ? billed.credits : null
+    const creditNote = creditNoteFor(billed, pricedEstimate)
 
     if (body.eventsOnly) {
       return NextResponse.json({
@@ -339,11 +359,51 @@ export async function POST(request: Request) {
       inSeason: inSeason(leagueId, new Date(), { companions }),
       requestsRemaining: remaining,
       requestsUsed: used,
+      measuredCredits,
+      unmeasuredRequests: billed.unmeasured,
+      creditNote,
       fetchedAt: new Date().toISOString(),
     })
   } catch (err) {
     return NextResponse.json({ error: feedErrorText(err, "The Odds API") }, { status: 502 })
   }
+}
+
+/**
+ * What the measurement said that the estimate did not.
+ *
+ * Null when there is nothing to add, which is most pulls: a measured cost that
+ * matches the estimate needs no sentence, and the figure itself is shown
+ * either way. Two cases are worth a sentence.
+ *
+ * The feed billed LESS than was estimated. The estimate charges for every
+ * market asked for; the app has carried an explicit note for a long while
+ * saying it is unverified whether a market that returns no data still costs a
+ * credit (see UNVERIFIED_EMPTY_MARKET_COST). A pull that was billed less than
+ * the markets it asked for is that question answering itself, for this key on
+ * this plan on this slate — which is not the vendor's documentation, and is
+ * why the constant stays.
+ *
+ * Some billed request reported no cost at all. Then the total is a floor
+ * rather than a sum, and quoting it as a sum would be the app presenting a
+ * number it cannot stand behind.
+ *
+ * The comparison is against the estimate for the requests that COMPLETED. A
+ * game that failed was estimated and never billed, so comparing against the
+ * full estimate would read one 502 as proof that empty markets are free.
+ */
+function creditNoteFor(billed: MeasuredCost, pricedEstimate: number): string | null {
+  if (billed.unmeasured > 0) {
+    return billed.measured > 0
+      ? `${billed.unmeasured} of this pull's requests did not report what they cost, so the ${billed.credits} credits measured is a floor rather than the total.`
+      : null
+  }
+  if (billed.measured === 0) return null
+  if (billed.credits === pricedEstimate) return null
+  if (billed.credits < pricedEstimate) {
+    return `The feed billed ${billed.credits} credits for what was estimated at ${pricedEstimate}. Player props are estimated at every market asked for, so being billed less is evidence that a market returning no data is not charged for — on this key and this plan, which is not the same as the vendor documenting it.`
+  }
+  return `The feed billed ${billed.credits} credits against an estimate of ${pricedEstimate}. The estimate is markets times games at one region, so a higher bill means the bookmaker list is being charged as more than one region. Narrow it in Settings if the quota matters.`
 }
 
 /**
@@ -402,6 +462,17 @@ interface CompetitionPull {
   nextEvent: FeedEvent | null
   remaining: number | null
   used: number | null
+  /** What the feed said it charged for this competition's requests. */
+  billed: MeasuredCost
+  /**
+   * The estimate restricted to the requests that actually completed.
+   *
+   * This, not the estimate over every SELECTED game, is what the measurement
+   * is compared against. A request that failed was estimated and never billed,
+   * so comparing against the full estimate would read one 502 on one game as
+   * the empty-market question answering itself.
+   */
+  pricedCredits: number
 }
 
 /**
@@ -422,8 +493,12 @@ async function pullCompetition(
     eventsOnly: boolean
   },
 ): Promise<CompetitionPull> {
+  const billed = emptyCost()
   const events = await fetchOddsApi<FeedEvent[]>(eventsUrl(apiKey, comp.id))
   if (!Array.isArray(events.data)) throw new SyntaxError("events listing is not a list")
+  // The listing is documented as free and is not in the estimate either, so a
+  // listing that reports no cost is not a hole in the measurement.
+  addFreeCost(billed, events.last)
   const listed = events.data
     .filter((e) => {
       const t = Date.parse(e.commence_time)
@@ -452,6 +527,7 @@ async function pullCompetition(
         sportOddsUrl(apiKey, comp.id, { markets: ["spreads"], fromMs: opts.fromMs, toMs: opts.toMs }),
       )
       depthCredits = 1
+      addCost(billed, bulk.last)
       if (bulk.remaining != null) remaining = bulk.remaining
       if (bulk.used != null) used = bulk.used
       depth = rankByDepth(Array.isArray(bulk.data) ? bulk.data : [])
@@ -490,6 +566,7 @@ async function pullCompetition(
         }),
       )
       payloads.push(r.data)
+      addCost(billed, r.last)
       if (r.remaining != null) remaining = r.remaining
       if (r.used != null) used = r.used
     } catch (err) {
@@ -516,6 +593,9 @@ async function pullCompetition(
     nextEvent,
     remaining,
     used,
+    billed,
+    // payloads, not selected: only the games that came back were billed.
+    pricedCredits: estimateCredits(payloads.length, opts.markets.length) + depthCredits,
   }
 }
 
@@ -575,6 +655,10 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       // The Odds API's monthly credits are untouched; PropLine counts requests per day.
       estimatedCredits: 0,
       proplineRequests: pull.requests,
+      // PropLine bills one request per game against a daily quota and sends no
+      // per-request cost, so there is nothing here to measure and the honest
+      // answer is to say so rather than to report a zero.
+      measuredCredits: null,
       requestsRemaining: pull.quota?.remaining ?? null,
       requestsUsed: pull.quota?.used ?? null,
       quotaPeriod: "day" as const,
@@ -606,12 +690,22 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
     const normalized = mergeProplineResults(
       pulls.map((p) => normalizeProplineMany(p.pull.payloads, p.comp.sport, { competition: p.comp.id })),
     )
+    const usable = usablePickemLines(normalized.pickemLines, normalized.quotes)
     return NextResponse.json({
       ...base,
       events: pull.selected,
       quotes: normalized.quotes,
-      pickemLines: onlyPricedPlayers(normalized.pickemLines, normalized.quotes),
-      pickemNote: pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length),
+      // The lines something on this slate can read, and a sentence about the
+      // ones it cannot: a shorter list with no explanation is indistinguishable
+      // from an app posting less.
+      pickemLines: usable.lines,
+      pickemNote:
+        [
+          pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length),
+          unpricedPickemNote(usable.dropped),
+        ]
+          .filter(Boolean)
+          .join(" ") || null,
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures: pull.failures,
@@ -635,7 +729,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
  * prices, for exactly the games The Odds API priced.
  */
 async function pickemFromPropline(
-  args: PullArgs & { pulls: CompetitionPull[]; quotes: { player: string; playerKey?: string }[] },
+  args: PullArgs & { pulls: CompetitionPull[]; quotes: NormalizedQuote[] },
 ): Promise<{ lines: PickemLine[]; note: string | null; remaining: number | null }> {
   try {
     // One PropLine pull per competition, each asking only for the games that
@@ -667,14 +761,26 @@ async function pickemFromPropline(
     )
     const normalized = mergeProplineResults(results.map((r) => r.normalized))
     const failures = results.flatMap((r) => r.pull.failures)
-    const lines = onlyPricedPlayers(normalized.pickemLines, args.quotes)
+    const usable = usablePickemLines(normalized.pickemLines, args.quotes)
     const unlisted = results.reduce((a, r) => a + r.unlisted, 0)
+    // The shed lines are an extra sentence, appended after the existing chain
+    // rather than folded into it: a failed request and a closed game are
+    // reasons to go and look at something, and they keep their precedence.
     const note =
-      pickemNoteFor(normalized.pickemLines.length, failures, normalized.closedGames.length) ??
-      (unlisted > 0
-        ? `PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`
-        : null)
-    return { lines, note, remaining: results.map((r) => r.pull.quota?.remaining).filter((q) => q != null).pop() ?? null }
+      [
+        pickemNoteFor(normalized.pickemLines.length, failures, normalized.closedGames.length) ??
+          (unlisted > 0
+            ? `PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`
+            : null),
+        unpricedPickemNote(usable.dropped),
+      ]
+        .filter(Boolean)
+        .join(" ") || null
+    return {
+      lines: usable.lines,
+      note,
+      remaining: results.map((r) => r.pull.quota?.remaining).filter((q) => q != null).pop() ?? null,
+    }
   } catch (err) {
     return {
       lines: [],

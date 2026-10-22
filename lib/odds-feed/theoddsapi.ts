@@ -48,12 +48,14 @@ export const NBA_SPORT_KEY = "basketball_nba"
  * no per-event term on the sport-level endpoint, which is what makes the depth
  * ranking below affordable.
  *
- * How to settle it in one pull: make the same per-event request twice, once
- * including a market the game does not post and once without, and compare the
- * x-requests-last response header. Until someone does, nothing here should
- * claim the saving as a fact. No decision in the app rests on it either way:
- * market lists are trimmed because an unpriced prop is a worse board, and that
- * is true whatever the billing turns out to be.
+ * The app now MEASURES it rather than speculating: every per-event request's
+ * x-requests-last is read and summed, and the Today screen says so when the
+ * feed bills less than the estimate, which is this question answering itself.
+ * That answer is for one key on one plan on one slate, which is not the same
+ * as the vendor documenting it, so this constant stays until the docs do. No
+ * decision in the app rests on it either way: market lists are trimmed because
+ * an unpriced prop is a worse board, and that is true whatever the billing
+ * turns out to be.
  */
 export const UNVERIFIED_EMPTY_MARKET_COST =
   "Whether a market that returns no data still costs a credit is unverified: the docs are transcribed both ways."

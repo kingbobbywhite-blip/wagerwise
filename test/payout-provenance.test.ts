@@ -1,0 +1,90 @@
+import { describe, expect, it } from "vitest"
+import {
+  DEFAULT_APPS,
+  PLACEHOLDER_LEG_BAR,
+  findApp,
+  findMode,
+  payoutMultiple,
+  payoutVerified,
+  pickemBar,
+  pickemPricingMode,
+  type BookApp,
+} from "@/lib/quant/payouts"
+
+/**
+ * Which of these numbers has anybody actually checked?
+ *
+ * The Today screen's per-leg bar comes off a stored payout table, and that bar
+ * decides which props become pick'em targets at all and which side each row
+ * recommends. The app's rule is that it does not present a number it cannot
+ * verify, so where the bar came from has to be answerable in code before it
+ * can be said on screen.
+ */
+
+const dated = (app: BookApp, on: string): BookApp => ({ ...app, verifiedOn: on })
+const prizepicks = findApp(DEFAULT_APPS, "prizepicks")!
+const power = findMode(prizepicks, "power")!
+
+describe("payoutVerified", () => {
+  it("reads every payout table this app ships as unverified", () => {
+    // A tripwire, not a tautology. The day somebody writes a date into
+    // verifiedOn without having read a real entry screen, this is what asks
+    // them whether they did.
+    for (const a of DEFAULT_APPS) expect(payoutVerified(a), a.id).toBe(false)
+  })
+
+  it("counts a date as verified and nothing else", () => {
+    expect(payoutVerified(dated(prizepicks, "2026-09-15"))).toBe(true)
+    for (const on of ["unverified", "UNVERIFIED", "  unverified  ", "", "   ", "soon", "last week"]) {
+      expect(payoutVerified(dated(prizepicks, on)), JSON.stringify(on)).toBe(false)
+    }
+    // A stored settings blob from an older version may not carry the field at
+    // all, and the only safe reading of a missing one is that nobody checked.
+    const withoutField = { ...prizepicks } as Partial<BookApp>
+    delete withoutField.verifiedOn
+    expect(payoutVerified(withoutField as BookApp)).toBe(false)
+    expect(payoutVerified(undefined)).toBe(false)
+  })
+})
+
+describe("the bar the pick'em section is judged against", () => {
+  it("says it came from a stored table, and whether anyone checked it", () => {
+    const bar = pickemBar(prizepicks, power, 3)
+    expect(bar.source).toBe("stored")
+    expect(bar.verified).toBe(false)
+    // A 3-pick Power Play at 6x: the break-even is the cube root of 1/6.
+    expect(bar.prob).toBeCloseTo(Math.cbrt(1 / 6), 6)
+    expect(pickemBar(dated(prizepicks, "2026-09-15"), power, 3).verified).toBe(true)
+  })
+
+  it("falls back to a placeholder when no table covers the entry size, and says so", () => {
+    // The Power Play table stops at six picks.
+    const bar = pickemBar(prizepicks, power, 7)
+    expect(bar.source).toBe("placeholder")
+    expect(bar.prob).toBe(PLACEHOLDER_LEG_BAR)
+    expect(pickemBar(prizepicks, undefined, 3).source).toBe("placeholder")
+  })
+})
+
+describe("an expected value needs a table someone has checked", () => {
+  it("withholds the pricing mode for every table this app ships", () => {
+    for (const a of DEFAULT_APPS) {
+      for (const m of a.modes) expect(pickemPricingMode(a, m), `${a.id} ${m.id}`).toBeNull()
+    }
+  })
+
+  it("hands back the stored mode once the table carries a date", () => {
+    expect(pickemPricingMode(dated(prizepicks, "2026-09-15"), power)).toBe(power)
+    // And still nothing when there is no mode to price against.
+    expect(pickemPricingMode(dated(prizepicks, "2026-09-15"), undefined)).toBeNull()
+  })
+})
+
+describe("the one number in the registry anybody has confirmed", () => {
+  it("still pays 6x on a 3-pick Power Play", () => {
+    // A real entry screen paid $2 for $12 in Sep 2026, which is the only
+    // verified datum in the whole table and the reason the comment above it
+    // exists. If this is ever edited, that comment has become a lie.
+    expect(payoutMultiple(power, 3, 3)).toBe(6)
+  })
+})

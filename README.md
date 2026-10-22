@@ -42,6 +42,15 @@ Five things:
 
 Everything runs in your browser. No account, no database, no telemetry.
 
+**It now measures what a pull cost rather than estimating it.** The Odds API states the cost of
+every request in a response header this app used to throw away. Those are summed, and the figure
+shown under Games is the feed's own, not a forecast — with the estimate named as an estimate when
+the feed does not itemise. When the feed bills *less* than was estimated, that is the app's own
+long-standing open question ("does a market that comes back empty still cost a credit?") answering
+itself, and it says so. The comparison is against the estimate for the requests that actually
+completed, so one failed game cannot read as an answer. A request that reports no cost counts as
+unmeasured, never as free: the total is then called a floor rather than quoted as a sum.
+
 **Two feeds can price the slate.** [The Odds API](https://the-odds-api.com) carries Pinnacle's
 player props and bills per market per game against 500 credits a month.
 [PropLine](https://prop-line.com) bills per request against 1,000 a day and also carries the
@@ -309,8 +318,9 @@ the ambiguity is reported rather than resolved.
 
 ## What gets left out, and why you can see it
 
-Three things are kept out of the pick'em section, and every one of them is counted and nameable
-on screen:
+Four things are kept out of the pick'em section, and every one of them is counted and nameable
+on screen. A fifth — the entry's expected value — is withheld rather than left out, which is its
+own entry below:
 
 **Props too lopsided for a board.** A flat payout table only works if both sides of a pick are
 plausible, so an app does not post a prop whose favoured side is a near-certainty however happily
@@ -332,11 +342,33 @@ and keyed on the game alone every one of those rebounds props read as "offered, 
 not on it", which is a different claim from the truth. The props are still in the table below at
 the books' line, to check against your screen.
 
+**Pick'em lines nothing on the slate can price.** A line reaches a board row through one key, the
+player and the market, so a PrizePicks rebounds line for a player the books priced only for points
+can never attach to anything. Those are shed from what gets stored, and the count and the markets
+are named. The filter stops short of the obvious rule, deliberately: a line is also the *evidence*
+that an app covers a game and market, and that evidence is read for other players' rows. So a line
+is kept when its own prop is priced **or** when its market is priced for anyone in its game. Drop
+the second clause and the screen says "no PrizePicks line reached at all" about a game and market
+where PrizePicks did post one and this app threw it away.
+
+**The entry's expected value, when no payout table has been confirmed.** An expected value is the
+payout table's number as much as the legs' — it is a sum over the table's tiers — and every table
+this app ships is marked unverified, because only one of them has ever been read off a real entry
+screen. So the Today screen prints the chance every leg hits, which is a product of leg
+probabilities and owes the table nothing, and withholds the expected value, pointing at the build
+screen, which reads the multiplier off your own screen and refuses to price anything until you
+confirm it. The per-leg bar still comes off the stored table, because without one there is no bar
+at all — so the bar is labelled `payouts unverified` on its face, and `no payout table` when no
+stored table even covers the entry size.
+
 ## The path to fitting the priors
 
-Three numbers in this app are reasoned rather than measured, and they are labelled as such
-wherever they appear: the kickoff widening (4% of variance per day), college football's volatility
-multiplier (1.2) and the yardage spread floors. Fitting them needs data the app now collects.
+Several numbers in this app are reasoned rather than measured, and each is labelled as such where
+a reader would act on it: the kickoff widening (4% of variance per day) and college football's
+volatility multiplier (1.2), both named in the tracker's line-movement readout; the per-market
+dispersion ratios and the yardage spread floors, named on the outcome-spread dial in Settings that
+scales them; and the correlation coefficients, named on the correlation dial beside it. Fitting
+them needs data the app now collects.
 
 **The tracker reads settled legs along three axes**, not one: by predicted probability band as
 before, and now by competition and by market. Each row prints the variance multiplier that would

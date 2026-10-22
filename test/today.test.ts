@@ -3,7 +3,7 @@ import { buildDailyPicks, buildDfsTargets, dfsTargetsFor, summariseGames, valueB
 import { DEFAULT_VALUE_SETTINGS, findValueBets, type FeedQuote } from "@/lib/quant/valuebets"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { DEFAULT_CONSTRAINTS } from "@/lib/quant/optimizer"
-import { distributionFor } from "@/lib/nba/markets"
+import { MARKETS, distributionFor } from "@/lib/nba/markets"
 
 const OPTS = {
   value: DEFAULT_VALUE_SETTINGS,
@@ -288,8 +288,27 @@ describe("sorting picks by probability", () => {
 import { buildPickemEntry, type DfsTarget } from "@/lib/today/build"
 
 describe("a pick'em entry to play", () => {
-  const t = (player: string, gameId: string, marketProb: number, marketSide: "OVER" | "UNDER" = "UNDER"): DfsTarget =>
-    ({ key: `${player}|${gameId}`, player, gameId, marketProb, marketSide, marketLine: 1.5, marketLabel: "Shots On Goal" }) as DfsTarget
+  // `market` defaults to PTS so the cases below keep the meaning they had: the
+  // helper used to set no market at all, which made every target's market
+  // undefined and so identical, and a dedup keyed on player AND market would
+  // have passed those cases unchanged.
+  const t = (
+    player: string,
+    gameId: string,
+    marketProb: number,
+    marketSide: "OVER" | "UNDER" = "UNDER",
+    market: DfsTarget["market"] = "PTS",
+  ): DfsTarget =>
+    ({
+      key: `${player}|${gameId}|${market}`,
+      player,
+      gameId,
+      marketProb,
+      marketSide,
+      market,
+      marketLine: 1.5,
+      marketLabel: MARKETS[market].label,
+    }) as DfsTarget
 
   it("takes the likeliest legs that clear the bar, one per player, two per game", () => {
     const entry = buildPickemEntry(
@@ -319,12 +338,34 @@ describe("a pick'em entry to play", () => {
     expect(entry.map((l) => l.target.gameId)).toEqual(["g1", "g2"])
   })
 
+  it("never puts a combo and one of its own components in the same entry", () => {
+    // One leg per player is keyed on the player and blind to the market, which
+    // is what stops a man's points riding beside his pts+reb+ast — two legs
+    // that are about 0.92 correlated and close to the same bet. The cases
+    // above could not catch this: they all shared one market, so a dedup keyed
+    // on player and market would have passed them unchanged.
+    const entry = buildPickemEntry(
+      [
+        t("Jokic", "g1", 0.7, "OVER", "PRA"),
+        t("Jokic", "g1", 0.69, "OVER", "PTS"),
+        t("Murray", "g1", 0.66, "OVER", "PTS"),
+      ],
+      2,
+      0.55,
+    )!
+    expect(entry.map((l) => [l.target.player, l.target.market])).toEqual([
+      ["Jokic", "PRA"],
+      ["Murray", "PTS"],
+    ])
+  })
+
   it("refuses to pad an entry with legs below the bar", () => {
     expect(buildPickemEntry([t("A", "g1", 0.7), t("B", "g2", 0.52)], 2, 0.577)).toBeNull()
   })
 })
 
 import { appPlay, hasAppLines, pickemPlays, priceAppLines, type AppLine } from "@/lib/today/build"
+import { usablePickemLines } from "@/lib/odds-feed/propline"
 import type { PickemLine } from "@/lib/odds-feed/propline"
 
 describe("pick'em lines from the apps", () => {
@@ -505,6 +546,34 @@ describe("pick'em lines from the apps", () => {
     const gobert = targets.find((t) => t.player === "Rudy Gobert")!
     expect(gobert.appLines).toEqual([])
     expect(gobert.appCoverage).toEqual(["prizepicks"])
+  })
+
+  it("keeps a line for a player the books skipped, because it is what gets another row's verdict right", () => {
+    // The filter and the coverage pass are the two halves of one decision, and
+    // neither module's own tests see both. PrizePicks posts rebounds for
+    // Edwards; the books price rebounds only for Gobert. Edwards' rebounds
+    // line is unplayable — nothing can ever price it — and it is the only
+    // evidence that PrizePicks covers rebounds in this game, which is what
+    // decides whether GOBERT's rebounds row reads as "not offered" or as
+    // "never heard". A filter keyed on player and market alone sheds it and
+    // the screen then says no PrizePicks line reached a game and market where
+    // one did.
+    const slate = [
+      ...quotes,
+      q("Rudy Gobert", "REB", "pinnacle", 11.5, -125, 105),
+      q("Rudy Gobert", "REB", "betonlineag", 11.5, -128, 108),
+    ]
+    const lines = [pp("Anthony Edwards", 24.5), pp("Anthony Edwards", 8.5, { market: "REB" })]
+    const usable = usablePickemLines(lines, slate)
+    expect(usable.dropped).toHaveLength(0)
+
+    const targets = buildDfsTargets(slate, { ...OPTS, pickemLines: usable.lines })
+    const gobert = targets.find((t) => t.player === "Rudy Gobert" && t.market === "REB")!
+    expect(gobert.appLines).toEqual([])
+    expect(gobert.appCoverage).toEqual(["prizepicks"])
+    const plays = pickemPlays(targets, "prizepicks", OPTS.now)
+    expect(plays.notOffered).toBeGreaterThan(0)
+    expect(plays.unknown).toBe(0)
   })
 
   it("does not read a points line as covering the rebounds market in the same game", () => {

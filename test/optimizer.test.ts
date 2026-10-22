@@ -115,15 +115,59 @@ describe("optimizeSlips", () => {
     expect(avg).toBeGreaterThan(0.65)
   })
 
-  it("never repeats a player inside one entry by default", () => {
-    const slips = optimizeSlips(pool([0.68, 0.67, 0.66, 0.65, 0.64, 0.63]), {
+  /**
+   * One player twice, across a combo and one of its own components.
+   *
+   * The old version of the test below drew from ten distinct names over a
+   * six-leg pool, so no entry COULD have repeated a player and the assertion
+   * held whatever the code did. On a deep NBA board a player's points and his
+   * pts+reb+ast are both on offer and are about 0.92 correlated, so the pool
+   * has to actually contain the pair for the rule to be worth pinning.
+   */
+  function stackPool(): CandidateLeg[] {
+    const leg = (id: string, player: string, market: "PRA" | "PTS" | "REB", gameId: string, pWin: number) => ({
+      id, player, team: "T0", opponent: "O0", gameId,
+      market: market as CandidateLeg["market"], marketLabel: market,
+      line: 20.5, side: "OVER" as const, pWin, pPush: 0, american: null,
+      status: "priced" as const, confidence: 70, lineEdge: 0.5, lineEdgeZ: 0.2, app: "prizepicks",
+    })
+    return [
+      leg("jokic-pra", "Nikola Jokic", "PRA", "g1", 0.74),
+      leg("jokic-pts", "Nikola Jokic", "PTS", "g1", 0.73),
+      leg("murray", "Jamal Murray", "PTS", "g2", 0.62),
+      leg("gordon", "Aaron Gordon", "REB", "g3", 0.61),
+      leg("brown", "Bruce Brown", "PTS", "g4", 0.605),
+      leg("braun", "Christian Braun", "REB", "g5", 0.6),
+    ]
+  }
+
+  it("never repeats a player inside one entry by default, even across a combo and its component", () => {
+    const slips = optimizeSlips(stackPool(), {
       mode: power,
       constraints: { picks: 4, maxPerGame: 4, maxPerTeam: 4 },
       objectives: ["ev"],
       count: 4,
     })
+    expect(slips.length).toBeGreaterThan(0)
     for (const s of slips) {
       expect(new Set(s.legs.map((l) => l.player)).size).toBe(s.legs.length)
+    }
+  })
+
+  it("names the pair on screen when a same-player stack is switched on", () => {
+    // Warn, never block: the stack is a toggle the user deliberately turned
+    // on, and the average pair correlation cannot report it — one pair at 0.92
+    // inside a four-leg slip averages to about 0.15.
+    const slips = optimizeSlips(stackPool(), {
+      mode: power,
+      constraints: { picks: 4, maxPerGame: 4, maxPerTeam: 4, maxPerPlayer: 2 },
+      objectives: ["ev"],
+      count: 3,
+    })
+    const stacked = slips.filter((s) => new Set(s.legs.map((l) => l.player)).size < s.legs.length)
+    expect(stacked.length).toBeGreaterThan(0)
+    for (const s of stacked) {
+      expect(s.warnings.join(" ")).toMatch(/same bet/)
     }
   })
 

@@ -1,10 +1,10 @@
-import type { Sport, MarketKey } from "@/lib/nba/markets"
+import { MARKETS, type Sport, type MarketKey } from "@/lib/nba/markets"
 import { DEFAULT_LEAGUE, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 // Re-exported: both were defined here before the odds adapter needed them too,
 // and callers (and tests) still reach for them from this module.
 export { sameGameId, teamNickname } from "./games"
-import { teamNickname } from "./games"
+import { attributedGames, teamNickname } from "./games"
 import type { PickType } from "@/lib/store/schema"
 import { feedMarketFor, normalizeEventOdds, sportOfFeedKey, type NormalizeResult } from "./theoddsapi"
 import { feedErrorText, notStarted } from "./http"
@@ -524,14 +524,89 @@ export async function proplineFailure(res: Response, key?: ResolvedKey | null): 
   return keyRejected ? new FeedKeyError(message) : new Error(message)
 }
 
+/** The quote fields this filter reads. A NormalizedQuote satisfies it. */
+interface PricedProp {
+  player: string
+  playerKey?: string
+  market: MarketKey
+  gameId: string
+}
+
 /**
- * Pick'em lines for players the books priced. A line for anyone else can never
- * be matched to a target, and every pull is kept in this browser's storage, so
- * carrying the rest only fills it.
+ * The pick'em lines something on this slate can actually read, and the ones
+ * nothing can.
+ *
+ * Every pull is kept in this browser's storage, which is the app's binding
+ * constraint, so a line no code path can ever reach is worth shedding. The
+ * trap is that "can ever reach" is two different things, and keeping only the
+ * first loses real information:
+ *
+ *   A line is PLAYABLE only if its own player and market were priced. A line
+ *   reaches a board row through one key, `player|market` (see
+ *   indexPickemLines), so a PrizePicks rebounds line for a player the books
+ *   priced only for points can never attach to a target. It used to be kept
+ *   anyway, on the strength of the points quote.
+ *
+ *   But a line is also EVIDENCE that the app covers a game and market, read
+ *   under `game|market` (see pickemCoverage), and that evidence decides
+ *   whether a prop with no line reads as "the app is not offering it" or as
+ *   "we never heard". That reading is made for OTHER players' props, so a line
+ *   can be unplayable itself and still be the only thing that gets another
+ *   row's verdict right. Drop it and the screen says "no PrizePicks line
+ *   reached at all" about a game and market where PrizePicks did post one and
+ *   this app threw it away — the one failure this codebase exists to refuse.
+ *
+ * So: keep a line when its own player and market are priced, OR when its
+ * market is priced for anyone in a game the line can be attributed to. The
+ * second clause is exact rather than cautious: coverage for `game|market` is
+ * only ever read by a target at that same game and market, so a line whose
+ * market is priced nowhere in its game is unreachable by both paths and
+ * loses nothing.
  */
-export function onlyPricedPlayers(lines: PickemLine[], quotes: { player: string; playerKey?: string }[]): PickemLine[] {
-  const priced = new Set(quotes.map((q) => q.playerKey || normalizeName(q.player)))
-  return lines.filter((l) => priced.has(l.playerKey))
+export function usablePickemLines(
+  lines: PickemLine[],
+  quotes: PricedProp[],
+): { lines: PickemLine[]; dropped: PickemLine[] } {
+  const gamesByPlayer = new Map<string, Set<string>>()
+  const pricedProps = new Set<string>()
+  const pricedGameMarkets = new Set<string>()
+  for (const q of quotes) {
+    // The same derivation pickemCoverage uses, deliberately: if the two ever
+    // disagreed this filter would shed a line that pass would have counted.
+    const who = q.playerKey || normalizeName(q.player)
+    const set = gamesByPlayer.get(who) ?? new Set<string>()
+    set.add(q.gameId)
+    gamesByPlayer.set(who, set)
+    pricedProps.add(`${who}|${q.market}`)
+    pricedGameMarkets.add(`${q.gameId}|${q.market}`)
+  }
+
+  const kept: PickemLine[] = []
+  const dropped: PickemLine[] = []
+  for (const l of lines) {
+    const who = l.playerKey || normalizeName(l.player)
+    const playable = pricedProps.has(`${who}|${l.market}`)
+    const evidence =
+      !playable &&
+      attributedGames(l.gameId, gamesByPlayer.get(who)).some((g) =>
+        pricedGameMarkets.has(`${g}|${l.market}`),
+      )
+    ;(playable || evidence ? kept : dropped).push(l)
+  }
+  return { lines: kept, dropped }
+}
+
+/**
+ * What to say about the lines that were shed, because a shorter list with no
+ * explanation is indistinguishable from an app posting less.
+ */
+export function unpricedPickemNote(dropped: PickemLine[]): string | null {
+  if (dropped.length === 0) return null
+  const apps = Array.from(new Set(dropped.map((l) => l.app))).sort()
+  const markets = Array.from(new Set(dropped.map((l) => MARKETS[l.market]?.label ?? l.market))).sort()
+  return `${dropped.length} pick'em line${dropped.length === 1 ? "" : "s"} from ${apps.join(", ")} ${
+    dropped.length === 1 ? "was" : "were"
+  } left out because no sportsbook priced ${markets.length === 1 ? "that market" : "those markets"} in the game it covers: ${markets.join(", ")}. Nothing can price them, so nothing could have been built at them.`
 }
 
 /**

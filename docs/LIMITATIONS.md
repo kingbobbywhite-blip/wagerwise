@@ -221,10 +221,27 @@ rushing yards in the same game.
 **NFL touchdown scorer props are not priced.** Anytime and first-touchdown markets are yes/no
 prices with no line, which this pipeline does not model.
 
-**Correlation is otherwise league-blind.** Same-game and same-player correlation is applied
-identically in every league, including between an NFL leg and a college leg in the same
-section (they are never in the same game, so the effect is nil), and it is the least-tested
-assumption in the league work.
+**Correlation is otherwise league-blind, and the coefficients are structural priors.** Same-game
+and same-player correlation is applied identically in every league, including between an NFL leg
+and a college leg in the same section (they are never in the same game, so the effect is nil).
+The coefficients are reasoned from how the sports work, not a covariance matrix fitted to
+results, and the correlation dial in Settings now says so.
+
+Per-league coefficients are **deliberately refused** rather than pending: there is no data to fit
+them with, and inventing them is the thing this app exists not to do. What the deep NBA board did
+change is which pairs are reachable. A combo market carries its components, so a player's points
+against his pts+reb+ast is priced by expansion at about 0.92 rather than as two unrelated bets,
+and the same holds for steals against steals+blocks (0.84) and points against field goals made
+(0.86). Those are pinned by tests. The known soft spot is a pair nobody wrote a row for: made
+field goals against made free throws sits at the 0.03 stranger default where the table's own rows
+imply nearer 0.45. It is reachable only through a same-player stack, so it is pinned and named
+here rather than guessed at.
+
+A pick'em entry cannot hold a same-player pair at all — one leg per player, keyed on the player
+and blind to the market — so this bites on the build screen's slips, where stacks are an explicit
+toggle. There the **worst single pair** is now reported beside the average, because the average
+cannot show it: one pair at 0.92 inside a six-leg slip averages to 0.06 and reads as
+near-independent, which is also why the maximum-average-correlation constraint never bit on it.
 
 **The pick'em ceiling is a prior about boards, not a measurement.** A prop whose every posted
 line leaves the favoured side above the ceiling is left out of the pick'em targets, on the

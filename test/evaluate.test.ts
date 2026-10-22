@@ -156,6 +156,34 @@ describe("evaluateSlip", () => {
     expect(e.kelly).toBeGreaterThan(0)
   })
 
+  it("reports the worst pair as well as the average, because the average hides it", () => {
+    // One near-duplicate pair inside a six-leg slip averages to about 0.06 and
+    // reads as near-independent, which is why maxAvgCorrelation never bites on
+    // it and why a stack could hide in plain sight.
+    const legs = [
+      leg({ id: "l0", player: "Jokic", market: "PRA", pWin: 0.6, gameId: "g1" }),
+      leg({ id: "l1", player: "Jokic", market: "PTS", pWin: 0.6, gameId: "g1" }),
+      ...NAMES.slice(2, 6).map((n, i) => leg({ id: `l${i + 2}`, player: n, pWin: 0.6, gameId: `g${i + 2}` })),
+    ]
+    const e = evaluateSlip(legs, dfsPayout(mode), { simulations: 20000, seed: 11 })
+    expect(Math.abs(e.avgPairCorrelation)).toBeLessThan(0.1)
+    expect(Math.abs(e.maxPairCorrelation)).toBeGreaterThan(0.85)
+    expect(e.maxPairLegs).toEqual([0, 1])
+  })
+
+  it("prices a combo and its own component as one bet rather than two", () => {
+    const legs = [
+      leg({ id: "l0", player: "Jokic", market: "PRA", pWin: 0.6, gameId: "g1" }),
+      leg({ id: "l1", player: "Jokic", market: "PTS", pWin: 0.6, gameId: "g1" }),
+      leg({ id: "l2", player: "Murray", market: "REB", pWin: 0.6, gameId: "g1" }),
+    ]
+    const e = evaluateSlip(legs, dfsPayout(mode), { simulations: 250000, seed: 12 })
+    expect(e.avgPairCorrelation).toBeGreaterThan(0.25)
+    // An all-or-nothing table pays more when the legs land together, so
+    // pricing the pair as independent understates the entry.
+    expect(e.ev).toBeGreaterThan(e.evIndependent)
+  })
+
   it("reports how much correlation changed the answer", () => {
     const legs: EvalLeg[] = [
       leg({ id: "a", pWin: 0.58, player: "Anthony Edwards", market: "PTS", team: "MIN", opponent: "OKC", gameId: "g3" }),
@@ -246,6 +274,47 @@ describe("legCorrelation", () => {
     const a = { player: "Jayson Tatum", team: "BOS", opponent: "NYK", gameId: "g", market: "PTS" as const, isOver: true }
     const b = { player: "Jayson Tatum", team: "BOS", opponent: "NYK", gameId: "g", market: "PRA" as const, isOver: true }
     expect(legCorrelation(a, b, DEFAULT_CORRELATION)).toBeGreaterThan(0.6)
+  })
+
+  // The markets below are the ones the deep NBA board added. Before it, only
+  // points, rebounds, assists and threes were ever pulled, so these pairs were
+  // unreachable in practice and only PTS/PRA was pinned.
+  const wemby = (market: "PTS" | "STL" | "BLK" | "STL_BLK" | "FGM" | "FTM" | "PRA") => ({
+    player: "Victor Wembanyama",
+    team: "SAS",
+    opponent: "OKC",
+    gameId: "g",
+    market: market as never,
+    isOver: true,
+  })
+  const corr = (a: Parameters<typeof wemby>[0], b: Parameters<typeof wemby>[0]) =>
+    legCorrelation(wemby(a), wemby(b), DEFAULT_CORRELATION)
+
+  it("treats steals and steals-plus-blocks for one player as nearly the same bet", () => {
+    // STL_BLK has no row of its own in the stat table: it is priced purely by
+    // expanding its components. If its `components` were ever written as
+    // ["STL_BLK"] both pairs below would silently fall to the 0.03 default the
+    // table uses for two stats nobody wrote down, and a same-player stack on
+    // steals and steals+blocks would read as two unrelated bets.
+    expect(corr("STL", "STL_BLK")).toBeGreaterThan(0.75)
+    expect(corr("BLK", "STL_BLK")).toBeGreaterThan(0.5)
+  })
+
+  it("links a player's points to the volume markets the deep board added", () => {
+    expect(corr("PTS", "FGM")).toBeGreaterThan(0.8)
+    expect(corr("PTS", "FTM")).toBeGreaterThan(0.4)
+    expect(corr("FGM", "PRA")).toBeGreaterThan(0.6)
+  })
+
+  it("leaves a pair nobody wrote down at the stranger default", () => {
+    // This is the known soft spot, pinned rather than fixed. The table's own
+    // rows imply nearer 0.45 for made field goals against made free throws
+    // (both are strongly linked to points), and 0.03 is visibly too low. It is
+    // left alone because only a same-player stack can reach it, and guessing a
+    // coefficient is exactly what this codebase refuses to do.
+    //
+    // Delete this test the day that row is written.
+    expect(corr("FGM", "FTM")).toBeLessThan(0.1)
   })
 
   it("keeps different games close to independent", () => {

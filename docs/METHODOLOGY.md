@@ -380,12 +380,21 @@ The pick'em entry then plays the default app's real line: for each prop it takes
 with the better chance at that line, among the sides offered as a standard 1.0 pick, and
 re-checks the bar there. A line two points harder than the books' can drop a prop below
 the bar, and a prop the app is not offering is left out because it cannot be played. When
-the pull carried nothing from that app, the entry falls back to the books' line.
+the pull carried nothing from that app, every leg is at the books' line instead — never a
+mixture of the two in one entry.
 
-"Not offering" is decided per game. If the app posted lines for anyone in a game but not
-for this prop, the prop is not on offer. If no line from the app arrived for the game at
-all (a request failed, or PropLine did not list it), the prop is unknown rather than absent:
-it stays in at the books' line and is marked so. With The Odds API pricing the slate, the
+"Not offering" is decided per game **and market**. If the app posted lines in that market,
+in that game, for anyone, and not for this prop, the prop is not on offer there. If no line
+from the app reached that game and market at all (a request failed, PropLine did not list
+the game, or the app simply does not post that stat there), the prop is unknown rather than
+absent. Either way it is out of that app's entry, because an entry is never built at a line
+the app may not be posting, and the two counts are reported separately under the card so the
+inference is visible rather than silent.
+
+Per market, not per game, because an app covering a game says nothing about which stats it
+covers in it: PrizePicks will post points for every starter in a game and no rebounds line
+in it anywhere. Keyed on the game alone, every one of those rebounds props read as "offered,
+and this player is not on it", which is a different claim from the truth. With The Odds API pricing the slate, the
 pick'em pull asks PropLine for exactly the games that were priced, matched on the teams'
 nicknames and start time, so the two feeds cover the same slate.
 

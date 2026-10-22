@@ -275,7 +275,17 @@ export interface DailyCache {
   quotes: FeedQuote[]
   events: { id: string; commence_time: string; home_team: string; away_team: string }[]
   requestsRemaining: number | null
+  /**
+   * What the pull cost: the feed's own billed figure when it reported one,
+   * and the pre-pull estimate when it did not. `creditsMeasured` says which,
+   * because a forecast and a measurement are not the same claim and this field
+   * used to hold the first while its name promised the second.
+   */
   creditsSpent: number
+  /** True when creditsSpent is the feed's own figure rather than an estimate. */
+  creditsMeasured?: boolean
+  /** What the measurement said that the estimate did not, when the two differ. */
+  creditNote?: string | null
   /**
    * When today's window had no games: the next game the feed lists, or null if
    * it lists none at all. Tells "no game today" apart from "season over".
