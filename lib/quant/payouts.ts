@@ -359,13 +359,47 @@ export function payoutVerified(app: BookApp | undefined): boolean {
  */
 export const PLACEHOLDER_LEG_BAR = 0.56
 
+/**
+ * Where a captured payout is filed.
+ *
+ * The entry size is part of the key because a payout read for a 3-pick says
+ * nothing about a 5-pick — and the one verified number in this whole registry
+ * is proof of that: a 3-pick Power Play was confirmed at 6x and nothing else
+ * was.
+ */
+export function payoutKey(appId: string, modeId: string, picks: number): string {
+  return `${appId}|${modeId}|${picks}`
+}
+
+/**
+ * Is this capture worth storing, given what is already stored?
+ *
+ * Pure because the answer decides a WRITE, and every settings write persists
+ * the whole state blob — megabytes of quotes on a full slate. The capture form
+ * calls back on every keystroke, so without this it re-serialised the entire
+ * cache per character typed. Only a change in what would be stored is worth
+ * that, and while a form is being filled in there is no such change: an
+ * unconfirmed capture stores nothing, and nothing is already what is there.
+ */
+export function capturedPayoutChanged(
+  current: CapturedPayout | null | undefined,
+  next: CapturedPayout,
+): boolean {
+  const keep = next.confirmed && validateCapture(next).length === 0
+  if (!keep) return current != null
+  if (current == null) return true
+  return JSON.stringify(current) !== JSON.stringify(next)
+}
+
 export interface PickemBar {
   /** Per-leg hit rate an entry has to clear. */
   prob: number
-  /** "stored" from a payout table, "placeholder" when no table covers this size. */
-  source: "stored" | "placeholder"
+  /** Where the number came from. "captured" is the only one read off a real screen. */
+  source: "captured" | "stored" | "placeholder"
   /** Has anyone checked the table this came from against a real entry screen? */
   verified: boolean
+  /** When the capture was read, for a bar that came from one. */
+  capturedAt: string | null
 }
 
 /**
@@ -377,11 +411,45 @@ export interface PickemBar {
  * app or off a default nobody has ever confirmed. Every table this app ships
  * is the second kind.
  */
-export function pickemBar(app: BookApp | undefined, mode: PayoutMode | undefined, picks: number): PickemBar {
+export function pickemBar(
+  app: BookApp | undefined,
+  mode: PayoutMode | undefined,
+  picks: number,
+  captured?: CapturedPayout | null,
+): PickemBar {
+  // A capture is the only payout here anybody has actually read, so it wins
+  // outright — but only once it is confirmed, valid, and for THIS entry size.
+  // Settings are restorable from a file a human can edit, so an unvalidated
+  // capture is a route for a typo'd multiplier to walk straight into the bar
+  // that decides what gets recommended.
+  if (captured && captured.confirmed && captured.picks === picks && validateCapture(captured).length === 0) {
+    const fromCapture = breakEvenLegProb(capturedToMode(captured), picks)
+    if (fromCapture != null) {
+      return { prob: fromCapture, source: "captured", verified: true, capturedAt: captured.capturedAt }
+    }
+  }
   const verified = payoutVerified(app)
   const stored = mode ? breakEvenLegProb(mode, picks) : null
-  if (stored != null) return { prob: stored, source: "stored", verified }
-  return { prob: PLACEHOLDER_LEG_BAR, source: "placeholder", verified }
+  if (stored != null) return { prob: stored, source: "stored", verified, capturedAt: null }
+  return { prob: PLACEHOLDER_LEG_BAR, source: "placeholder", verified, capturedAt: null }
+}
+
+/**
+ * The payout table an expected value may be computed from, with a capture.
+ *
+ * Same rule as the bar: a confirmed capture for this entry size is a table
+ * somebody read, so it prices. Nothing else does.
+ */
+export function pickemPricingModeFor(
+  app: BookApp | undefined,
+  mode: PayoutMode | undefined,
+  picks: number,
+  captured?: CapturedPayout | null,
+): PayoutMode | null {
+  if (captured && captured.confirmed && captured.picks === picks && validateCapture(captured).length === 0) {
+    return capturedToMode(captured)
+  }
+  return pickemPricingMode(app, mode)
 }
 
 /**

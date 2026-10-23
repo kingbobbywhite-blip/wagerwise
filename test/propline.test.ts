@@ -555,6 +555,20 @@ describe("usablePickemLines", () => {
 })
 
 import { parseProplineError, proplineErrorText, resolveProplineKeySource } from "@/lib/odds-feed/propline"
+
+describe("a sport PropLine does not recognise", () => {
+  it("names the sport key rather than reading as an outage", async () => {
+    // Every path this adapter builds starts with a sport key, and PropLine's
+    // keys are its own ("football_nfl", not "americanfootball_nfl"). Reported
+    // as a bare 404 it reads as PropLine being down, which sends nobody to the
+    // one line of configuration that is actually wrong.
+    const res = new Response(JSON.stringify({ detail: "Sport not found" }), { status: 404 })
+    const text = await proplineErrorText(res)
+    expect(text).toContain("does not recognise that sport")
+    expect(text).toContain("sport keys are its own")
+    expect(text).not.toContain("returned 404")
+  })
+})
 import { cleanApiKey, isPlaceholderKey, keySourceHint, resolveKey, usableKey } from "@/lib/odds-feed/api-key"
 
 /** The body PropLine actually sends on a bad key: `detail` is an object, not a sentence. */

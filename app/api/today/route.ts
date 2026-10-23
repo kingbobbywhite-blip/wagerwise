@@ -14,6 +14,7 @@ import {
 } from "@/lib/odds-feed/theoddsapi"
 import {
   PICKEM_BOOKS,
+  narrowedMarketsNote,
   normalizeProplineMany,
   unpricedPickemNote,
   usablePickemLines,
@@ -628,8 +629,12 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
           ...args,
           league: comp.id,
           // PropLine bills per request, one per game whatever the market
-          // list, so the whole board costs what four markets would.
+          // list, so the whole board costs what four markets would — but only
+          // if PropLine serves it. The narrower per-market-billed list is the
+          // fallback, because asking for a market a feed does not carry must
+          // not be able to take the league offline.
           markets: marketsForCompetition(comp, args.markets, { billsPerRequest: true }),
+          coreMarkets: marketsForCompetition(comp, args.markets),
           maxGames: comp.id === args.leagueId ? args.maxGames : comp.maxGames,
         }),
       })),
@@ -711,6 +716,9 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
         ]
           .filter(Boolean)
           .join(" ") || null,
+      // Which markets PropLine refused, if any. Named rather than silently
+      // absent: the market list is the one thing the user can change about it.
+      marketsNote: pulls.map((p) => narrowedMarketsNote(p.pull.narrowed)).filter(Boolean).join(" ") || null,
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures: pull.failures,

@@ -7,7 +7,7 @@ import { SideBadge } from "@/components/side-badge"
 import { CompetitionBadge } from "@/components/competition-badge"
 import { pct, possessive } from "@/lib/format"
 import { DEFAULT_APPS, findApp } from "@/lib/quant/payouts"
-import { appVerdict, dfsVerdict, probAt, type AppLine, type DfsTarget } from "@/lib/today/build"
+import { appVerdict, dfsVerdict, probAt, pushAt, type AppLine, type DfsTarget } from "@/lib/today/build"
 
 /** "PrizePicks 24.5 over 58%", or the flavour and multiplier when the pick is not standard. */
 function describeAppLine(l: AppLine): string {
@@ -74,6 +74,11 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
     : verdict && verdict !== "PASS"
       ? (probAt(t, value, verdict) ?? (atThisLine ? (verdict === "OVER" ? atThisLine.over : atThisLine.under) : null))
       : null
+  // The chance the line in the box lands exactly on itself. Zero on a
+  // half-point, which is most of them; on a whole number it is the most
+  // important thing about the line, because the leg is voided rather than won
+  // and an all-or-nothing entry shrinks around it.
+  const pushHere = Number.isFinite(value) ? (atThisLine?.push ?? pushAt(t, value) ?? 0) : 0
   const passReason = fromApp && atApp.reason ? atApp.reason : `neither side clears at ${value}`
 
   const rule = [
@@ -156,6 +161,11 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
             read {Math.round(staleAppLine.ageMinutes)}m ago; check it
           </div>
         ) : null}
+        {pushHere > 0.005 ? (
+          <div className="mt-0.5 font-mono text-[10px] leading-snug text-accent">
+            voids {pct(pushHere, 0)} of the time
+          </div>
+        ) : null}
       </td>
       <td className="px-3 py-2">
         {verdict == null ? (
@@ -163,9 +173,20 @@ export function DfsTargetRow({ t, bar, app }: { t: DfsTarget; bar: number; app?:
         ) : verdict === "PASS" ? (
           <span className="font-mono text-xs text-muted-foreground">Pass: {passReason}</span>
         ) : (
-          <span className="flex items-center gap-1.5">
-            <SideBadge side={verdict} />
-            <span className="font-mono text-xs">only{chance != null ? ` · ${pct(chance, 0)}` : ""}</span>
+          <span className="flex flex-col gap-0.5">
+            <span className="flex items-center gap-1.5">
+              <SideBadge side={verdict} />
+              <span className="font-mono text-xs">only{chance != null ? ` · ${pct(chance, 0)}` : ""}</span>
+            </span>
+            {/* A whole number is not a half-point with a rounder name. Landing
+                on it is neither side: the leg is voided and an all-or-nothing
+                entry shrinks to one fewer pick, at a lower multiplier. */}
+            {pushHere > 0.005 ? (
+              <span className="font-mono text-[10px] leading-snug text-accent">
+                {value} is a whole number: {pct(pushHere, 0)} of the time it lands exactly there and the leg voids,
+                shrinking the entry
+              </span>
+            ) : null}
           </span>
         )}
       </td>

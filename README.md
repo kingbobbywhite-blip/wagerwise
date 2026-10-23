@@ -330,7 +330,11 @@ posting is never removed by it.
 
 **Lines no board shows.** The thresholds and the probability ladder cover the lines the books are
 actually hanging, widened half a standard deviation, instead of sweeping a fixed window around the
-projection.
+projection — plus any **whole number** the books post, which the ladder used to be unable to
+represent at all. A pick'em app posts x.5 most of the time and not always: a real settled entry
+held "under 7 rebounds" and landed on exactly 7. That is neither a win nor a loss. The leg voids,
+and on an all-or-nothing entry the entry shrinks to one fewer pick at a lower multiplier. Any line
+that can do that now says how often it would, on the row where you type it.
 
 **Props your app has no line for.** Once a pull carries your app's own lines, a target without one
 is out of the entry, because an entry is never built at a line the app may not be posting. The
@@ -354,6 +358,16 @@ when its own prop is priced **or** when its market is priced for anyone in its g
 second clause and the screen says "no PrizePicks line reached at all" about a game and market where
 PrizePicks did post one and this app threw it away. Which apps turned up in a pull is counted
 before any of this, because that question is about what arrived rather than what survived.
+
+**A goblin or demon changes the multiplier for the whole entry, not for its leg.** So a standard
+payout table cannot describe an entry that holds one, and the bar it produces errs low every time.
+Four real settled Power Plays paid 8x, 8.5x, 4.5x and 3.75x where the stored tables say 10x, 10x,
+6x and 6x — a per-leg break-even of 59-64% where the app was showing 55-56%, understating the
+worst of them by **nine points**. Eight of those fourteen legs were goblins or demons. Whenever
+your app is posting a flavoured line on the board, the bar is labelled a floor rather than the
+bar, and the fix is on the same card: read the "$X for $Y" off your own entry screen and it
+becomes the real bar, the expected value appears, and it is remembered for that app, mode and
+entry size.
 
 **The entry's expected value, when no payout table has been confirmed.** An expected value is the
 payout table's number as much as the legs' — it is a sum over the table's tiers — and every table

@@ -79,8 +79,13 @@ gap but does not close it:
   your screen; the app fills in what it read, says how old the reading is once it passes the
   same staleness threshold the sportsbook prices use, and lets you overwrite it.
 - Only standard picks go into the entry. Goblins, demons and Underdog's boosted or
-  discounted sides are listed with their chances but need their own bar, which the app does
-  not compute.
+  discounted sides are listed with their chances but need their own bar. On PrizePicks a
+  flavoured pick changes the multiplier for the WHOLE entry rather than for its own leg, so
+  the right bar for an entry holding one is the break-even of that entry's real multiplier —
+  which the app cannot know until you read it off your screen. Until you do, the board says
+  how many flavoured lines are on it and calls the stored bar a floor. Once you do, every leg
+  in that entry is judged against the real bar, because the flavoured pick's cost is already
+  inside the multiplier you read.
 - What PrizePicks posts says nothing about what a pick is worth. PropLine serves PrizePicks
   at a synthetic even-money price, and every such row is kept out of the pricing.
 - Coverage is PropLine's. A player the feed has not mapped, or an app it does not carry

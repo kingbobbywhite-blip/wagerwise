@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { feedErrorText, headerCount, noneCouldBePriced, notStarted, oddsApiErrorText } from "@/lib/odds-feed/http"
-import { pullPropline } from "@/lib/odds-feed/propline"
+import { narrowedMarketsNote, pullPropline } from "@/lib/odds-feed/propline"
 import { upcomingQuotes } from "@/lib/today/build"
 
 const HOUR = 3600 * 1000
@@ -563,6 +563,117 @@ describe("pullPropline with a clock", () => {
     expect(pull.selected.map((e) => e.id)).toEqual(["2"])
     expect(pull.started).toBe(1)
     expect(pull.cappedOut).toBe(0)
+    expect(asked.filter((u) => !u.endsWith("/events"))).toHaveLength(1)
+  })
+})
+
+/**
+ * A market list must never be able to take a league offline.
+ *
+ * This is a regression. Widening the NBA to its full board on PropLine made
+ * every game's odds request fail, and with every game failing the pull
+ * reported that nothing could be priced — the NBA simply stopped working on
+ * PropLine, with nothing on screen naming the market list as the cause.
+ */
+describe("PropLine refusing the market list", () => {
+  const WIDE = ["player_points", "player_rebounds", "player_blocks_steals", "player_frees_made"]
+  const CORE = ["player_points", "player_rebounds"]
+  const listing = [
+    { id: 1, commence_time: "2026-01-16T02:00:00Z", home_team: "Oklahoma City Thunder", away_team: "Minnesota Timberwolves" },
+    { id: 2, commence_time: "2026-01-16T02:30:00Z", home_team: "Los Angeles Lakers", away_team: "Boston Celtics" },
+  ]
+  const WINDOW = { fromMs: Date.parse("2026-01-15T05:00:00Z"), toMs: Date.parse("2026-01-16T11:00:00Z") }
+
+  /** Refuses any request naming a market outside `serves`, the way a feed that does not carry one would. */
+  function stubServing(serves: string[], asked: string[]) {
+    return async (url: string) => {
+      asked.push(url)
+      if (url.endsWith("/events")) return json(listing)
+      const wanted = decodeURIComponent(new URL(url).searchParams.get("markets") ?? "").split(",")
+      const bad = wanted.filter((m) => !serves.includes(m))
+      if (bad.length > 0) {
+        return json({ detail: { error: "invalid_market", message: `Unknown market: ${bad[0]}` } }, 422)
+      }
+      const e = listing.find((l) => url.includes(`/events/${l.id}/`))!
+      return json({ ...e, bookmakers: [] })
+    }
+  }
+
+  it("falls back to the core markets rather than failing the whole pull", async () => {
+    const asked: string[] = []
+    const pull = await pullPropline({
+      apiKey: "k", league: "nba", ...WINDOW,
+      markets: WIDE, coreMarkets: CORE, maxGames: 2,
+      fetcher: stubServing(CORE, asked),
+    })
+    // Both games priced, nothing failed: the league still works.
+    expect(pull.payloads).toHaveLength(2)
+    expect(pull.failures).toEqual([])
+    expect(pull.narrowed).toEqual({
+      from: WIDE,
+      to: CORE,
+      because: expect.stringContaining("player_blocks_steals"),
+    })
+  })
+
+  it("pays for the discovery once, not once per game", async () => {
+    // PropLine bills per request, so the first game pays to find out and every
+    // game after it goes straight to the list that works.
+    const asked: string[] = []
+    await pullPropline({
+      apiKey: "k", league: "nba", ...WINDOW,
+      markets: WIDE, coreMarkets: CORE, maxGames: 2,
+      fetcher: stubServing(CORE, asked),
+    })
+    const odds = asked.filter((u) => !u.endsWith("/events"))
+    // Game 1 wide (refused) then core, game 2 core only.
+    expect(odds).toHaveLength(3)
+    expect(odds.filter((u) => u.includes("player_blocks_steals"))).toHaveLength(1)
+  })
+
+  it("names the markets that went, because the list is what the user can change", async () => {
+    const asked: string[] = []
+    const pull = await pullPropline({
+      apiKey: "k", league: "nba", ...WINDOW,
+      markets: WIDE, coreMarkets: CORE, maxGames: 1,
+      fetcher: stubServing(CORE, asked),
+    })
+    const note = narrowedMarketsNote(pull.narrowed)!
+    expect(note).toContain("player_blocks_steals")
+    expect(note).toContain("player_frees_made")
+    expect(note).not.toContain("player_points")
+    expect(narrowedMarketsNote(null)).toBeNull()
+  })
+
+  it("reports the real failure when the core list fails too", async () => {
+    // Then the market list is not the problem, and blaming it would send the
+    // user to change the one thing that is not wrong.
+    const asked: string[] = []
+    const pull = await pullPropline({
+      apiKey: "k", league: "nba", ...WINDOW,
+      markets: WIDE, coreMarkets: CORE, maxGames: 1,
+      fetcher: stubServing([], asked),
+    })
+    expect(pull.narrowed).toBeNull()
+    expect(pull.failures).toHaveLength(1)
+    expect(pull.failures[0].error).toContain("player_points")
+  })
+
+  it("does not retry a rejected key game by game", async () => {
+    // A key PropLine refused will refuse the narrow list too, and every retry
+    // spends quota to be told the same thing.
+    const asked: string[] = []
+    const fetcher = async (url: string) => {
+      asked.push(url)
+      if (url.endsWith("/events")) return json(listing)
+      return json({ detail: { error: "invalid_api_key", message: "Invalid API key." } }, 401)
+    }
+    await expect(
+      pullPropline({
+        apiKey: "k", league: "nba", ...WINDOW,
+        markets: WIDE, coreMarkets: CORE, maxGames: 2, fetcher,
+      }),
+    ).rejects.toThrow(/rejected the API key/)
     expect(asked.filter((u) => !u.endsWith("/events"))).toHaveLength(1)
   })
 })

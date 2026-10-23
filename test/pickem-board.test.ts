@@ -13,6 +13,7 @@ import {
   buildPickemEntry,
   dfsTargetsFor,
   probAt,
+  pushAt,
 } from "@/lib/today/build"
 import type { LeagueId } from "@/lib/leagues"
 
@@ -113,6 +114,38 @@ describe("targets sit on lines the books are actually hanging", () => {
     // of searching past a fixed window on a yardage market.
     expect(t.overAt).not.toBeNull()
     expect(t.underAt).not.toBeNull()
+  })
+
+  it("prices a whole number the books post, and the push that can void it", () => {
+    // A real settled entry held "under 7 rebounds" and landed on exactly 7.
+    // That is not a win and not a loss: the leg is voided, which on an
+    // all-or-nothing entry shrinks the entry and the multiplier with it. The
+    // ladder used to walk half-points only, so this line could not appear on
+    // it at all, and nothing could warn about it.
+    const targets = buildDfsTargets(priced("Josh Giddey", "REB", 7, -115, -105), optsFor("nba"))
+    expect(targets).toHaveLength(1)
+    const t = targets[0]
+    const step = t.ladder.find((r) => r.line === 7)!
+    expect(step).toBeDefined()
+    expect(step.push).toBeGreaterThan(0.05)
+    expect(pushAt(t, 7)).toBeCloseTo(step.push, 12)
+    // Over, under and push are the whole of it, and a half-point neighbour
+    // cannot land on itself.
+    expect(step.over + step.under + step.push).toBeCloseTo(1, 9)
+    expect(pushAt(t, 7.5)).toBe(0)
+  })
+
+  it("makes a whole number clear the bar on beating it, not on tying it", () => {
+    // The push belongs to neither side, so a whole number is strictly harder
+    // than the half-point below it. Reporting the tie as a win would be the
+    // app telling someone a voided leg had cashed.
+    const t = buildDfsTargets(priced("Josh Giddey", "REB", 7, -115, -105), optsFor("nba"))[0]
+    const whole = t.ladder.find((r) => r.line === 7)!
+    expect(whole.under).toBeLessThan(1 - whole.over)
+    for (const line of [t.overAt, t.underAt].filter((l): l is number => l != null)) {
+      const step = t.ladder.find((r) => Math.abs(r.line - line) < 1e-9)!
+      expect(Math.max(step.over, step.under)).toBeGreaterThanOrEqual(0.577 - 1e-9)
+    }
   })
 
   it("falls back to a fixed window when no posted lines are given", () => {
