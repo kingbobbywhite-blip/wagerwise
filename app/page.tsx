@@ -394,6 +394,7 @@ export default function TodayPage() {
         pickemNote: data.pickemNote ?? null,
         depthNote: data.depthNote ?? null,
         creditNote: data.creditNote ?? null,
+        marketsNote: data.marketsNote ?? null,
         creditsMeasured: data.measuredCredits != null,
         pickemAppsPosted: wantPickem ? (data.pickemAppsPosted ?? undefined) : undefined,
       })
@@ -447,6 +448,7 @@ export default function TodayPage() {
         toast.info(data.pickemNote)
       }
       if (data.depthNote) toast.info(data.depthNote)
+      if (data.marketsNote) toast.warning(data.marketsNote)
       if (data.creditNote) toast.info(data.creditNote)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -972,6 +974,9 @@ export default function TodayPage() {
                              would be a claim about responses nothing read. */
                           `About ${daily.creditsSpent} feed credits, estimated. This pull was made before the app read what the feed charged; refresh to measure it.`}
                 </p>
+              ) : null}
+              {daily?.marketsNote ? (
+                <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-accent">{daily.marketsNote}</p>
               ) : null}
               {daily?.creditNote ? (
                 <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-muted-foreground">{daily.creditNote}</p>

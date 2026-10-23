@@ -309,6 +309,8 @@ export interface DailyCache {
   pickemAppsPosted?: string[]
   /** Why the pick'em lines are missing or partial, when they are. */
   pickemNote?: string | null
+  /** Which markets the feed refused to serve, when it refused any. */
+  marketsNote?: string | null
   /**
    * What choosing which games to price did, when a competition's slate was
    * bigger than its cap and the games were ranked by market depth rather than

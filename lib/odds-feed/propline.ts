@@ -500,6 +500,19 @@ function describeFailure(
       keyRejected: true,
     }
   }
+  // A 404 names the path, and every path this adapter builds starts with a
+  // sport key. Reported as a bare "PropLine returned 404" it reads as an
+  // outage, which sends nobody to the one line of configuration that is wrong.
+  if (status === 404) {
+    return {
+      message: sentence(
+        "PropLine does not recognise that sport.",
+        detail,
+        "Its sport keys are its own, not The Odds API's: check the key this league sends in lib/odds-feed/propline.ts against prop-line.com's documented list.",
+      ),
+      keyRejected: false,
+    }
+  }
   const message =
     parsed.code === "burst_limit_exceeded"
       ? sentence("PropLine is limiting requests. Wait a few seconds and try again.", detail)
@@ -695,6 +708,21 @@ export function pickemNoteFor(lineCount: number, failures: { error: string }[], 
   return closed
 }
 
+/**
+ * What to say when PropLine would not serve the market list.
+ *
+ * A board that quietly came back narrower reads as the apps posting less, and
+ * before the fallback existed it did not come back at all. Either way the
+ * market list is the cause and the screen has to name it, because it is the
+ * one thing the user can change.
+ */
+export function narrowedMarketsNote(narrowed: ProplinePull["narrowed"]): string | null {
+  if (!narrowed) return null
+  const gone = narrowed.from.filter((m) => !narrowed.to.includes(m))
+  if (gone.length === 0) return null
+  return `PropLine would not serve ${gone.length} of the ${narrowed.from.length} markets asked for, so this slate is priced at the ${narrowed.to.length} it does serve rather than not at all. Missing: ${gone.join(", ")}. Set the market list under Settings → Markets to stop asking for them. PropLine said: ${narrowed.because}`
+}
+
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 
 export interface ProplinePull {
@@ -710,6 +738,12 @@ export interface ProplinePull {
   nextEvent: FeedEvent | null
   payloads: ProplineEventOdds[]
   failures: { eventId: string; matchup: string; error: string }[]
+  /**
+   * Set when PropLine refused the market list and the pull fell back to the
+   * core one, naming what went and what PropLine said. Null when the wide list
+   * was served, which is the ordinary case.
+   */
+  narrowed: { from: string[]; to: string[]; because: string } | null
   quota: ProplineQuota | null
   /** Requests this pull made, the events listing included. */
   requests: number
@@ -728,6 +762,19 @@ export async function pullPropline(opts: {
   fromMs: number
   toMs: number
   markets: string[]
+  /**
+   * The markets to fall back to if PropLine will not serve `markets`.
+   *
+   * Asking a feed for a market it does not carry must never be able to take a
+   * whole league offline, and it did: widening the NBA to its full board on
+   * PropLine made every game's request fail, and with every game failing the
+   * pull reported that nothing could be priced. The league simply stopped
+   * working, with nothing on screen naming the market list as the cause.
+   *
+   * Omit to disable the fallback, which is right where the wide list IS the
+   * core list and a retry would just fail the same way.
+   */
+  coreMarkets?: string[]
   bookmakers?: string[]
   maxGames: number
   /** Only these games, by PropLine event id. */
@@ -781,22 +828,55 @@ export async function pullPropline(opts: {
 
   const payloads: ProplineEventOdds[] = []
   const failures: ProplinePull["failures"] = []
+  let narrowed: ProplinePull["narrowed"] = null
   let requests = 1
 
   if (!opts.eventsOnly) {
+    // The list in use, which narrows the first time PropLine refuses the wide
+    // one. Narrowing once rather than per game costs a single extra request on
+    // a feed billed per request: the first game pays to find out, the rest go
+    // straight to the list that works.
+    let asking = proplineMarkets(opts.markets)
+    const core = opts.coreMarkets ? proplineMarkets(opts.coreMarkets) : null
+    const canNarrow = () => core != null && core.length > 0 && core.length < asking.length
+
+    const fetchOdds = async (e: FeedEvent, markets: string[]) => {
+      const r = await doFetch(
+        proplineEventOddsUrl(e.id, { markets, bookmakers: opts.bookmakers, league: opts.league }),
+        init,
+      )
+      if (!r.ok) throw await proplineFailure(r, opts.keySource)
+      quota = proplineQuota(r.headers) ?? quota
+      const body = (await r.json()) as ProplineEventOdds
+      // The event block can come back without its teams; the listing has them.
+      return { ...e, ...body, home_team: body.home_team ?? e.home_team, away_team: body.away_team ?? e.away_team }
+    }
+
     for (const e of selected) {
       requests++
       try {
-        const r = await doFetch(
-          proplineEventOddsUrl(e.id, { markets: opts.markets, bookmakers: opts.bookmakers, league: opts.league }),
-          init,
-        )
-        if (!r.ok) throw await proplineFailure(r, opts.keySource)
-        quota = proplineQuota(r.headers) ?? quota
-        const body = (await r.json()) as ProplineEventOdds
-        // The event block can come back without its teams; the listing has them.
-        payloads.push({ ...e, ...body, home_team: body.home_team ?? e.home_team, away_team: body.away_team ?? e.away_team })
+        payloads.push(await fetchOdds(e, asking))
       } catch (err) {
+        // A key PropLine rejected will refuse the narrow list too, and every
+        // further request spends quota to be told the same thing. Give up on
+        // the pull rather than retrying it game by game.
+        if (err instanceof FeedKeyError) throw err
+        if (canNarrow()) {
+          const wide = asking
+          try {
+            requests++
+            const payload = await fetchOdds(e, core!)
+            // It was the market list, not the game. Say which markets went,
+            // and ask for the narrow list from here on.
+            narrowed = { from: wide, to: core!, because: feedErrorText(err, "PropLine") }
+            asking = core!
+            payloads.push(payload)
+            continue
+          } catch {
+            // The narrow list failed too, so the market list is not the
+            // problem; report the original failure, which is the honest one.
+          }
+        }
         failures.push({
           eventId: e.id,
           matchup: `${e.away_team} at ${e.home_team}`,
@@ -814,6 +894,7 @@ export async function pullPropline(opts: {
     nextEvent,
     payloads,
     failures,
+    narrowed,
     quota,
     requests,
   }
