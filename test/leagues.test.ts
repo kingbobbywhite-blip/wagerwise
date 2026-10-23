@@ -14,9 +14,13 @@ import {
   pullPlan,
   inSeason,
   isLeagueId,
+  isRetiredLeagueId,
+  LOGGED_LEAGUE_IDS,
   leagueFor,
+  loggedLeagueLabel,
   scaleMean,
   sportKeyFor,
+  sportOfLoggedLeague,
 } from "@/lib/leagues"
 import { eventOddsUrl, eventsUrl } from "@/lib/odds-feed/theoddsapi"
 import { projectProp } from "@/lib/quant/projection"
@@ -25,12 +29,10 @@ import { migrate } from "@/lib/store/schema"
 import { resolveLine } from "@/lib/quant/distributions"
 
 describe("league config", () => {
-  it("covers the NBA, the NFL, college football and the NHL with distinct sport keys", () => {
-    expect(LEAGUE_IDS).toEqual(["nba", "nfl", "cfb", "nhl"])
+  it("covers the NBA, the NFL and college football with distinct sport keys", () => {
+    expect(LEAGUE_IDS).toEqual(["nba", "nfl", "cfb"])
     const keys = LEAGUE_IDS.map((id) => LEAGUES[id].sportKey)
-    expect(new Set(keys).size).toBe(4)
-    expect(sportKeyFor("nhl")).toBe("icehockey_nhl")
-    expect(LEAGUES.nhl.sport).toBe("hockey")
+    expect(new Set(keys).size).toBe(3)
     expect(sportKeyFor("nba")).toBe("basketball_nba")
     expect(sportKeyFor("nfl")).toBe("americanfootball_nfl")
     expect(sportKeyFor("cfb")).toBe("americanfootball_ncaaf")
@@ -42,7 +44,7 @@ describe("league config", () => {
   it("shows college football inside the NFL section rather than as its own tab", () => {
     // One press pulls both. A separate tab would mean paying for the NFL slate
     // and the college slate in two presses and reading them in two places.
-    expect(TAB_LEAGUE_IDS).toEqual(["nba", "nfl", "nhl"])
+    expect(TAB_LEAGUE_IDS).toEqual(["nba", "nfl"])
     expect(LEAGUES.cfb.companionOnly).toBe(true)
     expect(LEAGUES.nfl.companions).toEqual(["cfb"])
     expect(companionsOf("nfl").map((l) => l.id)).toEqual(["cfb"])
@@ -95,16 +97,68 @@ describe("league config", () => {
     expect(LEAGUES.cfb.typicalSlate).toBeGreaterThan(LEAGUES.nfl.typicalSlate)
   })
 
-  it("pulls only the NHL markets the pick'em apps actually post", () => {
-    // Goals and power-play points are priced by the books at 0.5 against a mean
-    // near 0.25, so the favoured side is an 80% under. No pick'em app offers a
-    // pick that lopsided, and pulling them filled the board with picks that
-    // could not be placed anywhere.
-    expect(LEAGUES.nhl.markets).not.toContain("player_goals")
-    expect(LEAGUES.nhl.markets).not.toContain("player_power_play_points")
-    expect(LEAGUES.nhl.markets).toContain("player_shots_on_goal")
-    expect(LEAGUES.nhl.markets).toContain("player_total_saves")
-    expect(LEAGUES.nhl.markets).toContain("player_points")
+  it("asks a per-request feed for the whole NBA board, and a per-market feed for a budget", () => {
+    // The Odds API charges markets x games, so its list is a budget. PropLine
+    // charges one request per game whatever the list, so the same budget buys
+    // nothing there and every market left out is a pick'em line that could
+    // have been read and was not.
+    const budget = marketsForLeague("nba", null)
+    const whole = marketsForLeague("nba", null, { billsPerRequest: true })
+    expect(budget).toEqual(LEAGUES.nba.markets)
+    expect(whole).toEqual(LEAGUES.nba.deepMarkets)
+    expect(whole.length).toBeGreaterThan(budget.length)
+    // The budget is a subset: nothing in the narrow list is missing from the
+    // wide one, or switching feeds would lose a market rather than add some.
+    for (const k of budget) expect(whole, k).toContain(k)
+    // The combos are most of a PrizePicks NBA board and the budget leads with
+    // the one every app does.
+    expect(budget).toContain("player_points_rebounds_assists")
+    expect(whole).toContain("player_points_rebounds")
+    expect(whole).toContain("player_blocks_steals")
+    // A market list set by hand still wins over both.
+    expect(marketsForLeague("nba", ["player_threes"], { billsPerRequest: true })).toEqual(["player_threes"])
+  })
+
+  it("maps and caps every NBA market it asks for", () => {
+    // A market the feed map does not know is a credit spent on a response
+    // nothing can read; one with no plausibility ceiling can print a
+    // nonsense projection with no warning beside it.
+    for (const k of LEAGUES.nba.deepMarkets!) {
+      const market = FEED_MARKET_MAP[k]
+      expect(market, k).toBeDefined()
+      expect(LEAGUES.nba.caps[market], `${k} -> ${market}`).toBeGreaterThan(0)
+    }
+  })
+
+  it("keeps a full NBA night under the share of a month that makes the button ask", () => {
+    // The whole point of the budget. A default press that trips the confirm
+    // gate every time trains you to click through it, which is worse than no
+    // gate at all.
+    const credits = LEAGUES.nba.maxGames * LEAGUES.nba.markets.length
+    expect(creditWarning("nba", LEAGUES.nba.maxGames, LEAGUES.nba.markets.length).confirm).toBe(false)
+    expect(credits / 500).toBeLessThan(CONFIRM_PCT_OF_QUOTA)
+  })
+
+  it("retires the NHL as a league Today prices, while keeping it loggable", () => {
+    // The tab is gone and nothing pulls it. What survives is the ability to
+    // read a logged NHL entry, because settled history is the only thing that
+    // can tell you the model was wrong.
+    expect(isLeagueId("nhl")).toBe(false)
+    expect(sportKeyFor("nhl")).toBeNull()
+    expect(LEAGUE_IDS).not.toContain("nhl")
+    expect(TAB_LEAGUE_IDS).not.toContain("nhl")
+    // And the forgiving lookup does not quietly price hockey with NBA priors
+    // by pretending the id is real: it falls back and says so by its id.
+    expect(leagueFor("nhl").id).toBe(DEFAULT_LEAGUE)
+
+    expect(isRetiredLeagueId("nhl")).toBe(true)
+    expect(LOGGED_LEAGUE_IDS).toEqual(["nba", "nfl", "cfb", "nhl"])
+    expect(loggedLeagueLabel("nhl")).toBe("NHL")
+    // The one thing a retired league must still answer, since it decides
+    // whether a logged "Points" leg is the basketball market or the hockey one.
+    expect(sportOfLoggedLeague("nhl")).toBe("hockey")
+    expect(sportOfLoggedLeague("nba")).toBe("basketball")
+    expect(sportOfLoggedLeague("cfb")).toBe("football")
   })
 
   it("pulls NFL markets by default for the NFL, never basketball ones", () => {
@@ -322,8 +376,12 @@ describe("store migration", () => {
       },
     }
     const migrated = migrate(stored)
-    expect(Object.keys(migrated.daily).sort()).toEqual(["nba", "nfl", "nhl"])
-    expect(migrated.settings.daily.league).toBe("nhl")
+    // The NHL cache goes the way college basketball's did: the league is gone,
+    // so a cache filed under it can never be shown and only takes up storage.
+    expect(Object.keys(migrated.daily).sort()).toEqual(["nba", "nfl"])
+    // And a phone that had the NHL tab selected opens on the NBA rather than
+    // on a league that no longer exists.
+    expect(migrated.settings.daily.league).toBe("nba")
   })
 
   it("moves someone who had the WNBA selected back to the NBA", () => {
@@ -552,11 +610,20 @@ describe("NFL markets", () => {
     for (const k of LEAGUES.cfb.markets) expect(FEED_MARKET_MAP[k], k).toBeDefined()
   })
 
-  it("maps every default NHL feed market", () => {
-    // A default market the hockey map does not know is a credit spent on a
-    // response nothing can read.
-    for (const k of LEAGUES.nhl.markets) expect(HOCKEY_FEED_MARKET_MAP[k], k).toBeDefined()
-    expect(marketsForLeague("nhl", null)).toEqual(LEAGUES.nhl.markets)
+  it("still resolves hockey feed keys, which nothing pulls and logged entries need", () => {
+    // No league asks for these any more. The map stays so a stored or imported
+    // payload naming them still reads, rather than being silently typed as
+    // basketball. See RETIRED_LEAGUES.
+    expect(HOCKEY_FEED_MARKET_MAP.player_shots_on_goal).toBe("SOG")
+    expect(HOCKEY_FEED_MARKET_MAP.player_total_saves).toBe("SAVES")
+    expect(HOCKEY_FEED_MARKET_MAP.player_points).toBe("HKY_PTS")
+    // And no league's market list can ask for one, which is what stops a
+    // credit being spent on a response nothing will price.
+    for (const id of LEAGUE_IDS) {
+      for (const k of marketsForLeague(id, null)) {
+        expect(FEED_MARKET_MAP[k], `${id} ${k}`).toBeDefined()
+      }
+    }
   })
 
   it("never bills a basketball market list against an NFL slate", () => {
@@ -606,7 +673,9 @@ import { marketForSport } from "@/lib/nba/markets"
 import { normalizeEventOdds } from "@/lib/odds-feed/theoddsapi"
 import type { FeedEventOdds } from "@/lib/odds-feed/types"
 
-describe("NHL markets", () => {
+// Hockey is no longer pulled. These pin the read path a logged NHL entry
+// depends on: see RETIRED_LEAGUES.
+describe("hockey markets, for logged entries", () => {
   it("reads hockey labels as hockey markets, and keeps basketball's own", () => {
     expect(normalizeMarket("Shots On Goal").key).toBe("SOG")
     expect(normalizeMarket("Goalie Saves").key).toBe("SAVES")
@@ -663,54 +732,8 @@ describe("NHL markets", () => {
     expect(nba.unknownMarkets).toEqual(["player_shots_on_goal"])
   })
 
-  it("keeps only hockey markets on an NHL pull, and hockey markets off a basketball one", () => {
-    expect(marketsForLeague("nhl", ["player_points", "player_rebounds"])).toEqual(["player_points"])
-    expect(marketsForLeague("nhl", null)).toEqual(LEAGUES.nhl.markets)
+  it("never bills a hockey market against a basketball slate", () => {
     expect(marketsForLeague("nba", ["player_shots_on_goal"])).toEqual(LEAGUES.nba.markets)
   })
 })
 
-const NHL_QUOTES: FeedQuote[] = [
-  // A shooter the books make a clear over at 2.5.
-  quote("Auston Matthews", "SOG", "pinnacle", 3.5, -150, 122, "MTL@TOR"),
-  quote("Auston Matthews", "SOG", "lowvig", 3.5, -148, 120, "MTL@TOR"),
-  quote("Auston Matthews", "SOG", "draftkings", 3.5, -140, 110, "MTL@TOR"),
-  // A depth player the books make a clear under at 0.5 points.
-  quote("Jake Evans", "HKY_PTS", "pinnacle", 0.5, 210, -270, "MTL@TOR"),
-  quote("Jake Evans", "HKY_PTS", "lowvig", 0.5, 205, -265, "MTL@TOR"),
-  quote("Jake Evans", "HKY_PTS", "fanduel", 0.5, 220, -290, "MTL@TOR"),
-  // A goalie near a coin flip.
-  quote("Joseph Woll", "SAVES", "pinnacle", 26.5, -112, -108, "MTL@TOR"),
-  quote("Joseph Woll", "SAVES", "draftkings", 26.5, -110, -110, "MTL@TOR"),
-]
-
-describe("the NHL through the daily pipeline", () => {
-  const picks = buildDailyPicks(NHL_QUOTES, optsFor("nhl"))
-
-  it("prices every prop at hockey-sized numbers", () => {
-    expect(picks.stats.pricedProps).toBe(3)
-    const matthews = picks.dfsTargets.find((t) => t.player === "Auston Matthews")!
-    const woll = picks.dfsTargets.find((t) => t.player === "Joseph Woll")!
-    // Over 3.5 shots at -150: a mean near 4, spread close to Poisson.
-    expect(matthews.mean).toBeGreaterThan(3.5)
-    expect(matthews.mean).toBeLessThan(4.6)
-    expect(matthews.marketSide).toBe("OVER")
-    expect(matthews.marketProb).toBeGreaterThan(0.55)
-    expect(matthews.marketProb).toBeLessThan(0.6)
-    // Saves at a coin flip: a 27-save goalie with a spread of about six and a half.
-    expect(woll.mean).toBeGreaterThan(26)
-    expect(woll.mean).toBeLessThan(28)
-    expect(woll.sd).toBeGreaterThan(5)
-    expect(woll.sd).toBeLessThan(8)
-    expect(woll.marketProb).toBeLessThan(0.53)
-  })
-
-  it("puts the most lopsided half-point line first: a depth player's under 0.5 points", () => {
-    const evans = picks.dfsTargets.find((t) => t.player === "Jake Evans")!
-    expect(evans).toBeDefined()
-    expect(evans.marketLine).toBe(0.5)
-    expect(evans.marketSide).toBe("UNDER")
-    expect(evans.marketProb).toBeGreaterThan(0.68)
-    expect(picks.dfsTargets[0].player).toBe("Jake Evans")
-  })
-})

@@ -5,7 +5,7 @@ import { probToAmerican } from "@/lib/quant/odds"
 import { optimizeSlips, type BuiltSlip, type CandidateLeg, type OptimizerConstraints } from "@/lib/quant/optimizer"
 import { normalizeName, playerKeyIn, type CorrelationSettings } from "@/lib/quant/correlation"
 import type { PickemLine } from "@/lib/odds-feed/propline"
-import { sameGameId } from "@/lib/odds-feed/games"
+import { attributedGames, sameGameId } from "@/lib/odds-feed/games"
 import { notStarted } from "@/lib/odds-feed/http"
 import type { PickType } from "@/lib/store/schema"
 import {
@@ -56,6 +56,19 @@ export interface AppLine {
   underMultiplier: number | null | undefined
   overOffered: boolean
   underOffered: boolean
+  /** When the app last posted this line, as the feed reported it. Null when it did not say. */
+  fetchedAt: string | null
+  /** Minutes since the app posted it, or null when the feed gave no timestamp. */
+  ageMinutes: number | null
+  /**
+   * Older than the stale threshold the sportsbook prices use.
+   *
+   * A pick'em app moves its lines, and an entry built at a number the app has
+   * since changed is an entry you cannot place. The books' prices are already
+   * checked for this; the apps' lines were not, which made a line read three
+   * hours ago indistinguishable from one read a minute ago.
+   */
+  isStale: boolean
 }
 
 export interface GameSummary {
@@ -106,9 +119,16 @@ export interface DfsTarget {
   /** Lines the pick'em apps are posting for this prop, when a pick'em feed was pulled. */
   appLines?: AppLine[]
   /**
-   * Apps whose lines came through for this target's game, for any player. A
-   * prop with no line from an app that covered its game is not on offer there;
-   * one from a game the app's lines never arrived for is simply unknown.
+   * Apps whose lines came through for this target's game AND market, for any
+   * player. A prop with no line from an app that covered its game and market
+   * is not on offer there; one the app's lines never arrived for at all is
+   * simply unknown, and the two are treated differently.
+   *
+   * Per market rather than per game, because an app covering a game says
+   * nothing about which stats it covers in it: PrizePicks can post points for
+   * every starter in a game and no rebounds line in it at all. Keyed on the
+   * game alone, every one of those rebounds props read as "offered, and this
+   * player is not on it", which is a different claim from the truth.
    */
   appCoverage?: string[]
   /**
@@ -411,14 +431,26 @@ export function pickemLinesFor(
   return { lines: candidates, warning: null }
 }
 
-/** Price each app line off the target's own distribution. */
+/**
+ * Price each app line off the target's own distribution, and say how old it is.
+ *
+ * The age is the point of the timestamp. A pick'em app's line is only worth
+ * acting on while the app is still posting it, and the feed's own timestamp is
+ * the only evidence of that this app has. It was read and thrown away before,
+ * so a line pulled three hours ago read exactly like one pulled a minute ago.
+ */
 export function priceAppLines(
   lines: PickemLine[],
   distribution: { pAtLeast(k: number): number; pmf(k: number): number },
+  opts: { now?: number; staleMinutes?: number } = {},
 ): AppLine[] {
+  const now = opts.now ?? Date.now()
+  const staleAfter = opts.staleMinutes ?? DEFAULT_PICKEM_STALE_MINUTES
   return lines
     .map((l) => {
       const p = resolveLine(distribution as never, l.line)
+      const posted = l.fetchedAt ? Date.parse(l.fetchedAt) : Number.NaN
+      const ageMinutes = Number.isFinite(posted) ? Math.max(0, (now - posted) / 60_000) : null
       return {
         app: l.app,
         line: l.line,
@@ -430,21 +462,45 @@ export function priceAppLines(
         underMultiplier: l.under?.multiplier,
         overOffered: l.over != null,
         underOffered: l.under != null,
+        fetchedAt: l.fetchedAt,
+        ageMinutes,
+        isStale: ageMinutes != null && ageMinutes > staleAfter,
       }
     })
     .sort((a, b) => a.app.localeCompare(b.app) || a.line - b.line)
 }
 
 /**
- * Which apps' lines arrived for each game, read off every prop on the slate
- * rather than only the targets.
+ * How old a pick'em line may be before the row says so.
  *
- * Matched on player, because two feeds spelling a team differently would
- * otherwise never agree on the game — but a name that belongs to two games on
- * the slate is attributed to the fixture its line actually names, and to
- * neither when that cannot be established. Coverage decides whether a missing
- * line means "the app is not offering this prop" or merely "we never heard",
- * so attributing it to the wrong game would quietly drop a playable prop.
+ * The same default the sportsbook prices use, and for the same reason: past
+ * about three quarters of an hour a posted number is a guess about the present
+ * rather than a reading of it. Callers pass the user's own setting.
+ */
+export const DEFAULT_PICKEM_STALE_MINUTES = 45
+
+/** The key coverage is recorded under: one game, one market. */
+function coverageKey(gameId: string, market: MarketKey): string {
+  return `${gameId}|${market}`
+}
+
+/**
+ * Which apps' lines arrived for each game AND market, read off every prop on
+ * the slate rather than only the targets.
+ *
+ * Coverage is the difference between "the app is not offering this prop" and
+ * "we never heard", and the two lead to opposite decisions: the first leaves
+ * the prop out of that app's entry, the second cannot. So getting it wrong in
+ * either direction is expensive, and it was wrong in both.
+ *
+ * Per MARKET, because an app covering a game says nothing about which stats it
+ * covers in it. PrizePicks will post points for every starter in a game and no
+ * rebounds line in it at all; keyed on the game alone, every rebounds prop in
+ * that game read as "offered, and this player is not on it". The game is still
+ * matched on player, because two feeds spelling a team differently would
+ * otherwise never agree on the fixture — but a name that belongs to two games
+ * on the slate is attributed to the fixture its line actually names, and to
+ * neither when that cannot be established.
  */
 function pickemCoverage(quotes: FeedQuote[], lines: PickemLine[] | undefined): Map<string, Set<string>> {
   const gamesByPlayer = new Map<string, Set<string>>()
@@ -454,19 +510,18 @@ function pickemCoverage(quotes: FeedQuote[], lines: PickemLine[] | undefined): M
     set.add(q.gameId)
     gamesByPlayer.set(who, set)
   }
-  const byGame = new Map<string, Set<string>>()
+  const byGameMarket = new Map<string, Set<string>>()
   for (const l of lines ?? []) {
     const games = gamesByPlayer.get(l.playerKey || normalizeName(l.player))
     if (!games) continue
-    const matched = Array.from(games).filter((g) => sameGameId(l.gameId, g))
-    const targets = matched.length > 0 ? matched : games.size === 1 ? Array.from(games) : []
-    for (const g of targets) {
-      const set = byGame.get(g) ?? new Set<string>()
+    for (const g of attributedGames(l.gameId, games)) {
+      const key = coverageKey(g, l.market)
+      const set = byGameMarket.get(key) ?? new Set<string>()
       set.add(l.app)
-      byGame.set(g, set)
+      byGameMarket.set(key, set)
     }
   }
-  return byGame
+  return byGameMarket
 }
 
 /**
@@ -536,7 +591,10 @@ export function buildDfsBoard(quotes: FeedQuote[], opts: BuildOptions): DfsBoard
       group.gameId,
       nameIsAmbiguous,
     )
-    const appLines = priceAppLines(resolved.lines, ref.distribution)
+    const appLines = priceAppLines(resolved.lines, ref.distribution, {
+      now,
+      staleMinutes: opts.value.projection.staleQuoteMinutes,
+    })
     const warnings = [
       nameIsAmbiguous
         ? `Another player on this slate normalises to the same name. This row is ${group.gameId.replace("@", " at ")} only.`
@@ -587,7 +645,7 @@ export function buildDfsBoard(quotes: FeedQuote[], opts: BuildOptions): DfsBoard
       marketProb: Math.max(atMarket.over, atMarket.under),
       appLines,
       warnings: warnings.length > 0 ? warnings : undefined,
-      appCoverage: Array.from(coverage.get(group.gameId) ?? []).sort(),
+      appCoverage: Array.from(coverage.get(coverageKey(group.gameId, group.market)) ?? []).sort(),
       ...t,
     })
   }
@@ -604,8 +662,92 @@ export interface PickemLeg {
   side: "OVER" | "UNDER"
   line: number
   prob: number
-  /** "app" when the line is the one the app is actually posting; "books" when it is the sportsbooks' line. */
+  /**
+   * "app" when the line is the one the app is actually posting; "books" when
+   * it is the sportsbooks' line, which only happens when the pull carried no
+   * lines from the app at all. An entry never mixes the two: see pickemPlays.
+   */
   source: "app" | "books"
+}
+
+/**
+ * Everything on the slate that could be played on an app, and what the rest
+ * fell at.
+ *
+ * The counts exist so nothing disappears silently. A target the app is not
+ * offering and a target the app's lines never reached are both absent from the
+ * entry and are not the same thing, and the screen can only say which if the
+ * difference is carried out of here.
+ */
+export interface PickemPlays {
+  plays: PickemLeg[]
+  /**
+   * True when the pull carried this app's own lines, so every play is at a
+   * line the app is really posting. False when it carried none, so every play
+   * is at the books' line and the screen says so.
+   */
+  live: boolean
+  /** Targets the app covers in that game and market and is not posting: not playable there. */
+  notOffered: number
+  /** Targets the app's lines never arrived for at all. Unknown, not absent. */
+  unknown: number
+  /** Targets whose game had already started. */
+  started: number
+}
+
+/**
+ * The plays available on an app, each at a line that app is really posting.
+ *
+ * THE RULE: an entry is built at the app's own lines, or at the books' lines,
+ * never at a mixture. When the pull carried the app's lines, a target without
+ * one is left out — including one the app's lines simply never reached.
+ *
+ * It used to fall back to the books' line for exactly that case, reasoning
+ * that unknown is not the same as absent. That is true, and it is still not a
+ * line anyone can place: the card is headed with an app's name and a payout
+ * table, and the expectation printed under it multiplies every leg's chance at
+ * the line beside it. A leg at a number the app may not be posting makes that
+ * number fiction, which is the one thing this app exists to refuse. In
+ * practice it was most of the entry — half the lines on a PrizePicks card were
+ * not PrizePicks lines — and there is no way to tell from the card which half.
+ *
+ * So the honest answer is a shorter entry, or none, and a count of what was
+ * left out and why. Without any lines from the app, the books' line is all
+ * there is and is still useful: it is the number to go and look for, and the
+ * screen says that rather than claiming the app posts it.
+ */
+export function pickemPlays(
+  targets: DfsTarget[],
+  app?: string | null,
+  now: number = Date.now(),
+): PickemPlays {
+  const live = hasAppLines(targets, app)
+  const plays: PickemLeg[] = []
+  let notOffered = 0
+  let unknown = 0
+  let started = 0
+  for (const t of targets) {
+    // A pick'em app stops taking picks once a game starts. The books may still
+    // be pricing it in play, but no line from a started game can be entered.
+    const starts = t.commenceTime ? Date.parse(t.commenceTime) : NaN
+    if (Number.isFinite(starts) && starts <= now) {
+      started++
+      continue
+    }
+    if (!live) {
+      plays.push({ target: t, side: t.marketSide, line: t.marketLine, prob: t.marketProb, source: "books" })
+      continue
+    }
+    const p = appPlay(t, app!)
+    if (p) {
+      plays.push({ target: t, ...p, source: "app" })
+    } else if ((t.appCoverage ?? []).includes(app!)) {
+      notOffered++
+    } else {
+      unknown++
+    }
+  }
+  return { plays, live, notOffered, unknown, started }
 }
 
 /**
@@ -667,21 +809,16 @@ export function hasAppLines(targets: Pick<DfsTarget, "appLines">[], app: string 
 }
 
 /**
- * A pick'em entry to play: the likeliest targets that clear the bar, at the
- * books' line, which is the line PrizePicks, Underdog, Sleeper and the rest
- * almost always post.
+ * A pick'em entry to play: the likeliest plays that clear the bar.
  *
  * One leg per player, so it never holds both sides of anything, and at most
  * two per game, so one blowout cannot sink the whole entry. Null when fewer
- * targets clear the bar than the entry needs: a short entry padded with
- * coin flips is the bet the bar exists to stop.
+ * plays clear the bar than the entry needs: a short entry padded with coin
+ * flips is the bet the bar exists to stop.
  *
- * Given an app whose lines were pulled, every leg is at that app's real line
- * and a prop the app is not offering is left out, because it cannot be played
- * there. A prop from a game the app's lines never arrived for (a failed request,
- * a game the pick'em pull did not list) is unknown rather than absent, so it
- * stays in at the books' line and says so. Without app lines at all, every leg
- * is at the books' line, as before.
+ * Every leg is at a line the named app is really posting, or — when the pull
+ * carried none of that app's lines — every leg is at the books' line. Never a
+ * mixture of the two. See pickemPlays for why, and for what gets left out.
  */
 export function buildPickemEntry(
   targets: DfsTarget[],
@@ -691,23 +828,7 @@ export function buildPickemEntry(
   app?: string | null,
   now: number = Date.now(),
 ): PickemLeg[] | null {
-  const live = hasAppLines(targets, app)
-  const plays: PickemLeg[] = []
-  for (const t of targets) {
-    // A pick'em app stops taking picks once a game starts. The books may still
-    // be pricing it in play, but no line from a started game can be entered.
-    const starts = t.commenceTime ? Date.parse(t.commenceTime) : NaN
-    if (Number.isFinite(starts) && starts <= now) continue
-    const p = live ? appPlay(t, app!) : null
-    if (p) {
-      plays.push({ target: t, ...p, source: "app" })
-    } else if (live && (t.appCoverage ?? []).includes(app!)) {
-      // The app posted lines for this game but not this prop: not on offer.
-      continue
-    } else {
-      plays.push({ target: t, side: t.marketSide, line: t.marketLine, prob: t.marketProb, source: "books" })
-    }
-  }
+  const { plays } = pickemPlays(targets, app, now)
 
   const legs: PickemLeg[] = []
   const players = new Set<string>()

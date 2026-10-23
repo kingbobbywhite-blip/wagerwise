@@ -5,7 +5,7 @@ import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow }
 import { MARKETS, type MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
 import type { PickemLine } from "@/lib/odds-feed/propline"
-import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId } from "@/lib/leagues"
+import { DEFAULT_LEAGUE, LEAGUES, isLeagueId, type LeagueId, type LoggedLeagueId } from "@/lib/leagues"
 import { PICKEM_MAX_PROB } from "@/lib/today/build"
 
 export const STATE_VERSION = 1
@@ -221,7 +221,7 @@ export interface TrackedLeg {
    * — exactly the split this exists to show. Those legs report in their own
    * bucket rather than being folded into a guess.
    */
-  league?: LeagueId
+  league?: LoggedLeagueId
   competition?: LeagueId
 }
 
@@ -275,7 +275,17 @@ export interface DailyCache {
   quotes: FeedQuote[]
   events: { id: string; commence_time: string; home_team: string; away_team: string }[]
   requestsRemaining: number | null
+  /**
+   * What the pull cost: the feed's own billed figure when it reported one,
+   * and the pre-pull estimate when it did not. `creditsMeasured` says which,
+   * because a forecast and a measurement are not the same claim and this field
+   * used to hold the first while its name promised the second.
+   */
   creditsSpent: number
+  /** True when creditsSpent is the feed's own figure rather than an estimate. */
+  creditsMeasured?: boolean
+  /** What the measurement said that the estimate did not, when the two differ. */
+  creditNote?: string | null
   /**
    * When today's window had no games: the next game the feed lists, or null if
    * it lists none at all. Tells "no game today" apart from "season over".
@@ -287,6 +297,16 @@ export interface DailyCache {
   provider?: OddsProvider
   /** Lines the pick'em apps were posting at pull time, from PropLine. Absent when not pulled. */
   pickemLines?: PickemLine[]
+  /**
+   * Which pick'em apps posted anything in this pull, counted BEFORE the lines
+   * nothing could price were shed.
+   *
+   * Derived from the kept lines instead, an app whose every line was shed read
+   * as "posted none in this pull" — false, and contradicted by the shed-lines
+   * note in the same paragraph. Absent on pulls from before this was recorded,
+   * where the kept lines are the only evidence there is.
+   */
+  pickemAppsPosted?: string[]
   /** Why the pick'em lines are missing or partial, when they are. */
   pickemNote?: string | null
   /**

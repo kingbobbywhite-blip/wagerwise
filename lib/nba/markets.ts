@@ -110,7 +110,10 @@ export const MARKETS: Record<MarketKey, MarketConfig> = {
   REC_YDS:      { key: "REC_YDS",      label: "Receiving Yards",       short: "ReYd", dispersion: 16,   cv: 0.52, components: ["REC_YDS"], typicalMean: 48 },
   RUSH_REC_YDS: { key: "RUSH_REC_YDS", label: "Rush + Rec Yards",      short: "R+R",  dispersion: 14,   cv: 0.45, components: ["RUSH_YDS", "REC_YDS"], typicalMean: 75 },
 
-  // NHL. Small counts on half-point lines, which is the point: a skater who
+  // NHL. Retired as a league Today prices (see RETIRED_LEAGUES), and kept
+  // here because a logged NHL entry still has to read back and settle: these
+  // labels are what its screen says. Small counts on half-point lines, which
+  // was the point of the section: a skater who
   // averages 2.9 shots goes over 2.5 about 56% of the time and under 3.5 about
   // 67%, so one side of a standard line is often far from a coin flip, and a
   // pick'em app pays it as if it were one. Shots, points, assists and goals are

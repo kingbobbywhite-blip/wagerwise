@@ -246,7 +246,9 @@ export default function BuildPage() {
             </Label>
             <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
               Two legs on one player are strongly correlated. That raises the chance they both land, and equally the
-              chance they both miss. Useful on all-or-nothing entries, punishing on flex.
+              chance they both miss. Useful on all-or-nothing entries, punishing on flex. How strong the link is, is a
+              prior rather than a measurement — and on a deep NBA board a player&apos;s points, his pts+reb+ast, his
+              field goals made and his steals+blocks are largely the same bet in different clothes.
             </p>
           </div>
           <Switch

@@ -1,10 +1,10 @@
-import type { Sport, MarketKey } from "@/lib/nba/markets"
+import { MARKETS, type Sport, type MarketKey } from "@/lib/nba/markets"
 import { DEFAULT_LEAGUE, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 // Re-exported: both were defined here before the odds adapter needed them too,
 // and callers (and tests) still reach for them from this module.
 export { sameGameId, teamNickname } from "./games"
-import { teamNickname } from "./games"
+import { attributedGames, teamNickname } from "./games"
 import type { PickType } from "@/lib/store/schema"
 import { feedMarketFor, normalizeEventOdds, sportOfFeedKey, type NormalizeResult } from "./theoddsapi"
 import { feedErrorText, notStarted } from "./http"
@@ -42,17 +42,21 @@ const SPORT_KEYS: Record<LeagueId, string> = {
   nba: "basketball_nba",
   nfl: "football_nfl",
   cfb: "football_ncaaf",
-  nhl: "hockey_nhl",
 }
 
 export function proplineSportKey(league: LeagueId = DEFAULT_LEAGUE): string {
   return SPORT_KEYS[league] ?? SPORT_KEYS[DEFAULT_LEAGUE]
 }
 
-/** Where PropLine names a market differently from The Odds API. */
-const REQUEST_ALIASES: Record<string, string> = {
-  player_total_saves: "goalie_saves",
-}
+/**
+ * Where PropLine names a market differently from The Odds API.
+ *
+ * Empty while every league Today pulls is one both feeds name the same way.
+ * It stays because the next disagreement belongs here rather than in the
+ * request builder: hockey's "goalie_saves" lived here until the NHL was
+ * dropped.
+ */
+const REQUEST_ALIASES: Record<string, string> = {}
 
 /** Translate a market list into PropLine's keys, without duplicates. */
 export function proplineMarkets(markets: string[]): string[] {
@@ -520,14 +524,156 @@ export async function proplineFailure(res: Response, key?: ResolvedKey | null): 
   return keyRejected ? new FeedKeyError(message) : new Error(message)
 }
 
+/** The quote fields this filter reads. A NormalizedQuote satisfies it. */
+interface PricedProp {
+  player: string
+  playerKey?: string
+  market: MarketKey
+  gameId: string
+}
+
 /**
- * Pick'em lines for players the books priced. A line for anyone else can never
- * be matched to a target, and every pull is kept in this browser's storage, so
- * carrying the rest only fills it.
+ * The pick'em lines something on this slate can actually read, and the ones
+ * nothing can.
+ *
+ * Every pull is kept in this browser's storage, which is the app's binding
+ * constraint, so a line no code path can ever reach is worth shedding. The
+ * trap is that "can ever reach" is two different things, and keeping only the
+ * first loses real information:
+ *
+ *   A line is PLAYABLE only if its own player and market were priced. A line
+ *   reaches a board row through one key, `player|market` (see
+ *   indexPickemLines), so a PrizePicks rebounds line for a player the books
+ *   priced only for points can never attach to a target. It used to be kept
+ *   anyway, on the strength of the points quote.
+ *
+ *   But a line is also EVIDENCE that the app covers a game and market, read
+ *   under `game|market` (see pickemCoverage), and that evidence decides
+ *   whether a prop with no line reads as "the app is not offering it" or as
+ *   "we never heard". That reading is made for OTHER players' props, so a line
+ *   can be unplayable itself and still be the only thing that gets another
+ *   row's verdict right. Drop it and the screen says "no PrizePicks line
+ *   reached at all" about a game and market where PrizePicks did post one and
+ *   this app threw it away — the one failure this codebase exists to refuse.
+ *
+ * So: keep a line when its own player and market are priced, OR when its
+ * market is priced for anyone in a game the line can be attributed to. The
+ * second clause is exact rather than cautious for both paths above: coverage
+ * for `game|market` is only ever read by a target at that same game and
+ * market, so a line whose market is priced nowhere in its game is unreachable
+ * by either.
+ *
+ * It is NOT lossless for a third consumer, and that is worth stating rather
+ * than glossing. The Today screen reads the stored lines once more, keyed on
+ * the app alone, to say which apps turned up in a pull; by that key a shed
+ * line is a line the app never posted, and an app whose every line was shed
+ * read as "posted none in this pull" — contradicted by the shed-lines note in
+ * the same paragraph. The route therefore reports the apps that posted BEFORE
+ * this filter runs (pickemAppsPosted), which is what that question actually
+ * asks. Any new consumer keyed on something other than `player|market` or
+ * `game|market` has to be checked against this the same way.
  */
-export function onlyPricedPlayers(lines: PickemLine[], quotes: { player: string; playerKey?: string }[]): PickemLine[] {
-  const priced = new Set(quotes.map((q) => q.playerKey || normalizeName(q.player)))
-  return lines.filter((l) => priced.has(l.playerKey))
+export type PickemDropReason =
+  /** No sportsbook priced this player at all, in any market, anywhere on the slate. */
+  | "player-unpriced"
+  /** The player is priced, but nothing priced THIS market in the game the line covers. */
+  | "market-unpriced"
+  /** The player is priced in more than one game and the line names neither of them. */
+  | "game-unmatched"
+
+export interface DroppedPickemLine {
+  line: PickemLine
+  reason: PickemDropReason
+}
+
+export function usablePickemLines(
+  lines: PickemLine[],
+  quotes: PricedProp[],
+): { lines: PickemLine[]; dropped: DroppedPickemLine[] } {
+  const gamesByPlayer = new Map<string, Set<string>>()
+  const pricedProps = new Set<string>()
+  const pricedGameMarkets = new Set<string>()
+  for (const q of quotes) {
+    // The same derivation pickemCoverage uses, deliberately: if the two ever
+    // disagreed this filter would shed a line that pass would have counted.
+    const who = q.playerKey || normalizeName(q.player)
+    const set = gamesByPlayer.get(who) ?? new Set<string>()
+    set.add(q.gameId)
+    gamesByPlayer.set(who, set)
+    pricedProps.add(`${who}|${q.market}`)
+    pricedGameMarkets.add(`${q.gameId}|${q.market}`)
+  }
+
+  const kept: PickemLine[] = []
+  const dropped: DroppedPickemLine[] = []
+  for (const l of lines) {
+    const who = l.playerKey || normalizeName(l.player)
+    const playable = pricedProps.has(`${who}|${l.market}`)
+    const games = attributedGames(l.gameId, gamesByPlayer.get(who))
+    const evidence = !playable && games.some((g) => pricedGameMarkets.has(`${g}|${l.market}`))
+    if (playable || evidence) {
+      kept.push(l)
+      continue
+    }
+    // WHICH clause failed has to travel with the line. The commonest drop by
+    // far is a player no sportsbook priced in anything — a bench player an app
+    // posts and the books do not — and telling that user "no sportsbook priced
+    // that market in the game it covers" is false on its face, with a table of
+    // that very market for that very game directly underneath it.
+    dropped.push({
+      line: l,
+      reason: !gamesByPlayer.has(who)
+        ? "player-unpriced"
+        : games.length === 0
+          ? "game-unmatched"
+          : "market-unpriced",
+    })
+  }
+  return { lines: kept, dropped }
+}
+
+/**
+ * What to say about the lines that were shed, because a shorter list with no
+ * explanation is indistinguishable from an app posting less.
+ *
+ * One clause per reason, never one sentence covering all of them. The reasons
+ * are different facts about different things — a player the books ignore, a
+ * market they did not post in that game, a name that fits two fixtures — and
+ * collapsing them into the loudest one states something false about the rest.
+ */
+export function unpricedPickemNote(dropped: DroppedPickemLine[]): string | null {
+  if (dropped.length === 0) return null
+  const apps = Array.from(new Set(dropped.map((d) => d.line.app))).sort()
+  const of = (reason: PickemDropReason) => dropped.filter((d) => d.reason === reason)
+  const names = (ds: DroppedPickemLine[]) => Array.from(new Set(ds.map((d) => d.line.player))).sort()
+  const marketsOf = (ds: DroppedPickemLine[]) =>
+    Array.from(new Set(ds.map((d) => MARKETS[d.line.market]?.label ?? d.line.market))).sort()
+
+  const clauses: string[] = []
+  const strangers = of("player-unpriced")
+  if (strangers.length > 0) {
+    const who = names(strangers)
+    clauses.push(
+      `${strangers.length} because no sportsbook priced ${who.length === 1 ? who[0] : `${who.length} of the players`} at all`,
+    )
+  }
+  const markets = of("market-unpriced")
+  if (markets.length > 0) {
+    const m = marketsOf(markets)
+    clauses.push(
+      `${markets.length} because no sportsbook priced ${m.join(", ")} in the game ${markets.length === 1 ? "it covers" : "they cover"}`,
+    )
+  }
+  const unmatched = of("game-unmatched")
+  if (unmatched.length > 0) {
+    clauses.push(
+      `${unmatched.length} because ${unmatched.length === 1 ? "its player appears" : "their players appear"} in more than one game on this slate and the line names neither`,
+    )
+  }
+
+  return `${dropped.length} pick'em line${dropped.length === 1 ? "" : "s"} from ${apps.join(", ")} ${
+    dropped.length === 1 ? "was" : "were"
+  } left out: ${clauses.join("; ")}. Nothing on this slate could price ${dropped.length === 1 ? "it" : "them"}, so nothing could have been built at ${dropped.length === 1 ? "it" : "them"}.`
 }
 
 /**

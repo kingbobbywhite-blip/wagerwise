@@ -31,7 +31,7 @@ import {
 import { useStore } from "@/lib/store/provider"
 import type { LegResult, TrackedSlip } from "@/lib/store/schema"
 import { money, multiple, pct, shortDate, signedPct } from "@/lib/format"
-import { LEAGUES } from "@/lib/leagues"
+import { isLoggedLeagueId, loggedLeagueLabel } from "@/lib/leagues"
 import { MARKETS } from "@/lib/nba/markets"
 import { fitMovement, lineMoves, summariseHistory } from "@/lib/quant/lines"
 import { KICKOFF_VARIANCE_PER_DAY } from "@/lib/quant/valuebets"
@@ -69,7 +69,9 @@ export default function TrackerPage() {
     () =>
       groupedCalibration(observations, (o) => {
         const id = o.competition ?? o.league
-        return id ? { key: id, label: LEAGUES[id]?.label ?? id } : null
+        // A retired league still has logged entries, and they still have to
+        // report: see RETIRED_LEAGUES.
+        return id ? { key: id, label: isLoggedLeagueId(id) ? loggedLeagueLabel(id) : id } : null
       }),
     [observations],
   )

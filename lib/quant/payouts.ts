@@ -326,3 +326,74 @@ export function validateCapture(c: CapturedPayout): CaptureProblem[] {
   }
   return problems
 }
+
+// ---------------------------------------------------------------------------
+// Provenance: which of these numbers has anybody actually checked?
+// ---------------------------------------------------------------------------
+
+/**
+ * Has this user's stored copy of an app's payout table been verified?
+ *
+ * The default is false, deliberately, and for three separate reasons. The
+ * field is free text, so anything that is not a date is not a verification. A
+ * settings blob exported by an older version may not carry the field at all.
+ * And `apps` is persisted (see the settings schema), so this answers "has the
+ * copy on THIS phone been checked" rather than "did the shipped default once
+ * get checked" — which is the question that matters, because the stored copy
+ * is the one that prices things.
+ *
+ * The only safe reading of a non-date is that nobody checked.
+ */
+export function payoutVerified(app: BookApp | undefined): boolean {
+  const on = (app?.verifiedOn ?? "").trim()
+  if (!on || on.toLowerCase() === "unverified") return false
+  return Number.isFinite(Date.parse(on))
+}
+
+/**
+ * The per-leg bar used when there is no table for the entry size at all.
+ *
+ * Roughly a three-pick all-or-nothing break-even, and it is not a table: a bar
+ * that falls back to this is a guess about a guess, which is why the source is
+ * carried out of pickemBar rather than the number alone.
+ */
+export const PLACEHOLDER_LEG_BAR = 0.56
+
+export interface PickemBar {
+  /** Per-leg hit rate an entry has to clear. */
+  prob: number
+  /** "stored" from a payout table, "placeholder" when no table covers this size. */
+  source: "stored" | "placeholder"
+  /** Has anyone checked the table this came from against a real entry screen? */
+  verified: boolean
+}
+
+/**
+ * The bar the pick'em section is judged against, and where it came from.
+ *
+ * The number alone is not enough to put on screen. It decides which props
+ * become targets at all and which side each row recommends, so a reader is
+ * entitled to know whether it came off a table someone read from their own
+ * app or off a default nobody has ever confirmed. Every table this app ships
+ * is the second kind.
+ */
+export function pickemBar(app: BookApp | undefined, mode: PayoutMode | undefined, picks: number): PickemBar {
+  const verified = payoutVerified(app)
+  const stored = mode ? breakEvenLegProb(mode, picks) : null
+  if (stored != null) return { prob: stored, source: "stored", verified }
+  return { prob: PLACEHOLDER_LEG_BAR, source: "placeholder", verified }
+}
+
+/**
+ * The payout table an expected value may be computed from, or null.
+ *
+ * Null is the point. An expected value is the table's number as much as the
+ * legs' — it is a sum over tiers, weighted by probabilities — so with no table
+ * anybody has checked there is no expected value to print, only one to invent.
+ * The chance every leg hits is a different matter: it is a product of leg
+ * probabilities and owes the table nothing, so it survives an unverified one
+ * and is shown either way. The cut is exact rather than blunt.
+ */
+export function pickemPricingMode(app: BookApp | undefined, mode: PayoutMode | undefined): PayoutMode | null {
+  return payoutVerified(app) && mode ? mode : null
+}

@@ -12,6 +12,15 @@ function json(body: unknown, status = 200, headers: Record<string, string> = {})
 
 const QUOTA = { "x-requests-remaining": "400", "x-requests-used": "100" }
 
+/**
+ * The quota headers plus the per-request cost the feed states.
+ *
+ * QUOTA deliberately stays without x-requests-last, so every existing stub
+ * goes on exercising the unmeasured path — a feed that does not itemise is a
+ * real case and has to keep reading as "unknown" rather than as "free".
+ */
+const quota = (last: number) => ({ ...QUOTA, "x-requests-last": String(last) })
+
 /** An odds payload with one player and two books, enough to normalise into quotes. */
 function oddsFor(e: { id: string; commence_time: string; home_team: string; away_team: string }) {
   const book = (key: string) => ({
@@ -625,5 +634,150 @@ describe("a PropLine key the feed rejects", () => {
     expect(res.status).toBe(400)
     expect(((await res.json()) as { needsKey?: boolean }).needsKey).toBe(true)
     expect(sent).toHaveLength(0)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// What a pull actually cost
+// ---------------------------------------------------------------------------
+
+import { addCost, addFreeCost, emptyCost, sumCosts } from "@/lib/odds-feed/http"
+
+/**
+ * The app estimated what a pull cost and never measured it, while the feed
+ * stated the cost of every request in a header it was throwing away. Two
+ * things have to hold for the measurement to be worth printing: silence must
+ * not read as free, and a request that failed must not read as a request that
+ * was cheap.
+ */
+describe("folding up what the feed charged", () => {
+  it("counts a response with no per-request cost as unmeasured rather than as a free request", () => {
+    // Number(null) is 0, which is the whole reason headerCount exists. A feed
+    // that omits the header would otherwise make every pull look free.
+    const c = emptyCost()
+    addCost(c, 2)
+    addCost(c, null)
+    addCost(c, 1)
+    expect(c).toEqual({ credits: 3, measured: 2, unmeasured: 1 })
+  })
+
+  it("does not count the free listing as a gap in the total", () => {
+    // The listing is documented as free and is not in the estimate either, so
+    // a listing that reports nothing is not a hole in the measurement — it is
+    // a request that was never in the total being compared against. Counting
+    // it would make every single pull read as impossible to total.
+    const c = emptyCost()
+    addFreeCost(c, null)
+    expect(c).toEqual({ credits: 0, measured: 0, unmeasured: 0 })
+    addFreeCost(c, 1)
+    expect(c).toEqual({ credits: 1, measured: 0, unmeasured: 0 })
+  })
+
+  it("sums across competitions, because one press can pull more than one", () => {
+    expect(sumCosts([
+      { credits: 4, measured: 2, unmeasured: 0 },
+      { credits: 24, measured: 6, unmeasured: 1 },
+    ])).toEqual({ credits: 28, measured: 8, unmeasured: 1 })
+    expect(sumCosts([])).toEqual({ credits: 0, measured: 0, unmeasured: 0 })
+  })
+})
+
+describe("/api/today reporting what the feed charged", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("reports the feed's own figure, and says so when it bills less than the estimate", async () => {
+    // Two games at two markets is estimated at four credits; the feed charges
+    // one per game because only one of the two markets came back. That is the
+    // empty-market question this app has carried an open note about for a
+    // while, answering itself.
+    const now = Date.now()
+    const feed = stubOddsApi(
+      [
+        { id: "a", commence_time: iso(now + HOUR) },
+        { id: "b", commence_time: iso(now + 2 * HOUR) },
+      ],
+      (id) => json(oddsFor({ ...feed.listing.find((e) => e.id === id)! }), 200, quota(1)),
+    )
+    const res = await today({
+      league: "nba",
+      markets: ["player_points", "player_rebounds"],
+      from: iso(now),
+      to: iso(now + 12 * HOUR),
+    })
+    const data = await res.json()
+    expect(data.estimatedCredits).toBe(4)
+    expect(data.measuredCredits).toBe(2)
+    expect(data.unmeasuredRequests).toBe(0)
+    expect(data.creditNote).toContain("billed 2 credits")
+    expect(data.creditNote).toContain("estimated at 4")
+    expect(data.creditNote).toContain("not charged for")
+  })
+
+  it("says nothing extra when the feed bills exactly what was estimated", async () => {
+    const now = Date.now()
+    const feed = stubOddsApi(
+      [{ id: "a", commence_time: iso(now + HOUR) }],
+      (id) => json(oddsFor({ ...feed.listing.find((e) => e.id === id)! }), 200, quota(1)),
+    )
+    const res = await today({ league: "nba", markets: ["player_points"], from: iso(now), to: iso(now + 12 * HOUR) })
+    const data = await res.json()
+    expect(data.estimatedCredits).toBe(1)
+    expect(data.measuredCredits).toBe(1)
+    // The figure is still reported; only the sentence is withheld, because a
+    // measurement that agrees with the estimate needs no explanation.
+    expect(data.creditNote).toBeNull()
+  })
+
+  it("does not read a failed game as proof that empty markets are free", async () => {
+    // This is the regression the comparator design exists for. One game of two
+    // 500s: it was estimated and never billed, so the measured total is below
+    // the estimate for a reason that has nothing to do with empty markets.
+    const now = Date.now()
+    const feed = stubOddsApi(
+      [
+        { id: "a", commence_time: iso(now + HOUR) },
+        { id: "b", commence_time: iso(now + 2 * HOUR) },
+      ],
+      (id) => (id === "a" ? json(oddsFor(feed.listing[0]), 200, quota(1)) : json({ message: "nope" }, 500)),
+    )
+    const res = await today({ league: "nba", markets: ["player_points"], from: iso(now), to: iso(now + 12 * HOUR) })
+    const data = await res.json()
+    expect(data.failures).toHaveLength(1)
+    expect(data.estimatedCredits).toBe(2)
+    expect(data.measuredCredits).toBe(1)
+    expect(data.creditNote).toBeNull()
+  })
+
+  it("calls the total a floor when only some billed responses said what they cost", async () => {
+    const now = Date.now()
+    const feed = stubOddsApi(
+      [
+        { id: "a", commence_time: iso(now + HOUR) },
+        { id: "b", commence_time: iso(now + 2 * HOUR) },
+      ],
+      (id) =>
+        json(oddsFor({ ...feed.listing.find((e) => e.id === id)! }), 200, id === "a" ? quota(1) : QUOTA),
+    )
+    const res = await today({ league: "nba", markets: ["player_points"], from: iso(now), to: iso(now + 12 * HOUR) })
+    const data = await res.json()
+    expect(data.measuredCredits).toBe(1)
+    expect(data.unmeasuredRequests).toBe(1)
+    expect(data.creditNote).toContain("floor")
+  })
+
+  it("leaves the cost unknown rather than zero when the feed itemises nothing", async () => {
+    // The existing stubs, which send quota headers and no per-request cost.
+    const now = Date.now()
+    const feed = stubOddsApi(
+      [{ id: "a", commence_time: iso(now + HOUR) }],
+      (id) => json(oddsFor({ ...feed.listing.find((e) => e.id === id)! }), 200, QUOTA),
+    )
+    const res = await today({ league: "nba", markets: ["player_points"], from: iso(now), to: iso(now + 12 * HOUR) })
+    const data = await res.json()
+    expect(data.measuredCredits).toBeNull()
+    expect(data.unmeasuredRequests).toBe(1)
+    // Nothing was measured, so there is nothing to call a floor either.
+    expect(data.creditNote).toBeNull()
   })
 })

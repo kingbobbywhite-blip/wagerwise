@@ -427,6 +427,21 @@ function warningsFor(legs: CandidateLeg[], e: SlipEvaluation, isParlay = false):
       `The correlation matrix needed ${(e.correlationShrinkage * 100).toFixed(0)}% shrinkage toward independence to stay valid, so the joint probability is less reliable than usual.`,
     )
   }
+  // The average cannot say this: one pair at 0.92 inside a six-leg slip
+  // averages to 0.06 and reads as near-independent, so maxAvgCorrelation never
+  // bites on it. A warning, never a block — a same-player stack is a toggle
+  // the user deliberately switched on, and overriding it here would take the
+  // decision back off them.
+  if (Math.abs(e.maxPairCorrelation) >= 0.7 && e.maxPairLegs) {
+    const [i, j] = e.maxPairLegs
+    const a = legs[i]
+    const b = legs[j]
+    if (a && b) {
+      w.push(
+        `${a.player} ${a.marketLabel} and ${b.player} ${b.marketLabel} are ${e.maxPairCorrelation.toFixed(2)} correlated: they are close to the same bet, so this is less diversified than ${legs.length} legs looks. The average pair correlation (${e.avgPairCorrelation.toFixed(2)}) hides it.`,
+      )
+    }
+  }
   const lowConf = legs.filter((l) => l.confidence < 45)
   if (lowConf.length > 0) {
     w.push(`${lowConf.length} leg${lowConf.length > 1 ? "s are" : " is"} priced from thin evidence: ${lowConf.map((l) => l.player).join(", ")}.`)

@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { BOOK_PROFILES, RETAIL_WEIGHT_CAP } from "@/lib/quant/books"
 import { DEVIG_METHODS, type DevigMethod } from "@/lib/quant/odds"
-import { payoutMultiple, supportedPickCounts } from "@/lib/quant/payouts"
+import { payoutMultiple, payoutVerified, supportedPickCounts } from "@/lib/quant/payouts"
 import { exportState, importState } from "@/lib/store/local"
 import { useStore } from "@/lib/store/provider"
 import { companionsOf, creditPlan, leagueFor, pullPlan } from "@/lib/leagues"
@@ -26,7 +26,10 @@ export default function SettingsPage() {
   const { state, setSettings, replaceAll, saveError, ready } = useStore()
   const s = state.settings
   const dailyLeague = leagueFor(s.daily.league)
-  const dailyMarkets = marketsForLeague(dailyLeague.id, s.daily.markets)
+  // Width is free on a per-request feed, so what a press actually asks for
+  // depends on which feed is selected.
+  const billsPerRequest = s.oddsFeed.provider === "propline"
+  const dailyMarkets = marketsForLeague(dailyLeague.id, s.daily.markets, { billsPerRequest })
   const companions = companionsOf(dailyLeague.id)
   // What one press of the selected league's button would spend, companions
   // included, billed per market per game at each competition's own list.
@@ -35,7 +38,9 @@ export default function SettingsPage() {
   }).reduce(
     // Including the ranking call a depth-ranked companion buys, so this agrees
     // with the figure the Today screen gates on.
-    (a, p) => a + p.games * marketsForCompetition(p.league, s.daily.markets).length + (p.league.depthRanked ? 1 : 0),
+    (a, p) =>
+      a + p.games * marketsForCompetition(p.league, s.daily.markets, { billsPerRequest }).length +
+      (p.league.depthRanked ? 1 : 0),
     0,
   )
   const dailyCost = creditPlan(dailyLeague.id, dailyCredits)
@@ -197,7 +202,7 @@ export default function SettingsPage() {
               step={0.05}
               format={(v) => `${v.toFixed(2)}x`}
               onChange={(v) => setSettings((p) => ({ ...p, correlation: { ...p.correlation, strength: v } }))}
-              hint="Scales every correlation between legs. Zero reproduces the naive assumption that legs are independent, which is what most tools do and is wrong."
+              hint="Scales every correlation between legs. Zero reproduces the naive assumption that legs are independent, which is what most tools do and is wrong. The coefficients it scales are structural priors — reasoned from how the sports work, not a covariance matrix fitted to results — and they are applied identically in every league, so this dial is how you correct them."
             />
             <SliderRow
               label="Stale after"
@@ -283,7 +288,7 @@ export default function SettingsPage() {
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                 {s.oddsFeed.provider === "propline"
-                  ? "PropLine: billed per request, 1,000 a day free, so a full slate is about one request per game whatever the markets. Carries FanDuel, DraftKings, Bovada, BetOnline, LowVig and exchanges, plus PrizePicks and Underdog lines. Its Pinnacle feed has no basketball or football player props (NHL goalie saves only), so BetOnline and LowVig are the sharp references; a prop neither of them posts is left unpriced while \"require a sharp book\" is on."
+                  ? "PropLine: billed per request, 1,000 a day free, so a full slate is about one request per game whatever the markets. Carries FanDuel, DraftKings, Bovada, BetOnline, LowVig and exchanges, plus PrizePicks and Underdog lines. Its Pinnacle feed carries no basketball or football player props, so BetOnline and LowVig are the sharp references; a prop neither of them posts is left unpriced while \"require a sharp book\" is on."
                   : "The Odds API: carries Pinnacle's player props, the strongest reference there is, but bills per market per game against 500 credits a month."}
               </p>
             </div>
@@ -507,7 +512,7 @@ export default function SettingsPage() {
                 </Label>
                 <Input
                   value={s.daily.markets?.join(", ") ?? ""}
-                  placeholder={dailyLeague.markets.join(", ")}
+                  placeholder={dailyMarkets.join(", ")}
                   onChange={(e) => {
                     const parsed = e.target.value.split(",").map((x) => x.trim()).filter(Boolean)
                     setSettings((p) => ({
@@ -521,9 +526,15 @@ export default function SettingsPage() {
                   className="mt-1.5 font-mono text-xs"
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  Billed per market per game. Every extra market multiplies the cost. Leave this blank to follow the
-                  selected league, which is currently {dailyLeague.label}: {dailyLeague.markets.join(", ")}. Markets
-                  from another sport are ignored for that league, so a basketball list is never billed on NFL games.
+                  {billsPerRequest
+                    ? `PropLine bills per request, one per game whatever this says, so width costs nothing and a blank box pulls the whole board: ${dailyMarkets.join(", ")}. Narrowing it only loses pick'em lines.`
+                    : `Billed per market per game. Every extra market multiplies the cost, so a blank box pulls the markets with the deepest pick'em interest rather than all of them: ${dailyMarkets.join(", ")}.${
+                        dailyLeague.deepMarkets
+                          ? ` The rest of the ${dailyLeague.label} board is ${dailyLeague.deepMarkets.filter((m) => !dailyMarkets.includes(m)).join(", ")}; add any of them here, or switch the feed to PropLine, where they are free.`
+                          : ""
+                      }`}{" "}
+                  Markets from another sport are ignored for that league, so a basketball list is never billed on NFL
+                  games.
                 </p>
               </div>
             </div>
@@ -546,10 +557,14 @@ export default function SettingsPage() {
           <p className="flex items-start gap-2 rounded-lg border border-border/60 bg-card/40 p-3 text-xs leading-relaxed text-muted-foreground">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-accent" />
             <span>
-              These tables no longer price anything. They only pre-fill the capture form on the build screen, where you
-              read the multipliers off the app and confirm them before any expected value is computed. That is the only
-              way to be sure the number being used is the number you will actually be paid, since operators change these
-              by state, by promotion and by sport, and boosted picks override them outright.
+              These tables do not price a built entry: on the build screen they only pre-fill the capture form, where
+              you read the multipliers off the app and confirm them before any expected value is computed. That is the
+              only way to be sure the number being used is the number you will actually be paid, since operators change
+              these by state, by promotion and by sport, and boosted picks override them outright.{" "}
+              <strong className="font-semibold text-foreground">They are not inert on Today.</strong> There the
+              selected app and mode set the per-leg bar that decides which props become pick&apos;em targets at all and
+              which side each row recommends, which is why that screen marks the bar unverified on its face and
+              withholds the entry&apos;s expected value until a table has been confirmed.
             </span>
           </p>
           <div className="space-y-3">
@@ -557,7 +572,16 @@ export default function SettingsPage() {
               <div key={a.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <h3 className="font-mono text-sm font-semibold">{a.name}</h3>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {/* An unverified table still sets the Today bar, so this is
+                      a thing to act on rather than a field to read past. */}
+                  <span
+                    className={
+                      payoutVerified(a)
+                        ? "font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
+                        : "flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-accent"
+                    }
+                  >
+                    {payoutVerified(a) ? null : <TriangleAlert className="size-3" />}
                     {a.kind} · payouts {a.verifiedOn}
                   </span>
                 </div>

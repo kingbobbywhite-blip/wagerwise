@@ -25,9 +25,9 @@ import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { bookProfile, isSharp } from "@/lib/quant/books"
-import { DEFAULT_APPS, breakEvenLegProb, findApp, findMode } from "@/lib/quant/payouts"
+import { DEFAULT_APPS, findApp, findMode, pickemBar, pickemPricingMode } from "@/lib/quant/payouts"
 import type { FeedQuote } from "@/lib/quant/valuebets"
-import { buildPickemEntry, hasAppLines, upcomingQuotes } from "@/lib/today/build"
+import { buildPickemEntry, hasAppLines, pickemPlays, upcomingQuotes } from "@/lib/today/build"
 import { useDailyPicks, type PickInputs } from "@/hooks/use-daily-picks"
 import { snapshotFor } from "@/lib/quant/lines"
 import { entryExpectation } from "@/lib/tracker/entries"
@@ -117,7 +117,7 @@ export default function TodayPage() {
   const companions = companionsOf(leagueId)
   const wantCompanions = s.daily.companions && companions.length > 0
   // Only ever show the cache belonging to the league on screen. Rendering an
-  // NBA pull under an NHL heading would be worse than showing nothing.
+  // NBA pull under an NFL heading would be worse than showing nothing.
   const daily = state.daily[leagueId] ?? null
   // Only games still to start are worth a pick; the rest of the pull is kept,
   // so this undoes itself if the clock was wrong.
@@ -157,11 +157,12 @@ export default function TodayPage() {
       // The cap the REQUEST sends, not the league's default. Clamping the
       // preview to the league default while the body sent the dial's value
       // meant a raised cap was never priced and the gate never opened: 20 NBA
-      // games at four markets is 80 credits shown as 56.
+      // games at five markets is 100 credits shown as 70. The market list
+      // depends on the feed too, since width is free on a per-request one.
       pullPlan(leagueId, requestedMaxGames, { companions: wantCompanions }).reduce(
         (a, p) =>
           a +
-          p.games * marketsForCompetition(p.league, s.daily.markets).length +
+          p.games * marketsForCompetition(p.league, s.daily.markets, { billsPerRequest: usePropline }).length +
           // A competition that chooses its games by market depth buys one
           // sport-level call to do it. Whether it fires depends on the slate
           // being bigger than the cap, which cannot be known before the press,
@@ -170,7 +171,7 @@ export default function TodayPage() {
           (p.league.depthRanked ? 1 : 0),
         0,
       ),
-    [leagueId, requestedMaxGames, s.daily.markets, wantCompanions],
+    [leagueId, requestedMaxGames, s.daily.markets, wantCompanions, usePropline],
   )
   const cost = usePropline
     ? { message: null, severe: false, confirm: false, prompt: null, credits: 0 }
@@ -179,7 +180,7 @@ export default function TodayPage() {
   function selectLeague(next: LeagueId) {
     setSettings((prev) => ({
       ...prev,
-      // The game cap travels with the league: an NHL cap on an NBA slate
+      // The game cap travels with the league: an NFL cap on an NBA slate
       // misses part of it, and each league's cap is sized to its own slate.
       daily: { ...prev.daily, league: next, maxGames: LEAGUES[next].maxGames },
     }))
@@ -187,14 +188,20 @@ export default function TodayPage() {
     setNeedsKey(false)
   }
 
-  // The bar a pick'em leg has to clear, used only to place the DFS targets.
-  // It comes from the stored table, which is a guide, not a priced number.
-  const dfsBreakEven = React.useMemo(() => {
-    const app = findApp(s.apps, s.defaultAppId)
-    const mode = findMode(app, s.defaultModeId)
-    if (!mode) return 0.56
-    return breakEvenLegProb(mode, s.constraints.picks) ?? 0.56
-  }, [s.apps, s.defaultAppId, s.defaultModeId, s.constraints.picks])
+  const entryApp = findApp(s.apps, s.defaultAppId)
+  const entryMode = findMode(entryApp, s.defaultModeId)
+  // The bar a pick'em leg has to clear. It is not a priced number: it is read
+  // off a stored payout table, and every table this app ships is one nobody
+  // has confirmed against a real entry screen. Because that bar decides which
+  // props become targets at all and which side each row recommends, where it
+  // came from travels with it and is printed beside it.
+  const bar = React.useMemo(
+    () => pickemBar(entryApp, entryMode, s.constraints.picks),
+    [entryApp, entryMode, s.constraints.picks],
+  )
+  // An expected value is the table's number as much as the legs', so it is
+  // withheld when no table has been checked. Null here is the point.
+  const pricingMode = React.useMemo(() => pickemPricingMode(entryApp, entryMode), [entryApp, entryMode])
 
   // Everything the picks are built from, as one value. The build takes a second
   // or more on a full football Sunday, so it runs off the page's thread (see
@@ -218,14 +225,14 @@ export default function TodayPage() {
         },
         correlation: s.correlation ?? DEFAULT_CORRELATION,
         constraints: { ...s.constraints, picks: s.daily.parlayLegs },
-        dfsBreakEven,
+        dfsBreakEven: bar.prob,
         pickemMaxProb: s.daily.pickemMaxProb,
         parlayCount: 4,
         bettableBooks: s.oddsFeed.bettable,
         pickemLines,
       },
     }
-  }, [daily, upcoming, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, dfsBreakEven, s.oddsFeed.bettable, s.apps])
+  }, [daily, upcoming, pickemLines, leagueId, s.projection, s.daily, s.correlation, s.constraints, bar.prob, s.oddsFeed.bettable, s.apps])
   const built = useDailyPicks(pickInputs)
   // Picks are shown only while the pull they were built from is the one on
   // screen: never another league's, never a pull a refresh has replaced, and
@@ -240,26 +247,75 @@ export default function TodayPage() {
   const buildError = builtHere ? built.error : null
 
   // A ready-to-play pick'em entry at the default app's size and table.
-  const entryApp = findApp(s.apps, s.defaultAppId)
-  const entryMode = findMode(entryApp, s.defaultModeId)
   const entry = React.useMemo(
-    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, dfsBreakEven, 2, s.defaultAppId) : null),
-    [picks, s.constraints.picks, dfsBreakEven, s.defaultAppId],
+    () => (picks ? buildPickemEntry(picks.dfsTargets, s.constraints.picks, bar.prob, 2, s.defaultAppId, now) : null),
+    [picks, s.constraints.picks, bar.prob, s.defaultAppId, now],
+  )
+  // What the entry could not use, and why. An entry at the app's own lines
+  // leaves out every prop it has no line for, and the difference between "the
+  // app is not offering it" and "we never heard" is the user's to see.
+  const plays = React.useMemo(
+    () => (picks ? pickemPlays(picks.dfsTargets, s.defaultAppId, now) : null),
+    [picks, s.defaultAppId, now],
   )
   // Whether this pull carried the default app's own lines, so the entry and
   // the targets can say which line they are at.
   const appLinesLive = !!picks && hasAppLines(picks.dfsTargets, s.defaultAppId)
-  const pickemAppsSeen = Array.from(new Set((pickemLines ?? []).map((l) => l.app)))
-  const entryExp = entry && entryMode ? entryExpectation(entry.map((l) => l.prob), entryMode) : null
-  // The table shows the 30 likeliest at the books' line, but the entry ranks by
-  // the app's own line, so a leg can come from further down. Its row is where
-  // its line can be checked and overridden, so it is always shown.
+  // Which apps turned up, counted before the filter shed what nothing could
+  // price. Deriving it from the kept lines made an app whose every line was
+  // shed read as "posted none in this pull", contradicted by the shed-lines
+  // note in the same paragraph. A pull from before this was recorded has only
+  // the kept lines to go on, which is the old answer and the best available.
+  const pickemAppsSeen =
+    daily?.pickemAppsPosted ?? Array.from(new Set((pickemLines ?? []).map((l) => l.app)))
+  // Two different claims, and only one of them needs the payout table. The
+  // chance every leg hits is a product of leg probabilities and owes the table
+  // nothing, so it survives an unverified one. The expected value is a sum
+  // over the table's tiers and does not, so it is withheld rather than
+  // invented. The cut is exact rather than blunt.
+  const entryExp = entry && pricingMode ? entryExpectation(entry.map((l) => l.prob), pricingMode) : null
+  const entryAllHit = entry ? entry.reduce((a, l) => a * l.prob, 1) : null
+  // Nothing disappears without being counted. "Not offering it" and "we never
+  // heard" are different facts and lead to different next steps, so they are
+  // never merged into one number.
+  const leftOutText = React.useMemo(() => {
+    if (!plays || !plays.live) return null
+    const name = entryApp?.name ?? "the app"
+    const parts: string[] = []
+    if (plays.notOffered > 0) {
+      parts.push(`${plays.notOffered} ${name} covers and is not posting`)
+    }
+    if (plays.unknown > 0) {
+      parts.push(`${plays.unknown} no ${name} line reached at all`)
+    }
+    if (parts.length === 0) return null
+    return `Left out: ${parts.join("; ")}. Any of them inside the targets below is at the books' line, to check against your screen.`
+  }, [plays, entryApp])
+  // The 30 likeliest, plus every leg the entry used. A leg's row is where its
+  // line can be checked and overridden, so it is shown whether or not it made
+  // the top 30.
   const shownTargets = React.useMemo(() => {
     if (!picks) return []
-    const top = picks.dfsTargets.slice(0, 30)
+    // Ranked by the chance at the line you can actually play, which is exactly
+    // what the Chance column shows: the app's own line where this pull carried
+    // one, the books' line where it did not. Ranking everything by the books'
+    // line put props at the top that the app posts at a different number, so
+    // the order described a board nobody was looking at.
+    //
+    // A prop with no line from the app keeps its books' chance here rather
+    // than sinking below every playable row. It is out of the entry and it is
+    // still a row worth seeing: its own line can be typed in, and the card
+    // under the entry promises it is here.
+    const playable = new Map((plays?.plays ?? []).map((p) => [p.target.key, p.prob]))
+    const ranked = appLinesLive
+      ? [...picks.dfsTargets].sort(
+          (a, b) => (playable.get(b.key) ?? b.marketProb) - (playable.get(a.key) ?? a.marketProb),
+        )
+      : picks.dfsTargets
+    const top = ranked.slice(0, 30)
     const extra = (entry ?? []).map((l) => l.target).filter((t) => !top.includes(t))
     return [...top, ...extra]
-  }, [picks, entry])
+  }, [picks, entry, plays, appLinesLive])
 
   // Books you bet at that the cached pull has no prices from, usually because
   // the pull predates adding them. Refreshing brings them in.
@@ -326,7 +382,10 @@ export default function TodayPage() {
         quotes: data.quotes ?? [],
         events: data.events ?? [],
         requestsRemaining: data.requestsRemaining ?? null,
-        creditsSpent: data.estimatedCredits ?? 0,
+        // The feed's own figure when it reported one, the estimate when it did
+        // not. This field's name has always promised a measurement; until the
+        // per-request cost was read it only ever held a forecast.
+        creditsSpent: data.measuredCredits ?? data.estimatedCredits ?? 0,
         nextEvent: data.nextEvent,
         startedCount: data.startedCount ?? 0,
         provider: data.provider ?? s.oddsFeed.provider,
@@ -334,6 +393,9 @@ export default function TodayPage() {
         pickemLines: wantPickem ? (data.pickemLines ?? undefined) : undefined,
         pickemNote: data.pickemNote ?? null,
         depthNote: data.depthNote ?? null,
+        creditNote: data.creditNote ?? null,
+        creditsMeasured: data.measuredCredits != null,
+        pickemAppsPosted: wantPickem ? (data.pickemAppsPosted ?? undefined) : undefined,
       })
       // Keep this pull's lines, compacted, beside the slate itself. The slate
       // is overwritten by the next pull; this is not, and the same prop seen
@@ -385,6 +447,7 @@ export default function TodayPage() {
         toast.info(data.pickemNote)
       }
       if (data.depthNote) toast.info(data.depthNote)
+      if (data.creditNote) toast.info(data.creditNote)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -705,9 +768,23 @@ export default function TodayPage() {
 
             {picks.dfsTargets.length > 0 ? (
               <section className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-                <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-primary">
-                  Pick&apos;em entry · {entryApp?.name ?? "your app"} {s.constraints.picks}-pick {entryMode?.label ?? ""}
-                </h2>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-primary">
+                    Pick&apos;em entry · {entryApp?.name ?? "your app"} {s.constraints.picks}-pick {entryMode?.label ?? ""}
+                  </h2>
+                  {/* The bar below is read off this table, so whether anybody
+                      has checked it belongs next to the heading rather than
+                      buried in Settings. */}
+                  {bar.source === "placeholder" ? (
+                    <span className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-accent">
+                      <TriangleAlert className="size-3" /> no payout table
+                    </span>
+                  ) : !bar.verified ? (
+                    <span className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-accent">
+                      <TriangleAlert className="size-3" /> payouts unverified
+                    </span>
+                  ) : null}
+                </div>
                 {entry ? (
                   <>
                     <ul className="divide-y divide-border/40 text-sm">
@@ -720,29 +797,44 @@ export default function TodayPage() {
                           </span>
                           <span className="flex items-center gap-1.5 font-mono text-xs">
                             <SideBadge side={l.side} /> {l.line} · {pct(l.prob, 0)}
-                            {appLinesLive && l.source === "books" ? (
-                              <span className="text-[10px] text-muted-foreground">books&apos; line</span>
-                            ) : null}
                           </span>
                         </li>
                       ))}
                     </ul>
                     <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {entryAllHit != null ? `All ${entry.length} hit ${pct(entryAllHit, 1)} of the time. ` : ""}
                       {entryExp
-                        ? `All ${entry.length} hit ${pct(entryExp.pAllHit, 1)} of the time; at ${possessive(entryApp?.name ?? "the app")} stored ${entryMode?.label ?? ""} table that is ${signedPct(entryExp.ev)} expected per entry. `
-                        : ""}
-                      One leg per player and at most two per game, so it never holds both sides of a prop.{" "}
+                        ? `At ${possessive(entryApp?.name ?? "the app")} ${entryMode?.label ?? ""} table, read on ${entryApp?.verifiedOn}, that is ${signedPct(entryExp.ev)} expected per entry. `
+                        : `There is no expected value here, and that is deliberate: an expected value is the payout table's number as much as the legs', and ${bar.source === "placeholder" ? `no stored table covers a ${s.constraints.picks}-pick ${entryMode?.label ?? "entry"}` : `nobody has confirmed ${possessive(entryApp?.name ?? "this app")} stored table against a real entry screen`}. The chance above owes the table nothing, so it stands. To price the entry, build it on the `}
+                      {entryExp ? null : (
+                        <Link href="/build" className="text-primary underline underline-offset-2">
+                          build screen
+                        </Link>
+                      )}
+                      {entryExp ? "" : ", which reads the multiplier off your own screen and refuses to price anything until you confirm it. "}
+                      One leg per player — keyed on the player and blind to the market, so it never holds a man&apos;s
+                      points beside his pts+reb+ast, or his steals beside his steals+blocks — and at most two per
+                      game.{" "}
                       {appLinesLive
-                        ? `Lines are ${possessive(entryApp?.name ?? "the app")} own, read through PropLine at ${shortDate(daily!.fetchedAt)}, and each chance is the books' consensus at that exact line. Props ${entryApp?.name ?? "the app"} was not offering are left out.${entry.some((l) => l.source === "books") ? ` A leg marked "books' line" is from a game ${possessive(entryApp?.name ?? "the app")} lines did not come through for: check its line on your screen before playing it.` : ""} Lines move: if one on your screen differs, check it in the table below.`
-                        : `Lines are the books' own, which PrizePicks, Underdog, Sleeper and Real almost always post: if a line in your app differs, check it in the table below before playing it.`}{" "}
-                      Standard picks only; a goblin or demon changes the payout. Legs are treated as independent.
+                        ? `Every line here is ${possessive(entryApp?.name ?? "the app")} own, read through PropLine at ${shortDate(daily!.fetchedAt)}, and each chance is the books' consensus at that exact line. The entry is never built at a line ${entryApp?.name ?? "the app"} may not be posting, so a prop with no line from it is left out whichever reason it has.${leftOutText ? ` ${leftOutText}` : ""} Lines move: if one on your screen differs, check it in the table below.`
+                        : `No ${entryApp?.name ?? "app"} lines came through in this pull, so every line here is the books' own — the number to go and look for, not one ${entryApp?.name ?? "the app"} is known to be posting. PrizePicks, Underdog, Sleeper and Real almost always copy it; check each one on your screen before playing it.`}{" "}
+                      Standard picks only; a goblin or demon changes the payout. Legs are treated as independent, which
+                      is safe here rather than a shortcut: there is no same-player pair in the entry at all, and at
+                      most two per game leaves only shared game pace, which is small and pulls the answer the
+                      pessimistic way.
                     </p>
                   </>
                 ) : (
                   <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    Fewer than {s.constraints.picks} props clear the {pct(dfsBreakEven)} bar on this slate, one per
+                    Fewer than {s.constraints.picks} props clear the {pct(bar.prob)} bar on this slate, one per
                     player{appLinesLive ? `, at the lines ${entryApp?.name ?? "the app"} is actually posting` : ""}.
                     Padding the entry with coin flips is the bet the bar exists to stop: play a smaller entry, or pass.
+                    {appLinesLive && leftOutText ? ` ${leftOutText}` : ""}
+                    {bar.source === "placeholder"
+                      ? ` That bar is a placeholder, not a table: no stored payout covers a ${s.constraints.picks}-pick ${entryMode?.label ?? "entry"}.`
+                      : !bar.verified
+                        ? " That bar comes from a payout table nobody has confirmed against a real entry screen, so treat it as a guide rather than a threshold."
+                        : ""}
                   </p>
                 )}
               </section>
@@ -766,8 +858,10 @@ export default function TodayPage() {
                       : "hidden"
                   }
                 >
-                  Most likely to hit first. Chance is the side the books favour, at the line they hang, which is
-                  the line a pick&apos;em app almost always copies.{" "}
+                  Most likely to hit first.{" "}
+                  {appLinesLive
+                    ? `Chance is the favoured side at ${possessive(entryApp?.name ?? "your app")} own line where this pull carried one, and at the books' line where it did not. The row always names which, because only one of the two is on your screen.`
+                    : "Chance is the side the books favour, at the line they hang, which is the line a pick'em app almost always copies — not a line any app is known to be posting."}{" "}
                   {!wantPickem
                     ? "The pick'em apps' own lines are switched off in Settings, so if your app shows a different line, type it in. "
                     : pickemAppsSeen.length > 0
@@ -782,9 +876,14 @@ export default function TodayPage() {
                         ? "No pick'em lines came through in this pull, so if your app shows a different line, type it in. "
                         : "Nothing here can see what PrizePicks or Underdog are offering unless a PropLine key is set in Settings, so if your app shows a different line, type it in. "}
                   You get one answer: the over, the under, or pass. Never both: on a pick&apos;em app one
-                  of the two always loses. The bar is a {pct(dfsBreakEven)} per-leg hit rate, from your default{" "}
+                  of the two always loses. The bar is a {pct(bar.prob)} per-leg hit rate, from your default{" "}
                   {s.constraints.picks}-pick entry, for standard picks; a goblin or demon pays differently and needs
                   its own bar.
+                  {bar.source === "placeholder"
+                    ? ` No stored payout table covers that entry size, so the bar is a placeholder and the line between a target and a pass is softer than it looks.`
+                    : !bar.verified
+                      ? ` That bar is read off a payout table nobody has confirmed, so the line between a target and a pass is softer than it looks.`
+                      : ""}
                   {wantPickem && daily?.pickemNote ? ` ${daily.pickemNote}` : ""}
                 </p>
                 <div
@@ -806,11 +905,21 @@ export default function TodayPage() {
                     </thead>
                     <tbody>
                       {shownTargets.map((t) => (
-                        <DfsTargetRow key={t.key} t={t} bar={dfsBreakEven} app={s.defaultAppId} />
+                        <DfsTargetRow key={t.key} t={t} bar={bar.prob} app={s.defaultAppId} />
                       ))}
                     </tbody>
                   </table>
                 </div>
+                {/* A table that silently stops at thirty reads as the whole
+                    board. It is not, and the entry card above points at these
+                    rows, so the count has to be on the page. */}
+                {picks.dfsTargets.length > shownTargets.length ? (
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Showing {shownTargets.length} of {picks.dfsTargets.length} targets — the likeliest at the line you
+                    can play, plus every leg the entry used. The rest priced the same way and are left out of this
+                    table only for length.
+                  </p>
+                ) : null}
                 {picks.lopsided.length > 0 ? (
                   <details className="rounded-lg border border-dashed border-border/60 p-3 text-[11px] leading-relaxed text-muted-foreground">
                     <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.12em]">
@@ -847,6 +956,26 @@ export default function TodayPage() {
 
             <section className="rounded-lg border border-border/60 bg-card/40 p-4">
               <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">Games</h2>
+              {/* What the pull cost, said once. The figure beside the Refresh
+                  button is a forecast made before the press; this is what the
+                  feed charged, when the feed said. */}
+              {daily ? (
+                <p className="mt-2 max-w-3xl font-mono text-[11px] leading-relaxed text-muted-foreground">
+                  {daily.provider === "propline"
+                    ? `${daily.creditsSpent > 0 ? `${daily.creditsSpent} ` : ""}one request per game against PropLine's daily 1,000, which it does not itemise.`
+                    : daily.creditsMeasured
+                      ? `${daily.creditsSpent} feed credits, billed by the feed itself.`
+                      : daily.creditsMeasured === false
+                        ? `About ${daily.creditsSpent} feed credits, estimated: this pull's responses did not say what they cost.`
+                        : /* The field is absent, so this pull predates the
+                             measurement. Saying its responses were silent
+                             would be a claim about responses nothing read. */
+                          `About ${daily.creditsSpent} feed credits, estimated. This pull was made before the app read what the feed charged; refresh to measure it.`}
+                </p>
+              ) : null}
+              {daily?.creditNote ? (
+                <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-muted-foreground">{daily.creditNote}</p>
+              ) : null}
               {daily?.depthNote ? (
                 <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-muted-foreground">{daily.depthNote}</p>
               ) : null}

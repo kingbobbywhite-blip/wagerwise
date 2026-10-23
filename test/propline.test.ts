@@ -105,19 +105,21 @@ describe("PropLine requests", () => {
     expect(proplineSportKey("nba")).toBe("basketball_nba")
     expect(proplineSportKey("nfl")).toBe("football_nfl")
     expect(proplineSportKey("cfb")).toBe("football_ncaaf")
-    expect(proplineSportKey("nhl")).toBe("hockey_nhl")
   })
 
   it("keeps the key out of the URL", () => {
     const url = proplineEventOddsUrl(4821, { markets: ["player_points"], league: "nba" })
     expect(url).toBe("https://api.prop-line.com/v1/sports/basketball_nba/events/4821/odds?markets=player_points")
-    expect(proplineEventsUrl("nhl")).toBe("https://api.prop-line.com/v1/sports/hockey_nhl/events")
+    expect(proplineEventsUrl("nfl")).toBe("https://api.prop-line.com/v1/sports/football_nfl/events")
   })
 
-  it("translates the goalie saves key and drops duplicates", () => {
-    expect(proplineMarkets(["player_shots_on_goal", "player_total_saves", "goalie_saves"])).toEqual([
-      "player_shots_on_goal",
-      "goalie_saves",
+  it("drops duplicate market keys from a request", () => {
+    // Nothing is aliased while both feeds name every market Today pulls the
+    // same way (hockey's "goalie_saves" was the last one and the NHL is gone),
+    // so this is the de-duplication alone.
+    expect(proplineMarkets(["player_points", "player_rebounds", "player_points"])).toEqual([
+      "player_points",
+      "player_rebounds",
     ])
   })
 
@@ -441,17 +443,114 @@ describe("closed games", () => {
   })
 })
 
-import { onlyPricedPlayers } from "@/lib/odds-feed/propline"
+import { unpricedPickemNote, usablePickemLines } from "@/lib/odds-feed/propline"
 
-describe("onlyPricedPlayers", () => {
-  it("keeps only lines for players the books priced, matched on the normalised name", () => {
+const GAME = "Minnesota Timberwolves@Oklahoma City Thunder"
+const priced = (player: string, market: "PTS" | "REB", gameId = GAME) => ({
+  player,
+  playerKey: player.toLowerCase(),
+  market: market as never,
+  gameId,
+})
+
+/**
+ * Which lines are worth keeping, and the one that looks like dead weight and
+ * is not.
+ *
+ * A line reaches a board row only through `player|market`, so a line whose own
+ * prop nobody priced can never be played. But it is also the evidence that an
+ * app covers a game and market, and that evidence is read for OTHER players'
+ * rows. Keeping only the playable half is what makes the screen say "no
+ * PrizePicks line reached at all" about a game and market where PrizePicks did
+ * post one.
+ */
+describe("usablePickemLines", () => {
+  it("drops a pick'em line in a market no sportsbook priced in that game", () => {
     const r = normalizeProplineEvent(event, "basketball", BEFORE)
-    const extra = { ...r.pickemLines[0], player: "Nobody Priced", playerKey: "nobody priced" }
-    const kept = onlyPricedPlayers([...r.pickemLines, extra], r.quotes)
-    expect(kept).toHaveLength(r.pickemLines.length)
-    expect(kept.every((l) => l.playerKey === "anthony edwards")).toBe(true)
-    expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards (MIN)" }])).toHaveLength(0)
-    expect(onlyPricedPlayers(r.pickemLines, [{ player: "Anthony Edwards" }])).toHaveLength(r.pickemLines.length)
+    // Rebounds is suspended on the only book that posts it, so no rebounds
+    // quote survives anywhere in this fixture.
+    const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
+    const { lines, dropped } = usablePickemLines([...r.pickemLines, rebounds], r.quotes)
+    expect(lines).toHaveLength(r.pickemLines.length)
+    expect(dropped.map((d) => d.line.market)).toEqual(["REB"])
+    expect(dropped.map((d) => d.reason)).toEqual(["market-unpriced"])
+  })
+
+  it("keeps a line for a player the books skipped when it is the app's only evidence of that market", () => {
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    // PrizePicks posts rebounds for Edwards; the books price rebounds only for
+    // Gobert. Edwards' rebounds line is unplayable and is the one thing that
+    // says PrizePicks covers rebounds in this game, which is what decides
+    // whether GOBERT's rebounds row reads as "not offered" or "never heard".
+    const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
+    const quotes = [...r.quotes, priced("Rudy Gobert", "REB")]
+    const { lines, dropped } = usablePickemLines([rebounds], quotes)
+    expect(lines).toHaveLength(1)
+    expect(dropped).toHaveLength(0)
+  })
+
+  it("still drops a line for a player nobody priced at all", () => {
+    // The evidence clause must not rescue a stranger: with no quotes in any
+    // market there is no game to attribute the line to.
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const stranger = { ...r.pickemLines[0], player: "Nobody Priced", playerKey: "nobody priced" }
+    const { lines, dropped } = usablePickemLines([...r.pickemLines, stranger], r.quotes)
+    expect(lines).toHaveLength(r.pickemLines.length)
+    expect(dropped.map((d) => d.line.playerKey)).toEqual(["nobody priced"])
+    // And for the RIGHT reason: nobody priced the player, which is a different
+    // fact from nobody pricing the market.
+    expect(dropped.map((d) => d.reason)).toEqual(["player-unpriced"])
+  })
+
+  it("matches the player on the normalised name, team tag and all", () => {
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    expect(usablePickemLines(r.pickemLines, [priced("Anthony Edwards", "PTS")]).lines).toHaveLength(
+      r.pickemLines.length,
+    )
+    // "(MIN)" is stripped from a description, never from a quote's player, so a
+    // quote that still carries it is a different person as far as this is
+    // concerned — and nothing rescues it, because nothing priced the market.
+    expect(usablePickemLines(r.pickemLines, [priced("Anthony Edwards (MIN)", "PTS")]).lines).toHaveLength(0)
+  })
+
+  it("names the markets it left out instead of just shrinking the list", () => {
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
+    const { dropped } = usablePickemLines([...r.pickemLines, rebounds], r.quotes)
+    const note = unpricedPickemNote(dropped)!
+    expect(note).toContain("1 pick'em line")
+    expect(note).toContain("Rebounds")
+    expect(note).toContain("in the game it covers")
+    expect(unpricedPickemNote([])).toBeNull()
+  })
+
+  it("does not blame a market for a player the books never priced", () => {
+    // The commonest drop by far is a bench player an app posts and the books
+    // do not. Telling that user "no sportsbook priced Points in the game it
+    // covers" is false on its face, with a table of Points targets for that
+    // very game directly underneath it — the books priced Points there, just
+    // not for him.
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const bench = { ...r.pickemLines[0], player: "Josh Minott", playerKey: "josh minott" }
+    const { dropped } = usablePickemLines([bench], r.quotes)
+    const note = unpricedPickemNote(dropped)!
+    expect(note).toContain("Josh Minott")
+    expect(note).toContain("at all")
+    expect(note).not.toContain("in the game it covers")
+  })
+
+  it("keeps the two reasons apart when a pull hits both", () => {
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const bench = { ...r.pickemLines[0], player: "Josh Minott", playerKey: "josh minott" }
+    const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
+    const { dropped } = usablePickemLines([bench, rebounds], r.quotes)
+    expect(dropped.map((d) => d.reason).sort()).toEqual(["market-unpriced", "player-unpriced"])
+    const note = unpricedPickemNote(dropped)!
+    // One clause per reason, never one sentence covering both: they are
+    // different facts and the loudest one is false about the other.
+    expect(note).toContain("2 pick'em lines")
+    expect(note).toContain("1 because no sportsbook priced Josh Minott at all")
+    expect(note).toContain("1 because no sportsbook priced Rebounds in the game it covers")
   })
 })
 

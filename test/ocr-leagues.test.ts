@@ -108,7 +108,13 @@ describe("reading the league off the screen", () => {
   })
 
   it("still reads the leagues it always did", () => {
-    expect(leagueFromScreen("NHL TOR 2 vs BOS 1")).toBe("nhl")
     expect(leagueFromScreen("NBA MIN 110 vs OKC 104")).toBe("nba")
+  })
+
+  it("still reads an NHL screen, although Today no longer prices the NHL", () => {
+    // The tab is gone, and a logged NHL entry still has to read back. Forget
+    // the league and its "Points" leg is typed as the basketball market, which
+    // is a different stat with a different spread. See RETIRED_LEAGUES.
+    expect(leagueFromScreen("NHL TOR 2 vs BOS 1")).toBe("nhl")
   })
 })

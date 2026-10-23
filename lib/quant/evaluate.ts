@@ -135,6 +135,19 @@ export interface SimulationResult {
   outcomes: { multiple: number; prob: number }[]
   correlationShrinkage: number
   avgPairCorrelation: number
+  /**
+   * The strongest single pair, signed, by absolute value.
+   *
+   * The average answers how spread out the entry is. This answers whether any
+   * two legs are the same bet, and the average cannot: one pair at 0.92 inside
+   * a six-leg entry averages to 0.06 and reads as near-independent. That is
+   * also why maxAvgCorrelation can never bite on a duplicate pair, and why a
+   * near-duplicate went unreported until the NBA board got wide enough to
+   * offer a player's points beside his pts+reb+ast as a matter of routine.
+   */
+  maxPairCorrelation: number
+  /** Which two legs, by index, so the warning can name them. Null with fewer than two legs. */
+  maxPairLegs: [number, number] | null
   simulations: number
 }
 
@@ -192,7 +205,10 @@ export function simulateSlip(
   const cfg = opts.correlation ?? DEFAULT_CORRELATION
 
   if (n === 0) {
-    return { hitDistribution: [1], pAllHit: 0, outcomes: [{ multiple: 0, prob: 1 }], correlationShrinkage: 0, avgPairCorrelation: 0, simulations: 0 }
+    return {
+      hitDistribution: [1], pAllHit: 0, outcomes: [{ multiple: 0, prob: 1 }],
+      correlationShrinkage: 0, avgPairCorrelation: 0, maxPairCorrelation: 0, maxPairLegs: null, simulations: 0,
+    }
   }
 
   const matrix = opts.matrix ?? correlationMatrix(legs.map(toCorrelationLeg), cfg)
@@ -200,10 +216,19 @@ export function simulateSlip(
 
   let pairSum = 0
   let pairCount = 0
+  let maxPairCorrelation = 0
+  let maxPairLegs: [number, number] | null = null
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       pairSum += matrix[i][j]
       pairCount++
+      // Ranked on magnitude, reported signed: a strongly NEGATIVE pair is also
+      // two legs that cannot both be right, and hiding it behind an absolute
+      // value would lose which way round it is.
+      if (Math.abs(matrix[i][j]) > Math.abs(maxPairCorrelation)) {
+        maxPairCorrelation = matrix[i][j]
+        maxPairLegs = [i, j]
+      }
     }
   }
 
@@ -275,6 +300,8 @@ export function simulateSlip(
     outcomes,
     correlationShrinkage: shrinkage,
     avgPairCorrelation: pairCount > 0 ? pairSum / pairCount : 0,
+    maxPairCorrelation,
+    maxPairLegs,
     simulations,
   }
 }
@@ -371,6 +398,10 @@ export interface SlipEvaluation {
   kelly: number
   correlationShrinkage: number
   avgPairCorrelation: number
+  /** The strongest single pair, signed. See SimulationResult. */
+  maxPairCorrelation: number
+  /** Which two legs that pair is, by index into the slip's legs. */
+  maxPairLegs: [number, number] | null
 
   /**
    * Per-leg hit rate at which this entry breaks even, summed across every paying
@@ -451,6 +482,8 @@ export function evaluateSlip(
     kelly: kellyForOutcomes(sim.outcomes),
     correlationShrinkage: sim.correlationShrinkage,
     avgPairCorrelation: sim.avgPairCorrelation,
+    maxPairCorrelation: sim.maxPairCorrelation,
+    maxPairLegs: sim.maxPairLegs,
   }
 }
 

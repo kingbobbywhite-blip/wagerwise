@@ -23,8 +23,8 @@ export const NBA_SPORT_KEY = "basketball_nba"
 /**
  * Feed market keys the API exposes per league.
  *
- * The map below covers every basketball and NFL market we model; the NHL has
- * its own further down. Which of these a given league
+ * The map below covers every basketball and NFL market we model; the hockey
+ * keys have their own map further down. Which of these a given league
  * actually posts is a league question, answered in lib/leagues, because asking
  * for a market a league never posts may cost a credit and return nothing. See
  * UNVERIFIED_EMPTY_MARKET_COST below before leaning on that.
@@ -48,12 +48,14 @@ export const NBA_SPORT_KEY = "basketball_nba"
  * no per-event term on the sport-level endpoint, which is what makes the depth
  * ranking below affordable.
  *
- * How to settle it in one pull: make the same per-event request twice, once
- * including a market the game does not post and once without, and compare the
- * x-requests-last response header. Until someone does, nothing here should
- * claim the saving as a fact. No decision in the app rests on it either way:
- * market lists are trimmed because an unpriced prop is a worse board, and that
- * is true whatever the billing turns out to be.
+ * The app now MEASURES it rather than speculating: every per-event request's
+ * x-requests-last is read and summed, and the Today screen says so when the
+ * feed bills less than the estimate, which is this question answering itself.
+ * That answer is for one key on one plan on one slate, which is not the same
+ * as the vendor documenting it, so this constant stays until the docs do. No
+ * decision in the app rests on it either way: market lists are trimmed because
+ * an unpriced prop is a worse board, and that is true whatever the billing
+ * turns out to be.
  */
 export const UNVERIFIED_EMPTY_MARKET_COST =
   "Whether a market that returns no data still costs a credit is unverified: the docs are transcribed both ways."
@@ -91,7 +93,12 @@ export const FEED_MARKET_MAP: Record<string, MarketKey> = {
 export const DEFAULT_FEED_MARKETS = Object.keys(FEED_MARKET_MAP)
 
 /**
- * NHL feed markets. Several share a key with basketball ("player_points",
+ * NHL feed markets, kept for reading rather than for pulling.
+ *
+ * No league Today prices is hockey any more (see RETIRED_LEAGUES), so nothing
+ * requests these. They stay because a stored or imported payload can still
+ * name them, and because feedKeyFor has to answer for a hockey market on a
+ * logged entry. Several share a key with basketball ("player_points",
  * "player_assists", "player_blocked_shots") but mean a different stat with a
  * different spread, so hockey has its own map rather than entries in the one
  * above.
@@ -133,13 +140,32 @@ export function sportOfFeedKey(sportKey: string | undefined): Sport | undefined 
  * UNVERIFIED_EMPTY_MARKET_COST). Nothing
  * left, or nothing asked for, means the league's own defaults.
  */
-export function marketsForLeague(league: LeagueId, requested?: string[] | null): string[] {
-  const sport = leagueFor(league).sport
+export function marketsForLeague(
+  league: LeagueId,
+  requested?: string[] | null,
+  opts: MarketBreadth = {},
+): string[] {
+  const config = leagueFor(league)
+  const sport = config.sport
   const kept = (requested ?? []).filter((k) => {
     const m = feedMarketFor(k, sport)
     return !!m && marketSport(m) === sport
   })
-  return kept.length > 0 ? kept : leagueFor(league).markets
+  if (kept.length > 0) return kept
+  return opts.billsPerRequest ? (config.deepMarkets ?? config.markets) : config.markets
+}
+
+/**
+ * How the feed bills, which is the only thing that decides how wide to ask.
+ *
+ * The Odds API charges markets x games, so a market list is a budget. PropLine
+ * charges one request per game whatever the list, so the same budget buys
+ * nothing and every market left out is a pick'em line that could have been
+ * read and was not.
+ */
+export interface MarketBreadth {
+  /** True for a feed billed per request rather than per market per game. */
+  billsPerRequest?: boolean
 }
 
 /**
@@ -151,8 +177,15 @@ export function marketsForLeague(league: LeagueId, requested?: string[] | null):
  * come back empty there: letting a four-market NFL list travel across would
  * quietly undo the saving and bill for the empty responses again.
  */
-export function marketsForCompetition(competition: LeagueConfig, requested?: string[] | null): string[] {
-  return competition.companionOnly ? competition.markets : marketsForLeague(competition.id, requested)
+export function marketsForCompetition(
+  competition: LeagueConfig,
+  requested?: string[] | null,
+  opts: MarketBreadth = {},
+): string[] {
+  if (competition.companionOnly) {
+    return opts.billsPerRequest ? (competition.deepMarkets ?? competition.markets) : competition.markets
+  }
+  return marketsForLeague(competition.id, requested, opts)
 }
 
 /** Reverse lookup, used when requesting only the markets on your board. */

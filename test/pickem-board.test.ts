@@ -20,10 +20,16 @@ import type { LeagueId } from "@/lib/leagues"
  * The pick'em board: every number this section prints has to be a number you
  * can find on PrizePicks, Underdog or FanDuel.
  *
- * The NHL is where this failed hardest, for two separate reasons, and both are
- * pinned here. The sportsbook side of the app is deliberately untouched by
- * either: a lopsided price is still a price, and still worth betting if it is
- * wrong. It is just not a pick'em pick.
+ * This failed hardest in two separate ways, and both are pinned here: ladders
+ * printing thresholds no board has ever shown, and props whose favoured side
+ * is so lopsided no pick'em app would offer the pick at all. The NHL was where
+ * both were found, and these now pin them on the NBA, which is the league the
+ * board is built for. Low-count basketball markets (blocks, steals, threes) hit
+ * the same arithmetic the hockey ones did.
+ *
+ * The sportsbook side of the app is deliberately untouched by either: a
+ * lopsided price is still a price, and still worth betting if it is wrong. It
+ * is just not a pick'em pick.
  */
 
 const NOW = Date.parse("2026-01-14T18:00:00Z")
@@ -36,7 +42,7 @@ function quote(
   line: number,
   over: number | null,
   under: number | null,
-  gameId = "TOR@BOS",
+  gameId = "MIN@OKC",
 ): FeedQuote {
   return {
     book, line, overOdds: over, underOdds: under, fetchedAt: null,
@@ -46,7 +52,7 @@ function quote(
   }
 }
 
-/** Three books on the same line, which is how a real NHL prop arrives. */
+/** Three books on the same line, which is how a real prop arrives. */
 function priced(
   player: string,
   market: FeedQuote["market"],
@@ -73,27 +79,27 @@ function optsFor(league: LeagueId, breakEven = 0.577) {
 }
 
 describe("targets sit on lines the books are actually hanging", () => {
-  it("keeps a low-count hockey ladder inside the board", () => {
-    // Shots on goal 3.5. Before this, the ladder swept fifteen either side of
-    // the projection and printed thresholds up to 18.5 shots.
-    const targets = buildDfsTargets(priced("Auston Matthews", "SOG", 3.5, -115, -105), optsFor("nhl"))
+  it("keeps a low-count ladder inside the board", () => {
+    // Blocked shots 1.5. Before this, the ladder swept fifteen either side of
+    // the projection and printed thresholds up at 16.5 blocks.
+    const targets = buildDfsTargets(priced("Rim Protector", "BLK", 1.5, -115, -105), optsFor("nba"))
     expect(targets).toHaveLength(1)
     const t = targets[0]
-    expect(t.ladder.length).toBeLessThanOrEqual(6)
+    expect(t.ladder.length).toBeLessThanOrEqual(4)
     for (const step of t.ladder) {
-      // Every row is a shots-on-goal line a board really posts.
-      expect(step.line).toBeGreaterThanOrEqual(1.5)
-      expect(step.line).toBeLessThanOrEqual(5.5)
+      // Every row is a blocks line a board really posts.
+      expect(step.line).toBeGreaterThanOrEqual(0.5)
+      expect(step.line).toBeLessThanOrEqual(2.5)
     }
     // And the thresholds are inside it, so the rule on the row names a real line.
     for (const line of [t.overAt, t.underAt].filter((l): l is number => l != null)) {
-      expect(line).toBeGreaterThanOrEqual(1.5)
-      expect(line).toBeLessThanOrEqual(5.5)
+      expect(line).toBeGreaterThanOrEqual(0.5)
+      expect(line).toBeLessThanOrEqual(2.5)
     }
   })
 
-  it("keeps a goalie's ladder near the posted save line, not down at eleven saves", () => {
-    const targets = buildDfsTargets(priced("Jeremy Swayman", "SAVES", 27.5, -110, -110), optsFor("nhl"))
+  it("keeps a high-count ladder near the posted line, not down in single figures", () => {
+    const targets = buildDfsTargets(priced("Scorer", "PTS", 27.5, -110, -110), optsFor("nba"))
     const t = targets[0]
     expect(Math.min(...t.ladder.map((s) => s.line))).toBeGreaterThan(20)
     expect(Math.max(...t.ladder.map((s) => s.line))).toBeLessThan(35)
@@ -111,7 +117,7 @@ describe("targets sit on lines the books are actually hanging", () => {
 
   it("falls back to a fixed window when no posted lines are given", () => {
     // A caller pricing a hypothetical has no board to stay inside.
-    const dist = distributionFor("HKY_PTS", 0.6)
+    const dist = distributionFor("BLK", 0.6)
     const free = dfsTargetsFor(0.6, dist, 0.577)
     const onBoard = dfsTargetsFor(0.6, dist, 0.577, { postedLines: [0.5] })
     expect(Math.max(...free.ladder.map((s) => s.line))).toBeGreaterThan(10)
@@ -121,17 +127,17 @@ describe("targets sit on lines the books are actually hanging", () => {
 
 describe("a pick'em app does not post a pick it cannot lose", () => {
   it("drops a prop whose every posted line is more lopsided than the ceiling", () => {
-    // Power-play points 0.5 for a player who is not on the unit: the books
-    // price the under near -900, an 88% leg. Correct arithmetic, and not a
-    // pick you can place on PrizePicks, Underdog or FanDuel.
-    const targets = buildDfsTargets(priced("Fourth Liner", "HKY_PPP", 0.5, 600, -900), optsFor("nhl"))
+    // Blocked shots 0.5 for a guard who does not block: the books price the
+    // under near -900, an 89% leg. Correct arithmetic, and not a pick you can
+    // place on PrizePicks, Underdog or FanDuel.
+    const targets = buildDfsTargets(priced("Never Blocks", "BLK", 0.5, 600, -900), optsFor("nba"))
     expect(targets).toHaveLength(0)
   })
 
   it("still takes a lopsided-but-plausible line, which is where the edge lives", () => {
-    // Points 0.5 at -175: a 63% under on a line both apps post. This is the
-    // trade the NHL section exists for and it must survive the ceiling.
-    const targets = buildDfsTargets(priced("Depth Forward", "HKY_PTS", 0.5, 145, -175), optsFor("nhl"))
+    // Blocked shots 0.5 at -175: a 62% under on a line the apps really post.
+    // This is the trade the board exists for and it must survive the ceiling.
+    const targets = buildDfsTargets(priced("Sometimes Blocks", "BLK", 0.5, 145, -175), optsFor("nba"))
     expect(targets).toHaveLength(1)
     expect(targets[0].marketProb).toBeLessThan(PICKEM_MAX_PROB)
     expect(targets[0].marketLine).toBe(0.5)
@@ -139,46 +145,46 @@ describe("a pick'em app does not post a pick it cannot lose", () => {
 
   it("counts and names what the ceiling removed instead of just dropping it", () => {
     const slate = [
-      ...priced("Auston Matthews", "SOG", 3.5, -125, 105),
-      ...priced("Fourth Liner", "HKY_PPP", 0.5, 600, -900),
+      ...priced("Shooter", "3PM", 2.5, -125, 105),
+      ...priced("Never Blocks", "BLK", 0.5, 600, -900),
     ]
-    const board = buildDfsBoard(slate, optsFor("nhl"))
-    expect(board.targets.map((t) => t.player)).toEqual(["Auston Matthews"])
+    const board = buildDfsBoard(slate, optsFor("nba"))
+    expect(board.targets.map((t) => t.player)).toEqual(["Shooter"])
     expect(board.lopsided).toHaveLength(1)
     const [out] = board.lopsided
-    expect(out.player).toBe("Fourth Liner")
-    expect(out.marketLabel).toBe("Power Play Points")
+    expect(out.player).toBe("Never Blocks")
+    expect(out.marketLabel).toBe("Blocks")
     expect(out.line).toBe(0.5)
     expect(out.prob).toBeGreaterThan(PICKEM_MAX_PROB)
     // And buildDailyPicks carries it to the screen.
-    const picks = buildDailyPicks(slate, optsFor("nhl"))
-    expect(picks.lopsided.map((l) => l.player)).toEqual(["Fourth Liner"])
+    const picks = buildDailyPicks(slate, optsFor("nba"))
+    expect(picks.lopsided.map((l) => l.player)).toEqual(["Never Blocks"])
   })
 
   it("keeps everything when the dial is opened all the way", () => {
-    const slate = priced("Fourth Liner", "HKY_PPP", 0.5, 600, -900)
-    expect(buildDfsBoard(slate, { ...optsFor("nhl"), pickemMaxProb: 1 }).lopsided).toHaveLength(0)
-    expect(buildDfsBoard(slate, { ...optsFor("nhl"), pickemMaxProb: 1 }).targets).toHaveLength(1)
+    const slate = priced("Never Blocks", "BLK", 0.5, 600, -900)
+    expect(buildDfsBoard(slate, { ...optsFor("nba"), pickemMaxProb: 1 }).lopsided).toHaveLength(0)
+    expect(buildDfsBoard(slate, { ...optsFor("nba"), pickemMaxProb: 1 }).targets).toHaveLength(1)
     // And tightening it removes a prop the default keeps.
-    const ordinary = priced("Depth Forward", "HKY_PTS", 0.5, 145, -175)
-    expect(buildDfsBoard(ordinary, optsFor("nhl")).targets).toHaveLength(1)
-    expect(buildDfsBoard(ordinary, { ...optsFor("nhl"), pickemMaxProb: 0.55 }).lopsided).toHaveLength(1)
+    const ordinary = priced("Sometimes Blocks", "BLK", 0.5, 145, -175)
+    expect(buildDfsBoard(ordinary, optsFor("nba")).targets).toHaveLength(1)
+    expect(buildDfsBoard(ordinary, { ...optsFor("nba"), pickemMaxProb: 0.55 }).lopsided).toHaveLength(1)
   })
 
   it("keeps a prop an app is really posting, whatever the prior says", () => {
     // The ceiling is a prior about what a board offers. When PropLine has told
     // us the board's actual line, the prior has nothing left to say.
-    const quotes = priced("Fourth Liner", "HKY_PPP", 0.5, 600, -900)
-    expect(buildDfsTargets(quotes, optsFor("nhl"))).toHaveLength(0)
+    const quotes = priced("Never Blocks", "BLK", 0.5, 600, -900)
+    expect(buildDfsTargets(quotes, optsFor("nba"))).toHaveLength(0)
     const withLine = buildDfsTargets(quotes, {
-      ...optsFor("nhl"),
+      ...optsFor("nba"),
       pickemLines: [
         {
           app: "prizepicks",
-          player: "Fourth Liner",
-          playerKey: "fourth liner",
-          market: "HKY_PPP",
-          gameId: "TOR@BOS",
+          player: "Never Blocks",
+          playerKey: "never blocks",
+          market: "BLK",
+          gameId: "MIN@OKC",
           line: 0.5,
           pickType: "standard",
           over: { multiplier: null },
@@ -192,7 +198,7 @@ describe("a pick'em app does not post a pick it cannot lose", () => {
   })
 
   it("prefers the balanced posted line when the most-posted one is unplayable", () => {
-    const dist = distributionFor("SOG", 3.2)
+    const dist = distributionFor("3PM", 3.2)
     // Two books hang 0.5 (a near-certain over) and one hangs 3.5.
     const chosen = boardLine([0.5, 0.5, 3.5], 3.2, dist)
     expect(chosen!.line).toBe(3.5)
@@ -208,15 +214,15 @@ describe("a pick'em app does not post a pick it cannot lose", () => {
     expect(boardLine([], 3.2, dist)).toBeNull()
   })
 
-  it("builds an NHL entry only from props the apps post", () => {
+  it("builds an entry only from props the apps post", () => {
     const slate = [
-      ...priced("Auston Matthews", "SOG", 3.5, -125, 105),
-      ...priced("Depth Forward", "HKY_PTS", 0.5, 145, -175),
-      ...priced("Fourth Liner", "HKY_PPP", 0.5, 600, -900),
-      ...priced("Never Scores", "HKY_GOALS", 0.5, 900, -1400, "NYR@NJD"),
+      ...priced("Shooter", "3PM", 2.5, -125, 105),
+      ...priced("Sometimes Blocks", "BLK", 0.5, 145, -175),
+      ...priced("Never Blocks", "BLK", 0.5, 600, -900),
+      ...priced("Never Steals", "STL", 0.5, 900, -1400, "NYK@BOS"),
     ]
-    const targets = buildDfsTargets(slate, optsFor("nhl"))
-    expect(targets.map((t) => t.player).sort()).toEqual(["Auston Matthews", "Depth Forward"])
+    const targets = buildDfsTargets(slate, optsFor("nba"))
+    expect(targets.map((t) => t.player).sort()).toEqual(["Shooter", "Sometimes Blocks"])
     const entry = buildPickemEntry(targets, 2, 0.5, 2, null, NOW)
     expect(entry).not.toBeNull()
     for (const leg of entry!) {

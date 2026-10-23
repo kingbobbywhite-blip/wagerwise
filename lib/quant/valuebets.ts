@@ -197,7 +197,7 @@ export function ambiguousPlayers(quotes: FeedQuote[]): Set<string> {
  * uncertainty that belongs in the distribution rather than in a footnote.
  *
  * Four percent of variance per day, capped at twelve percent, which is three
- * days out. On an NBA or NHL slate pulled the same evening it is under four
+ * days out. On an NBA slate pulled the same evening it is under four
  * percent and changes nothing; on a passing line pulled midweek it widens the
  * spread about six percent and pulls every probability back toward a coin flip.
  * Deliberately modest: it is a known unknown, not a reason to stop pricing.

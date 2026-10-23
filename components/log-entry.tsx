@@ -8,7 +8,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { LEAGUES, LEAGUE_IDS, type LeagueId } from "@/lib/leagues"
+import {
+  DEFAULT_LEAGUE,
+  LOGGED_LEAGUE_IDS,
+  RETIRED_LEAGUES,
+  isLeagueId,
+  isRetiredLeagueId,
+  loggedLeagueShort,
+  sportOfLoggedLeague,
+  type LoggedLeagueId,
+} from "@/lib/leagues"
 import { MARKETS, MARKET_KEYS, marketForSport, marketSport, type MarketKey } from "@/lib/nba/markets"
 import { extractProps, isUnmodelledStat, leagueFromScreen, mergeReads, readEntryHeader } from "@/lib/ocr/extract"
 import { normalizeName } from "@/lib/quant/correlation"
@@ -36,8 +45,8 @@ const OTHER = "__other"
 type Row = DraftLeg & { other?: boolean }
 
 /** Point each leg's stat at the league's sport: points, assists and blocked shots differ by sport. */
-function inSport(rows: Row[], league: LeagueId): Row[] {
-  const sport = LEAGUES[league].sport
+function inSport(rows: Row[], league: LoggedLeagueId): Row[] {
+  const sport = sportOfLoggedLeague(league)
   return rows.map((l) => {
     if (!l.marketKey) return l
     const key = marketForSport(l.marketKey, sport)
@@ -61,7 +70,9 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
   const s = state.settings
   const [appId, setAppId] = React.useState(s.defaultAppId)
   const [modeId, setModeId] = React.useState("power")
-  const [league, setLeague] = React.useState<LeagueId>(s.daily.league)
+  // Wider than the leagues Today prices: a retired league still has to be
+  // loggable, or its settled entries can never be recorded. See RETIRED_LEAGUES.
+  const [league, setLeague] = React.useState<LoggedLeagueId>(s.daily.league)
   const [stake, setStake] = React.useState("")
   const [payout, setPayout] = React.useState("")
   const [paid, setPaid] = React.useState("")
@@ -96,12 +107,16 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
   const valueSettings = React.useMemo(
     () => ({
       ...DEFAULT_VALUE_SETTINGS,
-      projection: { ...s.projection, league },
+      // A retired league has no slate to price against, so the priors fall
+      // back rather than the lookup failing.
+      projection: { ...s.projection, league: isLeagueId(league) ? league : DEFAULT_LEAGUE },
       requireSharpReference: s.daily.requireSharpReference,
     }),
     [s.projection, s.daily.requireSharpReference, league],
   )
-  const quotes = state.daily[league]?.quotes
+  // No cache exists for a retired league, which is the right answer: there is
+  // no NHL slate to match a logged NHL leg against, so it prices as unknown.
+  const quotes = isLeagueId(league) ? state.daily[league]?.quotes : undefined
   // Matched rather than just priced: the competition is only knowable now,
   // because a logged leg keeps no game to look it up by later.
   const matched = legs.map((l) =>
@@ -184,7 +199,8 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       // Failing a league named on the screen, a football stat means an NFL
       // entry. College is never inferred that way: its stats are the NFL's.
       const sportSeen = (sport: string) => found.some((l) => l.marketKey && marketSport(l.marketKey) === sport)
-      const leagueRead = named ?? (sportSeen("football") ? "nfl" : sportSeen("hockey") ? "nhl" : null)
+      const leagueRead: LoggedLeagueId | null =
+        named ?? (sportSeen("football") ? "nfl" : sportSeen("hockey") ? "nhl" : null)
       if (leagueRead) setLeague(leagueRead)
       // "Points" on an NHL screen is hockey points, not basketball's.
       setLegs(leagueRead ? inSport(found, leagueRead) : found)
@@ -304,13 +320,15 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
           <Select
             value={league}
             onValueChange={(v) => {
-              setLeague(v as LeagueId)
-              setLegs((prev) => inSport(prev, v as LeagueId))
+              setLeague(v as LoggedLeagueId)
+              setLegs((prev) => inSport(prev, v as LoggedLeagueId))
             }}
           >
             <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {LEAGUE_IDS.map((id) => <SelectItem key={id} value={id}>{LEAGUES[id].short}</SelectItem>)}
+              {LOGGED_LEAGUE_IDS.map((id) => (
+                <SelectItem key={id} value={id}>{loggedLeagueShort(id)}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -378,7 +396,7 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
                   >
                     <SelectTrigger className="h-8 text-xs" aria-label="Stat"><SelectValue placeholder="Stat" /></SelectTrigger>
                     <SelectContent>
-                      {MARKET_KEYS.filter((k) => marketSport(k) === LEAGUES[league].sport).map((k) => (
+                      {MARKET_KEYS.filter((k) => marketSport(k) === sportOfLoggedLeague(league)).map((k) => (
                         <SelectItem key={k} value={k}>{MARKETS[k].label}</SelectItem>
                       ))}
                       <SelectItem value={OTHER}>Other stat (not priced)</SelectItem>
@@ -466,6 +484,16 @@ export function LogEntry({ onDone }: { onDone?: () => void }) {
       {legs.length > 0 && problems.length > 0 ? (
         <p className="flex items-start gap-1.5 text-[11px] text-accent">
           <TriangleAlert className="mt-0.5 size-3 shrink-0" /> {problems[0]}
+        </p>
+      ) : null}
+      {isRetiredLeagueId(league) ? (
+        <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" />
+          <span>
+            {RETIRED_LEAGUES[league].note} Its stats are still read as{" "}
+            {sportOfLoggedLeague(league)}, so the legs are typed correctly, but nothing prices them: there is no{" "}
+            {RETIRED_LEAGUES[league].short} slate to compare them against.
+          </span>
         </p>
       ) : null}
       {league === "cfb" && !quotes?.some((q) => q.competition === "cfb") ? (

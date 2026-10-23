@@ -118,11 +118,18 @@ export function SlipCard({
           tone={advice.stake > 0 ? "good" : "neutral"}
           hint={advice.note}
         />
+        {/* Tone follows the WORST pair, not the average. One near-duplicate
+            pair inside a six-leg slip averages to about 0.06 and reads as
+            near-independent, which is how a stack hid in plain sight. */}
         <StatTile
           label="Correlation"
           value={signedNumber(e.avgPairCorrelation, 2)}
-          tone={Math.abs(e.avgPairCorrelation) > 0.2 ? "warn" : "neutral"}
-          hint="Average between legs. Positive means they tend to land together."
+          tone={Math.abs(e.maxPairCorrelation) >= 0.7 || Math.abs(e.avgPairCorrelation) > 0.2 ? "warn" : "neutral"}
+          hint={
+            e.maxPairLegs && Math.abs(e.maxPairCorrelation) >= 0.3
+              ? `Average between legs; positive means they tend to land together. The strongest single pair is ${signedNumber(e.maxPairCorrelation, 2)} — ${slip.legs[e.maxPairLegs[0]]?.player ?? "one leg"} ${slip.legs[e.maxPairLegs[0]]?.marketLabel ?? ""} against ${slip.legs[e.maxPairLegs[1]]?.player ?? "another"} ${slip.legs[e.maxPairLegs[1]]?.marketLabel ?? ""}. A near-identical pair barely moves the average, so read that one rather than this.`
+              : "Average between legs. Positive means they tend to land together."
+          }
         />
       </div>
 
@@ -187,7 +194,9 @@ export function SlipCard({
               The legs average {pct(e.avgLegProb)} against a {pct(e.breakEvenLegProb)} break-even, a margin of{" "}
               {signedPct(e.legProbMargin ?? 0)}. Independent legs at that average would return{" "}
               {signedPct(e.evAtAvgLegProb)}, so the gap against the {signedPct(e.ev)} above is what correlation and the
-              spread between legs are contributing.
+              spread between legs are contributing. The correlation behind that attribution is a structural prior,
+              reasoned from how the sports work rather than fitted to results, so the size of the gap is less certain
+              than its direction.
             </p>
           ) : null}
         </CollapsibleContent>
