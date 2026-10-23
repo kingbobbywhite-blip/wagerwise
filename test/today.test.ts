@@ -279,7 +279,7 @@ describe("sorting picks by probability", () => {
   it("takes the line most books hang, and prices any half-point line on the ladder", () => {
     expect(marketLineOf([24.5, 24.5, 25.5, 23.5], 24.9)).toBe(24.5)
     expect(marketLineOf([24.5, 25.5], 25.4)).toBe(25.5)
-    const t = { ladder: [{ line: 2.5, over: 0.42, under: 0.58 }] }
+    const t = { ladder: [{ line: 2.5, over: 0.42, under: 0.58, push: 0 }] }
     expect(probAt(t, 2.5, "UNDER")).toBe(0.58)
     expect(probAt(t, 3, "UNDER")).toBeNull()
   })

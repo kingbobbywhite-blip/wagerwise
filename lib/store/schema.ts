@@ -1,6 +1,6 @@
 import { DEFAULT_CORRELATION, type CorrelationSettings } from "@/lib/quant/correlation"
 import { DEFAULT_CONSTRAINTS, type OptimizerConstraints } from "@/lib/quant/optimizer"
-import { DEFAULT_APPS, type BookApp, type CapturedPayout } from "@/lib/quant/payouts"
+import { DEFAULT_APPS, validateCapture, type BookApp, type CapturedPayout } from "@/lib/quant/payouts"
 import { DEFAULT_PROJECTION_SETTINGS, type ProjectionSettings, type RawPropRow } from "@/lib/quant/projection"
 import { MARKETS, type MarketKey } from "@/lib/nba/markets"
 import type { FeedQuote } from "@/lib/quant/valuebets"
@@ -148,6 +148,21 @@ export interface AppSettings {
   apps: BookApp[]
   defaultAppId: string
   defaultModeId: string
+  /**
+   * Payouts read off the app's own screen and confirmed, filed by payoutKey.
+   *
+   * The stored tables are every one of them unverified, and four real settled
+   * entries showed what that costs: 4-pick Power Plays that paid 8x and 8.5x
+   * against a stored 10x, and 3-picks that paid 4.5x and 3.75x against a
+   * stored 6x. The bar those tables produced was 55-56% where the real one was
+   * 59-64% — the app calling a losing leg a target, by up to nine points. The
+   * number on your own screen is the only fix, and this is where it lives so
+   * it survives the reload the Today screen gets constantly.
+   *
+   * Only confirmed captures are stored: an unconfirmed one is a half-typed
+   * table and this app does not price against those.
+   */
+  capturedPayouts: Record<string, CapturedPayout>
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -160,6 +175,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   apps: DEFAULT_APPS,
   defaultAppId: "prizepicks",
   defaultModeId: "power",
+  capturedPayouts: {},
 }
 
 export interface Slate {
@@ -435,12 +451,36 @@ export function migrate(raw: unknown): AppState {
       apps: Array.isArray(s.apps) && s.apps.length > 0 ? s.apps.filter((a) => !RETIRED_APPS.has(a.id)) : DEFAULT_APPS,
       defaultAppId: s.defaultAppId ?? DEFAULT_SETTINGS.defaultAppId,
       defaultModeId: s.defaultModeId ?? DEFAULT_SETTINGS.defaultModeId,
+      capturedPayouts: migrateCapturedPayouts(s.capturedPayouts),
     },
     slate: o.slate ? { ...o.slate, league: isLeagueId(o.slate.league) ? o.slate.league : undefined } : null,
     slips: Array.isArray(o.slips) ? o.slips : [],
     daily: migrateDaily(o.daily),
     lines: migrateLines(o.lines),
   }
+}
+
+/**
+ * Bring stored captures forward, re-validating every one.
+ *
+ * Settings travel through Export and Restore as a JSON file a human can edit,
+ * and that is the one route by which a payout table can arrive here without
+ * ever having been through the capture form. It is checked on the way in
+ * rather than trusted because it was once ours: this is the number that sets
+ * the bar deciding what gets recommended.
+ */
+function migrateCapturedPayouts(raw: unknown): Record<string, CapturedPayout> {
+  if (!raw || typeof raw !== "object") return {}
+  const out: Record<string, CapturedPayout> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue
+    const c = v as CapturedPayout
+    if (c.confirmed !== true) continue
+    if (!Number.isFinite(c.picks) || !c.tiers || typeof c.tiers !== "object") continue
+    if (validateCapture(c).length > 0) continue
+    out[k] = c
+  }
+  return out
 }
 
 /**

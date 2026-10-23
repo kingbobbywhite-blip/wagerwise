@@ -112,8 +112,17 @@ export interface DfsTarget {
   marketLine: number
   marketSide: "OVER" | "UNDER"
   marketProb: number
-  /** Over and under probability at each half-point line around the projection. */
-  ladder: { line: number; over: number; under: number }[]
+  /**
+   * Over, under and push probability at each line on the board.
+   *
+   * Push is almost always zero, because a half-point line cannot land on
+   * itself — but not always, and the exception cost a real entry. A pick'em
+   * app does post whole numbers, and a leg that lands exactly on one is voided
+   * rather than won: on an all-or-nothing entry that shrinks the entry and the
+   * multiplier with it. The ladder used to walk half-points only, so a whole
+   * number the books posted could not appear on it at all.
+   */
+  ladder: { line: number; over: number; under: number; push: number }[]
   referenceBooks: string[]
   hasSharpBook: boolean
   /** Lines the pick'em apps are posting for this prop, when a pick'em feed was pulled. */
@@ -241,10 +250,13 @@ export function dfsTargetsFor(
   overProb: number | null
   underAt: number | null
   underProb: number | null
-  ladder: { line: number; over: number; under: number }[]
+  ladder: { line: number; over: number; under: number; push: number }[]
 } {
-  // Walk actual half-point lines. Pick'em apps post x.5 almost universally, and
-  // a whole number would introduce a push the targets do not account for.
+  // Walk the half-point grid, PLUS any whole number the books are actually
+  // posting. Pick'em apps post x.5 most of the time and not always: a real
+  // settled entry held "under 7 rebounds" and landed on 7, which voids the leg
+  // rather than winning it. A ladder that could not represent that line could
+  // not warn about it either.
   //
   // WHICH half-point lines matters as much as the maths. Sweeping a fixed
   // window around the projection produces numbers no board has ever shown:
@@ -284,26 +296,38 @@ export function dfsTargetsFor(
   let overProb: number | null = null
   let underAt: number | null = null
   let underProb: number | null = null
-  const ladder: { line: number; over: number; under: number }[] = []
+  const ladder: { line: number; over: number; under: number; push: number }[] = []
 
-  for (let half = start; half <= end; half += 1) {
-    if (half <= 0) continue
-    const { over, under } = resolveLine(distribution as never, half)
-    ladder.push({ line: half, over, under })
+  // The grid, then the posted lines that are not on it — a whole number the
+  // books hang is a line you can be asked to take, so it belongs here even
+  // though the grid would never generate it.
+  const steps: number[] = []
+  for (let half = start; half <= end; half += 1) if (half > 0) steps.push(half)
+  for (const l of posted) {
+    if (l > 0 && !steps.some((x) => Math.abs(x - l) < 1e-9)) steps.push(l)
+  }
+  steps.sort((a, b) => a - b)
+
+  for (const step of steps) {
+    const { over, under, push } = resolveLine(distribution as never, step)
+    ladder.push({ line: step, over, under, push })
 
     const gap = Math.abs(over - 0.5)
     if (gap < bestGap) {
       bestGap = gap
-      fairLine = half
+      fairLine = step
     }
-    // Highest line where the over still clears.
-    if (over >= breakEven && (overAt == null || half > overAt)) {
-      overAt = half
+    // Highest line where the over still clears. A push is neither side, so it
+    // is already excluded from both probabilities and a whole number therefore
+    // has to clear the bar on strictly beating the number — which is the
+    // honest bar for a leg that can be voided.
+    if (over >= breakEven && (overAt == null || step > overAt)) {
+      overAt = step
       overProb = over
     }
     // Lowest line where the under still clears.
-    if (under >= breakEven && (underAt == null || half < underAt)) {
-      underAt = half
+    if (under >= breakEven && (underAt == null || step < underAt)) {
+      underAt = step
       underProb = under
     }
   }
@@ -852,6 +876,19 @@ export function buildPickemEntry(
 export function probAt(t: Pick<DfsTarget, "ladder">, line: number, side: "OVER" | "UNDER"): number | null {
   const step = t.ladder.find((r) => Math.abs(r.line - line) < 1e-9)
   return step ? (side === "OVER" ? step.over : step.under) : null
+}
+
+/**
+ * The chance a line lands exactly on itself, voiding the leg.
+ *
+ * Zero on a half-point line, which is most of them. On a whole number it is
+ * the single most important thing about the line and the app used to have no
+ * way to say it: a voided leg does not lose an all-or-nothing entry, it
+ * shrinks it, and the multiplier shrinks with it.
+ */
+export function pushAt(t: Pick<DfsTarget, "ladder">, line: number): number | null {
+  const step = t.ladder.find((r) => Math.abs(r.line - line) < 1e-9)
+  return step ? step.push : null
 }
 
 /**

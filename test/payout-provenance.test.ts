@@ -8,7 +8,9 @@ import {
   payoutVerified,
   pickemBar,
   pickemPricingMode,
+  pickemPricingModeFor,
   type BookApp,
+  type CapturedPayout,
 } from "@/lib/quant/payouts"
 
 /**
@@ -77,6 +79,75 @@ describe("an expected value needs a table someone has checked", () => {
     expect(pickemPricingMode(dated(prizepicks, "2026-09-15"), power)).toBe(power)
     // And still nothing when there is no mode to price against.
     expect(pickemPricingMode(dated(prizepicks, "2026-09-15"), undefined)).toBeNull()
+  })
+})
+
+/**
+ * Four real settled entries, and what the stored tables said about them.
+ *
+ * Every one was a Power Play that paid less than the shipped table claims,
+ * because goblins and demons lower the multiplier for the whole entry. The
+ * app's bar was 55-56% where the truth was 59-64%: it was calling a losing
+ * leg a target, by up to nine points.
+ */
+describe("a payout read off a real entry screen", () => {
+  const read = (picks: number, multiple: number): CapturedPayout => ({
+    picks,
+    tiers: { [picks]: multiple },
+    confirmed: true,
+    capturedAt: "2026-10-22T03:34:00Z",
+  })
+
+  const SETTLED: [label: string, picks: number, multiple: number, storedBar: number][] = [
+    ["$5 for $40", 4, 8, Math.pow(1 / 10, 1 / 4)],
+    ["$5 for $42.50", 4, 8.5, Math.pow(1 / 10, 1 / 4)],
+    ["$2.50 for $11.25", 3, 4.5, Math.pow(1 / 6, 1 / 3)],
+    ["$2.50 for $9.38", 3, 3.752, Math.pow(1 / 6, 1 / 3)],
+  ]
+
+  it("raises the bar to what the entry really had to clear", () => {
+    for (const [label, picks, multiple, storedBar] of SETTLED) {
+      const bar = pickemBar(prizepicks, findMode(prizepicks, "power"), picks, read(picks, multiple))
+      expect(bar.source, label).toBe("captured")
+      expect(bar.verified, label).toBe(true)
+      expect(bar.capturedAt, label).toBe("2026-10-22T03:34:00Z")
+      expect(bar.prob, label).toBeCloseTo(Math.pow(1 / multiple, 1 / picks), 6)
+      // Always harder than the stored table's, never easier: a flavoured pick
+      // only ever lowers the multiplier.
+      expect(bar.prob, label).toBeGreaterThan(storedBar)
+    }
+  })
+
+  it("was understating the worst of them by nine points", () => {
+    const [, picks, multiple] = SETTLED[3]
+    const stored = pickemBar(prizepicks, findMode(prizepicks, "power"), picks)
+    const captured = pickemBar(prizepicks, findMode(prizepicks, "power"), picks, read(picks, multiple))
+    expect(stored.prob).toBeCloseTo(0.5503, 3)
+    expect(captured.prob).toBeCloseTo(0.6437, 3)
+    expect(captured.prob - stored.prob).toBeGreaterThan(0.09)
+  })
+
+  it("prices the entry once a payout has been read, and not before", () => {
+    const power = findMode(prizepicks, "power")!
+    expect(pickemPricingModeFor(prizepicks, power, 4)).toBeNull()
+    expect(pickemPricingModeFor(prizepicks, power, 4, read(4, 8))).not.toBeNull()
+  })
+
+  it("ignores a capture that is not for this entry size", () => {
+    // A payout read for a 3-pick says nothing about a 4-pick, and using it
+    // would be the same error as trusting the stored table.
+    const bar = pickemBar(prizepicks, findMode(prizepicks, "power"), 4, read(3, 4.5))
+    expect(bar.source).toBe("stored")
+    expect(pickemPricingModeFor(prizepicks, findMode(prizepicks, "power"), 4, read(3, 4.5))).toBeNull()
+  })
+
+  it("ignores an unconfirmed or invalid capture", () => {
+    const power = findMode(prizepicks, "power")!
+    expect(pickemBar(prizepicks, power, 4, { ...read(4, 8), confirmed: false }).source).toBe("stored")
+    // A settings file is restorable from disk, so a typo'd multiplier must not
+    // walk into the bar that decides what gets recommended.
+    expect(pickemBar(prizepicks, power, 4, read(4, 5000)).source).toBe("stored")
+    expect(pickemBar(prizepicks, power, 4, { picks: 4, tiers: {}, confirmed: true, capturedAt: "x" }).source).toBe("stored")
   })
 })
 
