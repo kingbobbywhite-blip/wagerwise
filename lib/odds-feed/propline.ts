@@ -558,15 +558,38 @@ interface PricedProp {
  *
  * So: keep a line when its own player and market are priced, OR when its
  * market is priced for anyone in a game the line can be attributed to. The
- * second clause is exact rather than cautious: coverage for `game|market` is
- * only ever read by a target at that same game and market, so a line whose
- * market is priced nowhere in its game is unreachable by both paths and
- * loses nothing.
+ * second clause is exact rather than cautious for both paths above: coverage
+ * for `game|market` is only ever read by a target at that same game and
+ * market, so a line whose market is priced nowhere in its game is unreachable
+ * by either.
+ *
+ * It is NOT lossless for a third consumer, and that is worth stating rather
+ * than glossing. The Today screen reads the stored lines once more, keyed on
+ * the app alone, to say which apps turned up in a pull; by that key a shed
+ * line is a line the app never posted, and an app whose every line was shed
+ * read as "posted none in this pull" — contradicted by the shed-lines note in
+ * the same paragraph. The route therefore reports the apps that posted BEFORE
+ * this filter runs (pickemAppsPosted), which is what that question actually
+ * asks. Any new consumer keyed on something other than `player|market` or
+ * `game|market` has to be checked against this the same way.
  */
+export type PickemDropReason =
+  /** No sportsbook priced this player at all, in any market, anywhere on the slate. */
+  | "player-unpriced"
+  /** The player is priced, but nothing priced THIS market in the game the line covers. */
+  | "market-unpriced"
+  /** The player is priced in more than one game and the line names neither of them. */
+  | "game-unmatched"
+
+export interface DroppedPickemLine {
+  line: PickemLine
+  reason: PickemDropReason
+}
+
 export function usablePickemLines(
   lines: PickemLine[],
   quotes: PricedProp[],
-): { lines: PickemLine[]; dropped: PickemLine[] } {
+): { lines: PickemLine[]; dropped: DroppedPickemLine[] } {
   const gamesByPlayer = new Map<string, Set<string>>()
   const pricedProps = new Set<string>()
   const pricedGameMarkets = new Set<string>()
@@ -582,16 +605,29 @@ export function usablePickemLines(
   }
 
   const kept: PickemLine[] = []
-  const dropped: PickemLine[] = []
+  const dropped: DroppedPickemLine[] = []
   for (const l of lines) {
     const who = l.playerKey || normalizeName(l.player)
     const playable = pricedProps.has(`${who}|${l.market}`)
-    const evidence =
-      !playable &&
-      attributedGames(l.gameId, gamesByPlayer.get(who)).some((g) =>
-        pricedGameMarkets.has(`${g}|${l.market}`),
-      )
-    ;(playable || evidence ? kept : dropped).push(l)
+    const games = attributedGames(l.gameId, gamesByPlayer.get(who))
+    const evidence = !playable && games.some((g) => pricedGameMarkets.has(`${g}|${l.market}`))
+    if (playable || evidence) {
+      kept.push(l)
+      continue
+    }
+    // WHICH clause failed has to travel with the line. The commonest drop by
+    // far is a player no sportsbook priced in anything — a bench player an app
+    // posts and the books do not — and telling that user "no sportsbook priced
+    // that market in the game it covers" is false on its face, with a table of
+    // that very market for that very game directly underneath it.
+    dropped.push({
+      line: l,
+      reason: !gamesByPlayer.has(who)
+        ? "player-unpriced"
+        : games.length === 0
+          ? "game-unmatched"
+          : "market-unpriced",
+    })
   }
   return { lines: kept, dropped }
 }
@@ -599,14 +635,45 @@ export function usablePickemLines(
 /**
  * What to say about the lines that were shed, because a shorter list with no
  * explanation is indistinguishable from an app posting less.
+ *
+ * One clause per reason, never one sentence covering all of them. The reasons
+ * are different facts about different things — a player the books ignore, a
+ * market they did not post in that game, a name that fits two fixtures — and
+ * collapsing them into the loudest one states something false about the rest.
  */
-export function unpricedPickemNote(dropped: PickemLine[]): string | null {
+export function unpricedPickemNote(dropped: DroppedPickemLine[]): string | null {
   if (dropped.length === 0) return null
-  const apps = Array.from(new Set(dropped.map((l) => l.app))).sort()
-  const markets = Array.from(new Set(dropped.map((l) => MARKETS[l.market]?.label ?? l.market))).sort()
+  const apps = Array.from(new Set(dropped.map((d) => d.line.app))).sort()
+  const of = (reason: PickemDropReason) => dropped.filter((d) => d.reason === reason)
+  const names = (ds: DroppedPickemLine[]) => Array.from(new Set(ds.map((d) => d.line.player))).sort()
+  const marketsOf = (ds: DroppedPickemLine[]) =>
+    Array.from(new Set(ds.map((d) => MARKETS[d.line.market]?.label ?? d.line.market))).sort()
+
+  const clauses: string[] = []
+  const strangers = of("player-unpriced")
+  if (strangers.length > 0) {
+    const who = names(strangers)
+    clauses.push(
+      `${strangers.length} because no sportsbook priced ${who.length === 1 ? who[0] : `${who.length} of the players`} at all`,
+    )
+  }
+  const markets = of("market-unpriced")
+  if (markets.length > 0) {
+    const m = marketsOf(markets)
+    clauses.push(
+      `${markets.length} because no sportsbook priced ${m.join(", ")} in the game ${markets.length === 1 ? "it covers" : "they cover"}`,
+    )
+  }
+  const unmatched = of("game-unmatched")
+  if (unmatched.length > 0) {
+    clauses.push(
+      `${unmatched.length} because ${unmatched.length === 1 ? "its player appears" : "their players appear"} in more than one game on this slate and the line names neither`,
+    )
+  }
+
   return `${dropped.length} pick'em line${dropped.length === 1 ? "" : "s"} from ${apps.join(", ")} ${
     dropped.length === 1 ? "was" : "were"
-  } left out because no sportsbook priced ${markets.length === 1 ? "that market" : "those markets"} in the game it covers: ${markets.join(", ")}. Nothing can price them, so nothing could have been built at them.`
+  } left out: ${clauses.join("; ")}. Nothing on this slate could price ${dropped.length === 1 ? "it" : "them"}, so nothing could have been built at ${dropped.length === 1 ? "it" : "them"}.`
 }
 
 /**

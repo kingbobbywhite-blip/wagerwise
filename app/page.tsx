@@ -261,7 +261,13 @@ export default function TodayPage() {
   // Whether this pull carried the default app's own lines, so the entry and
   // the targets can say which line they are at.
   const appLinesLive = !!picks && hasAppLines(picks.dfsTargets, s.defaultAppId)
-  const pickemAppsSeen = Array.from(new Set((pickemLines ?? []).map((l) => l.app)))
+  // Which apps turned up, counted before the filter shed what nothing could
+  // price. Deriving it from the kept lines made an app whose every line was
+  // shed read as "posted none in this pull", contradicted by the shed-lines
+  // note in the same paragraph. A pull from before this was recorded has only
+  // the kept lines to go on, which is the old answer and the best available.
+  const pickemAppsSeen =
+    daily?.pickemAppsPosted ?? Array.from(new Set((pickemLines ?? []).map((l) => l.app)))
   // Two different claims, and only one of them needs the payout table. The
   // chance every leg hits is a product of leg probabilities and owes the table
   // nothing, so it survives an unverified one. The expected value is a sum
@@ -283,7 +289,7 @@ export default function TodayPage() {
       parts.push(`${plays.unknown} no ${name} line reached at all`)
     }
     if (parts.length === 0) return null
-    return `Left out: ${parts.join("; ")}. They are still in the targets below, at the books' line, to check against your screen.`
+    return `Left out: ${parts.join("; ")}. Any of them inside the targets below is at the books' line, to check against your screen.`
   }, [plays, entryApp])
   // The 30 likeliest, plus every leg the entry used. A leg's row is where its
   // line can be checked and overridden, so it is shown whether or not it made
@@ -389,6 +395,7 @@ export default function TodayPage() {
         depthNote: data.depthNote ?? null,
         creditNote: data.creditNote ?? null,
         creditsMeasured: data.measuredCredits != null,
+        pickemAppsPosted: wantPickem ? (data.pickemAppsPosted ?? undefined) : undefined,
       })
       // Keep this pull's lines, compacted, beside the slate itself. The slate
       // is overwritten by the next pull; this is not, and the same prop seen
@@ -903,6 +910,16 @@ export default function TodayPage() {
                     </tbody>
                   </table>
                 </div>
+                {/* A table that silently stops at thirty reads as the whole
+                    board. It is not, and the entry card above points at these
+                    rows, so the count has to be on the page. */}
+                {picks.dfsTargets.length > shownTargets.length ? (
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Showing {shownTargets.length} of {picks.dfsTargets.length} targets — the likeliest at the line you
+                    can play, plus every leg the entry used. The rest priced the same way and are left out of this
+                    table only for length.
+                  </p>
+                ) : null}
                 {picks.lopsided.length > 0 ? (
                   <details className="rounded-lg border border-dashed border-border/60 p-3 text-[11px] leading-relaxed text-muted-foreground">
                     <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.12em]">
@@ -948,7 +965,12 @@ export default function TodayPage() {
                     ? `${daily.creditsSpent > 0 ? `${daily.creditsSpent} ` : ""}one request per game against PropLine's daily 1,000, which it does not itemise.`
                     : daily.creditsMeasured
                       ? `${daily.creditsSpent} feed credits, billed by the feed itself.`
-                      : `About ${daily.creditsSpent} feed credits, estimated: this pull's responses did not say what they cost.`}
+                      : daily.creditsMeasured === false
+                        ? `About ${daily.creditsSpent} feed credits, estimated: this pull's responses did not say what they cost.`
+                        : /* The field is absent, so this pull predates the
+                             measurement. Saying its responses were silent
+                             would be a claim about responses nothing read. */
+                          `About ${daily.creditsSpent} feed credits, estimated. This pull was made before the app read what the feed charged; refresh to measure it.`}
                 </p>
               ) : null}
               {daily?.creditNote ? (

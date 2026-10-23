@@ -345,11 +345,15 @@ the books' line, to check against your screen.
 **Pick'em lines nothing on the slate can price.** A line reaches a board row through one key, the
 player and the market, so a PrizePicks rebounds line for a player the books priced only for points
 can never attach to anything. Those are shed from what gets stored, and the count and the markets
-are named. The filter stops short of the obvious rule, deliberately: a line is also the *evidence*
-that an app covers a game and market, and that evidence is read for other players' rows. So a line
-is kept when its own prop is priced **or** when its market is priced for anyone in its game. Drop
-the second clause and the screen says "no PrizePicks line reached at all" about a game and market
-where PrizePicks did post one and this app threw it away.
+are named, one clause per reason — a player the books ignore is a different fact from a market
+they did not post, and a single sentence covering both says something false about one of them.
+
+The filter stops short of the obvious rule, deliberately: a line is also the *evidence* that an
+app covers a game and market, and that evidence is read for other players' rows. So a line is kept
+when its own prop is priced **or** when its market is priced for anyone in its game. Drop the
+second clause and the screen says "no PrizePicks line reached at all" about a game and market where
+PrizePicks did post one and this app threw it away. Which apps turned up in a pull is counted
+before any of this, because that question is about what arrived rather than what survived.
 
 **The entry's expected value, when no payout table has been confirmed.** An expected value is the
 payout table's number as much as the legs' — it is a sum over the table's tiers — and every table

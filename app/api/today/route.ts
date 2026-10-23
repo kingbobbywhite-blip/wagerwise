@@ -337,7 +337,7 @@ export async function POST(request: Request) {
             pulls,
             quotes,
           })
-        : { lines: [] as PickemLine[], note: null, remaining: null }
+        : { lines: [] as PickemLine[], appsPosted: [] as string[], note: null, remaining: null }
 
     return NextResponse.json({
       league: leagueId,
@@ -345,6 +345,7 @@ export async function POST(request: Request) {
       events: selected,
       quotes,
       pickemLines: pickem.lines,
+      pickemAppsPosted: pickem.appsPosted,
       pickemNote: pickem.note,
       proplineRemaining: pickem.remaining,
       unknownMarkets,
@@ -699,6 +700,10 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       // ones it cannot: a shorter list with no explanation is indistinguishable
       // from an app posting less.
       pickemLines: usable.lines,
+      // Which apps POSTED, counted before the filter. Shedding a line must not
+      // change what the page says about which apps turned up; see the third
+      // consumer named in usablePickemLines.
+      pickemAppsPosted: Array.from(new Set(normalized.pickemLines.map((l) => l.app))).sort(),
       pickemNote:
         [
           pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length),
@@ -730,7 +735,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
  */
 async function pickemFromPropline(
   args: PullArgs & { pulls: CompetitionPull[]; quotes: NormalizedQuote[] },
-): Promise<{ lines: PickemLine[]; note: string | null; remaining: number | null }> {
+): Promise<{ lines: PickemLine[]; appsPosted: string[]; note: string | null; remaining: number | null }> {
   try {
     // One PropLine pull per competition, each asking only for the games that
     // competition actually priced, and only for the markets it priced. Not the
@@ -778,12 +783,14 @@ async function pickemFromPropline(
         .join(" ") || null
     return {
       lines: usable.lines,
+      appsPosted: Array.from(new Set(normalized.pickemLines.map((l) => l.app))).sort(),
       note,
       remaining: results.map((r) => r.pull.quota?.remaining).filter((q) => q != null).pop() ?? null,
     }
   } catch (err) {
     return {
       lines: [],
+      appsPosted: [],
       note: `Pick'em lines unavailable: ${feedErrorText(err, "PropLine")}`,
       remaining: null,
     }

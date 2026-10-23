@@ -297,6 +297,16 @@ export interface DailyCache {
   provider?: OddsProvider
   /** Lines the pick'em apps were posting at pull time, from PropLine. Absent when not pulled. */
   pickemLines?: PickemLine[]
+  /**
+   * Which pick'em apps posted anything in this pull, counted BEFORE the lines
+   * nothing could price were shed.
+   *
+   * Derived from the kept lines instead, an app whose every line was shed read
+   * as "posted none in this pull" — false, and contradicted by the shed-lines
+   * note in the same paragraph. Absent on pulls from before this was recorded,
+   * where the kept lines are the only evidence there is.
+   */
+  pickemAppsPosted?: string[]
   /** Why the pick'em lines are missing or partial, when they are. */
   pickemNote?: string | null
   /**

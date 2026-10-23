@@ -472,7 +472,8 @@ describe("usablePickemLines", () => {
     const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
     const { lines, dropped } = usablePickemLines([...r.pickemLines, rebounds], r.quotes)
     expect(lines).toHaveLength(r.pickemLines.length)
-    expect(dropped.map((l) => l.market)).toEqual(["REB"])
+    expect(dropped.map((d) => d.line.market)).toEqual(["REB"])
+    expect(dropped.map((d) => d.reason)).toEqual(["market-unpriced"])
   })
 
   it("keeps a line for a player the books skipped when it is the app's only evidence of that market", () => {
@@ -495,7 +496,10 @@ describe("usablePickemLines", () => {
     const stranger = { ...r.pickemLines[0], player: "Nobody Priced", playerKey: "nobody priced" }
     const { lines, dropped } = usablePickemLines([...r.pickemLines, stranger], r.quotes)
     expect(lines).toHaveLength(r.pickemLines.length)
-    expect(dropped.map((l) => l.playerKey)).toEqual(["nobody priced"])
+    expect(dropped.map((d) => d.line.playerKey)).toEqual(["nobody priced"])
+    // And for the RIGHT reason: nobody priced the player, which is a different
+    // fact from nobody pricing the market.
+    expect(dropped.map((d) => d.reason)).toEqual(["player-unpriced"])
   })
 
   it("matches the player on the normalised name, team tag and all", () => {
@@ -516,8 +520,37 @@ describe("usablePickemLines", () => {
     const note = unpricedPickemNote(dropped)!
     expect(note).toContain("1 pick'em line")
     expect(note).toContain("Rebounds")
-    expect(note).toContain("no sportsbook priced")
+    expect(note).toContain("in the game it covers")
     expect(unpricedPickemNote([])).toBeNull()
+  })
+
+  it("does not blame a market for a player the books never priced", () => {
+    // The commonest drop by far is a bench player an app posts and the books
+    // do not. Telling that user "no sportsbook priced Points in the game it
+    // covers" is false on its face, with a table of Points targets for that
+    // very game directly underneath it — the books priced Points there, just
+    // not for him.
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const bench = { ...r.pickemLines[0], player: "Josh Minott", playerKey: "josh minott" }
+    const { dropped } = usablePickemLines([bench], r.quotes)
+    const note = unpricedPickemNote(dropped)!
+    expect(note).toContain("Josh Minott")
+    expect(note).toContain("at all")
+    expect(note).not.toContain("in the game it covers")
+  })
+
+  it("keeps the two reasons apart when a pull hits both", () => {
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const bench = { ...r.pickemLines[0], player: "Josh Minott", playerKey: "josh minott" }
+    const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
+    const { dropped } = usablePickemLines([bench, rebounds], r.quotes)
+    expect(dropped.map((d) => d.reason).sort()).toEqual(["market-unpriced", "player-unpriced"])
+    const note = unpricedPickemNote(dropped)!
+    // One clause per reason, never one sentence covering both: they are
+    // different facts and the loudest one is false about the other.
+    expect(note).toContain("2 pick'em lines")
+    expect(note).toContain("1 because no sportsbook priced Josh Minott at all")
+    expect(note).toContain("1 because no sportsbook priced Rebounds in the game it covers")
   })
 })
 
