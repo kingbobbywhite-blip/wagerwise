@@ -371,6 +371,26 @@ export function payoutKey(appId: string, modeId: string, picks: number): string 
   return `${appId}|${modeId}|${picks}`
 }
 
+/**
+ * Is this capture worth storing, given what is already stored?
+ *
+ * Pure because the answer decides a WRITE, and every settings write persists
+ * the whole state blob — megabytes of quotes on a full slate. The capture form
+ * calls back on every keystroke, so without this it re-serialised the entire
+ * cache per character typed. Only a change in what would be stored is worth
+ * that, and while a form is being filled in there is no such change: an
+ * unconfirmed capture stores nothing, and nothing is already what is there.
+ */
+export function capturedPayoutChanged(
+  current: CapturedPayout | null | undefined,
+  next: CapturedPayout,
+): boolean {
+  const keep = next.confirmed && validateCapture(next).length === 0
+  if (!keep) return current != null
+  if (current == null) return true
+  return JSON.stringify(current) !== JSON.stringify(next)
+}
+
 export interface PickemBar {
   /** Per-leg hit rate an entry has to clear. */
   prob: number

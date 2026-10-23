@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   DEFAULT_APPS,
+  capturedPayoutChanged,
   PLACEHOLDER_LEG_BAR,
   findApp,
   findMode,
@@ -148,6 +149,44 @@ describe("a payout read off a real entry screen", () => {
     // walk into the bar that decides what gets recommended.
     expect(pickemBar(prizepicks, power, 4, read(4, 5000)).source).toBe("stored")
     expect(pickemBar(prizepicks, power, 4, { picks: 4, tiers: {}, confirmed: true, capturedAt: "x" }).source).toBe("stored")
+  })
+})
+
+describe("deciding whether a capture is worth a write", () => {
+  const typed = (tiers: Record<number, number>, confirmed = false): CapturedPayout => ({
+    picks: 4,
+    tiers,
+    confirmed,
+    capturedAt: "2026-10-22T03:34:00Z",
+  })
+
+  it("writes nothing while a form is being filled in", () => {
+    // Every settings write persists the whole state blob, which on a full
+    // slate is megabytes of quotes. The capture form calls back on every
+    // keystroke, so answering "yes" here re-serialises the entire cache per
+    // character typed — and an unconfirmed capture stores nothing anyway, so
+    // nothing is both what would be stored and what is already there.
+    expect(capturedPayoutChanged(null, typed({}))).toBe(false)
+    expect(capturedPayoutChanged(null, typed({ 4: 8 }))).toBe(false)
+    expect(capturedPayoutChanged(null, typed({ 4: 8, 3: 1.5 }))).toBe(false)
+  })
+
+  it("writes when a capture is confirmed, and again when it changes", () => {
+    expect(capturedPayoutChanged(null, typed({ 4: 8 }, true))).toBe(true)
+    const stored = typed({ 4: 8 }, true)
+    expect(capturedPayoutChanged(stored, stored)).toBe(false)
+    expect(capturedPayoutChanged(stored, typed({ 4: 8.5 }, true))).toBe(true)
+  })
+
+  it("writes when a stored capture is withdrawn", () => {
+    // Un-confirming one that was saved has to clear it, or the bar would go on
+    // using a number the user has taken back.
+    expect(capturedPayoutChanged(typed({ 4: 8 }, true), typed({ 4: 8 }))).toBe(true)
+  })
+
+  it("never stores a capture that would not validate", () => {
+    expect(capturedPayoutChanged(null, typed({ 4: 5000 }, true))).toBe(false)
+    expect(capturedPayoutChanged(null, typed({}, true))).toBe(false)
   })
 })
 

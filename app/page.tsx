@@ -31,6 +31,7 @@ import {
   capturedFromMode,
   findApp,
   findMode,
+  capturedPayoutChanged,
   payoutKey,
   pickemBar,
   validateCapture,
@@ -214,26 +215,41 @@ export default function TodayPage() {
   const seededCapture = React.useMemo<CapturedPayout>(() => {
     if (savedPayout) return savedPayout
     if (entryMode) return capturedFromMode(entryMode, s.constraints.picks)
-    return { picks: s.constraints.picks, tiers: {}, confirmed: false, capturedAt: new Date(now).toISOString() }
-  }, [savedPayout, entryMode, s.constraints.picks, now])
+    // capturedAt is stamped when the form is confirmed, so an unconfirmed
+    // seed's value never reaches storage; a fixed one keeps this memo from
+    // changing identity every time the minute clock ticks.
+    return { picks: s.constraints.picks, tiers: {}, confirmed: false, capturedAt: "" }
+  }, [savedPayout, entryMode, s.constraints.picks])
   // A change of app, mode or entry size is a different payout, so the form
   // follows it rather than keeping a number read for something else.
   React.useEffect(() => setCapture(null), [payoutSlot])
   const captureValue = capture ?? seededCapture
 
-  /** Only a confirmed capture is stored; anything else is a half-typed table. */
+  /**
+   * Only a confirmed capture is stored; anything else is a half-typed table.
+   *
+   * And settings are only touched when what is STORED would actually change.
+   * Every write persists the whole state blob, which on a full slate is
+   * megabytes of quotes, so writing once per keystroke made typing a payout
+   * in re-serialise the entire cache on every character. The in-progress form
+   * lives in React state, where it costs nothing.
+   */
   const saveCapture = React.useCallback(
     (next: CapturedPayout) => {
       setCapture(next)
+      if (!capturedPayoutChanged(savedPayout, next)) return
+      const keep = next.confirmed && validateCapture(next).length === 0
       setSettings((prev) => {
+        // Keyed off prev, not the render's slot: the two agree unless the app,
+        // mode or size changed in between, and then prev is the right one.
         const slot = payoutKey(prev.defaultAppId, prev.defaultModeId, prev.constraints.picks)
         const kept = { ...prev.capturedPayouts }
-        if (next.confirmed && validateCapture(next).length === 0) kept[slot] = next
+        if (keep) kept[slot] = next
         else delete kept[slot]
         return { ...prev, capturedPayouts: kept }
       })
     },
-    [setSettings],
+    [setSettings, savedPayout],
   )
 
   // The bar a pick'em leg has to clear. It is not a priced number: it is read
