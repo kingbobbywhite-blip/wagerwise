@@ -938,7 +938,10 @@ export default function TodayPage() {
                       {appLinesLive
                         ? `Every line here is ${possessive(entryApp?.name ?? "the app")} own, read through PropLine at ${shortDate(daily!.fetchedAt)}, and each chance is the books' consensus at that exact line. The entry is never built at a line ${entryApp?.name ?? "the app"} may not be posting, so a prop with no line from it is left out whichever reason it has.${leftOutText ? ` ${leftOutText}` : ""} Lines move: if one on your screen differs, check it in the table below.`
                         : `No ${entryApp?.name ?? "app"} lines came through in this pull, so every line here is the books' own — the number to go and look for, not one ${entryApp?.name ?? "the app"} is known to be posting. PrizePicks, Underdog, Sleeper and Real almost always copy it; check each one on your screen before playing it.`}{" "}
-                      Standard picks only; a goblin or demon changes the payout. Legs are treated as independent, which
+                      {bar.source === "captured"
+                        ? "Standard picks only. A goblin or demon would change the multiplier, and the payout read in above is for the entry as it stands. "
+                        : "Standard picks only — and if you add a goblin or demon yourself, the multiplier drops and this bar becomes too easy, which is the single commonest way an entry that looked like a target was not one. Read your payout in above and the bar follows it. "}
+                      Legs are treated as independent, which
                       is safe here rather than a shortcut: there is no same-player pair in the entry at all, and at
                       most two per game leaves only shared game pace, which is small and pulls the answer the
                       pessimistic way.
