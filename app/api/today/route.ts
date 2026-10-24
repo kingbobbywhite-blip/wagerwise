@@ -7,6 +7,7 @@ import {
   eventsUrl,
   marketsForCompetition,
   normalizeMany,
+  marketCoverageNote,
   rankByDepth,
   sportOddsUrl,
   type DepthRanking,
@@ -358,6 +359,21 @@ export async function POST(request: Request) {
       cappedOut,
       startedCount: started,
       depthNote: depthNote(pulls),
+      // Which of the markets this pull paid for came back with nothing behind
+      // them. Billed per market per game here, so a market no book prices is
+      // not just a gap on the board, it is credits spent on silence.
+      marketsNote:
+        pulls
+          .map((p) =>
+            marketCoverageNote(
+              p.markets,
+              quotes.filter((q) => (q.competition ?? leagueId) === p.comp.id),
+              unknownMarkets,
+              p.comp.sport,
+            ),
+          )
+          .filter(Boolean)
+          .join(" ") || null,
       inSeason: inSeason(leagueId, new Date(), { companions }),
       requestsRemaining: remaining,
       requestsUsed: used,
@@ -718,7 +734,20 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
           .join(" ") || null,
       // Which markets PropLine refused, if any. Named rather than silently
       // absent: the market list is the one thing the user can change about it.
-      marketsNote: pulls.map((p) => narrowedMarketsNote(p.pull.narrowed)).filter(Boolean).join(" ") || null,
+      marketsNote:
+        [
+          ...pulls.map((p) => narrowedMarketsNote(p.pull.narrowed)),
+          ...pulls.map((p) =>
+            marketCoverageNote(
+              marketsForCompetition(p.comp, args.markets, { billsPerRequest: true }),
+              normalized.quotes.filter((q) => (q.competition ?? args.leagueId) === p.comp.id),
+              normalized.unknownMarkets,
+              p.comp.sport,
+            ),
+          ),
+        ]
+          .filter(Boolean)
+          .join(" ") || null,
       unknownMarkets: normalized.unknownMarkets,
       droppedCount: normalized.dropped.length,
       failures: pull.failures,

@@ -151,15 +151,28 @@ export interface LeagueConfig {
 const NBA_BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel", "betmgm", "caesars", "espnbet"]
 
 /**
- * The NBA markets to ask a per-request feed for: everything the pick'em apps
- * post and the engine models.
+ * The NBA markets to ask a per-request feed for.
  *
- * Points, rebounds, assists and threes are the board's spine. The four combos
- * are most of the rest of a PrizePicks NBA board and are modelled with their
- * own correlation between the components, so they are priced properly rather
- * than as a sum of independent parts. Steals, blocks and the combined
- * steals+blocks are thin but real, and bounded enough that a pick'em app will
- * hang them. Turnovers, field goals made and free throws made round it out.
+ * THE TEST IS WHETHER A SPORTSBOOK PRICES IT, not whether a pick'em app posts
+ * it. That is the opposite of how this list was first written, and the
+ * difference is the whole app: a pick'em line with no book behind it cannot be
+ * priced, cannot become a target, and cannot be bet on with any more
+ * information than the app had before it was pulled. Asking for one produces
+ * lines that are unusable by construction.
+ *
+ * Turnovers is why this comment exists. It was on this list because PrizePicks
+ * posts it heavily — a fade-the-star market DFS apps love — and a real pull
+ * came back with 85 PrizePicks turnovers lines and not one sportsbook
+ * turnovers quote. Every one of those 85 was dropped, correctly and uselessly.
+ * It is off the list until there is evidence a book prices it.
+ *
+ * Points, rebounds, assists and threes are the board's spine and every book
+ * posts them. The four combos are most of the rest of a PrizePicks NBA board
+ * and are widely posted; they are modelled with their own correlation between
+ * the components, so they price properly rather than as a sum of independent
+ * parts. Steals, blocks, steals+blocks, field goals made and free throws made
+ * are thinner, and whether the books behind them hold up is reported per pull
+ * rather than assumed here again — see the market-coverage note.
  */
 const NBA_DEEP_MARKETS = [
   "player_points",
@@ -173,7 +186,7 @@ const NBA_DEEP_MARKETS = [
   "player_steals",
   "player_blocks",
   "player_blocks_steals",
-  "player_turnovers",
+  // "player_turnovers" is deliberately absent: see above.
   "player_field_goals",
   "player_frees_made",
 ]

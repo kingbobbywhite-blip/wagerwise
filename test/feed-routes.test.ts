@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { feedErrorText, headerCount, noneCouldBePriced, notStarted, oddsApiErrorText } from "@/lib/odds-feed/http"
 import { narrowedMarketsNote, pullPropline } from "@/lib/odds-feed/propline"
+import { marketCoverageNote } from "@/lib/odds-feed/theoddsapi"
 import { upcomingQuotes } from "@/lib/today/build"
 
 const HOUR = 3600 * 1000
@@ -675,6 +676,34 @@ describe("PropLine refusing the market list", () => {
       }),
     ).rejects.toThrow(/rejected the API key/)
     expect(asked.filter((u) => !u.endsWith("/events"))).toHaveLength(1)
+  })
+})
+
+describe("markets that came back with nothing behind them", () => {
+  it("names a market no sportsbook priced, because that is the one thing the user can fix", () => {
+    // A real pull asked for turnovers because PrizePicks posts it heavily, and
+    // got back 85 PrizePicks lines and not one sportsbook quote. The app knew
+    // and said nothing, so a market-list problem read as "the app does not
+    // work" and diagnosing it meant reading source.
+    const quotes = [{ market: "PTS" as const }, { market: "REB" as const }]
+    const note = marketCoverageNote(["player_points", "player_rebounds", "player_turnovers"], quotes)!
+    expect(note).toContain("player_turnovers")
+    expect(note).toContain("Settings → Markets")
+    expect(note).not.toContain("player_points")
+  })
+
+  it("says nothing when every market asked for came back priced", () => {
+    const quotes = [{ market: "PTS" as const }, { market: "REB" as const }]
+    expect(marketCoverageNote(["player_points", "player_rebounds"], quotes)).toBeNull()
+  })
+
+  it("tells a gap in this app's market map apart from a gap in the book's coverage", () => {
+    // They look identical from the outside and the fixes are opposites: one is
+    // a line to delete from the Markets box, the other is a key to add here.
+    const note = marketCoverageNote(["player_points"], [{ market: "PTS" as const }], ["player_double_double"])!
+    expect(note).toContain("does not recognise")
+    expect(note).toContain("player_double_double")
+    expect(note).toContain("this app's market map")
   })
 })
 

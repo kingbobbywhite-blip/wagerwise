@@ -188,6 +188,45 @@ export function marketsForCompetition(
   return marketsForLeague(competition.id, requested, opts)
 }
 
+/**
+ * Which markets a pull asked for and got no sportsbook price back for.
+ *
+ * The app knew this all along and never said it. A market with no book behind
+ * it cannot produce a target, cannot price a pick'em line, and is the one
+ * cause of an empty-looking board that the user can actually fix — it is a
+ * line in the Markets box. Leaving it unsaid turned a market-list problem into
+ * "the app does not work", and turned diagnosing it into reading source.
+ *
+ * Unknown keys are reported beside them because they look identical from the
+ * outside and are not: a market the feed served under a name this app does not
+ * map is a mapping bug here, not a gap in the book's coverage, and the fix is
+ * the opposite one.
+ */
+export function marketCoverageNote(
+  requested: string[],
+  quotes: { market: MarketKey }[],
+  unknown: string[] = [],
+  sport: Sport = "basketball",
+): string | null {
+  const priced = new Set(quotes.map((q) => q.market))
+  const bare = requested.filter((k) => {
+    const m = feedMarketFor(k, sport)
+    return m != null && !priced.has(m)
+  })
+  const parts: string[] = []
+  if (bare.length > 0) {
+    parts.push(
+      `No sportsbook in this pull priced ${bare.join(", ")}. Nothing can be built on ${bare.length === 1 ? "that market" : "those markets"}, so drop ${bare.length === 1 ? "it" : "them"} from Settings → Markets unless a book you use posts ${bare.length === 1 ? "it" : "them"}.`,
+    )
+  }
+  if (unknown.length > 0) {
+    parts.push(
+      `The feed also sent ${unknown.length} market${unknown.length === 1 ? "" : "s"} this app does not recognise and discarded ${unknown.length === 1 ? "it" : "them"}: ${unknown.join(", ")}. That is a gap in this app's market map rather than in the feed's coverage.`,
+    )
+  }
+  return parts.join(" ") || null
+}
+
 /** Reverse lookup, used when requesting only the markets on your board. */
 export function feedKeyFor(market: MarketKey): string | null {
   for (const [k, v] of Object.entries(FEED_MARKET_MAP)) if (v === market) return k

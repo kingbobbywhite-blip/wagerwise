@@ -448,8 +448,15 @@ pick'em line that could have been read and was not, and since an entry is built 
 app is really posting, a market nobody asked for is a leg you cannot play.
 
 The rest of the NBA board, free on PropLine and addable under Settings → Markets on The Odds API:
-pts+reb, pts+ast, reb+ast, steals, blocks, steals+blocks, turnovers, field goals made, free
-throws made. The combos carry their components, so the correlation model prices PRA against PTS
+pts+reb, pts+ast, reb+ast, steals, blocks, steals+blocks, field goals made, free throws made.
+
+**What belongs on that list is decided by the sportsbooks, not by the pick'em apps.** A pick'em
+line with no book behind it cannot be priced, cannot become a target, and tells you nothing you
+did not already know — so asking for it produces lines that are unusable by construction.
+Turnovers is the cautionary case: PrizePicks posts it heavily, no sportsbook in a real pull priced
+it at all, and 85 lines came back that nothing could do anything with. It is off the list until
+there is evidence a book prices it. Every pull now reports which markets it paid for and got
+nothing back on, so the thin ones are checked rather than assumed. The combos carry their components, so the correlation model prices PRA against PTS
 for one player properly rather than as unrelated stats, and the entry's one-leg-per-player rule
 already stops both riding together.
 
