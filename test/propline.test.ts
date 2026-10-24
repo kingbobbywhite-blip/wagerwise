@@ -465,15 +465,28 @@ const priced = (player: string, market: "PTS" | "REB", gameId = GAME) => ({
  * post one.
  */
 describe("usablePickemLines", () => {
-  it("drops a pick'em line in a market no sportsbook priced in that game", () => {
+  it("drops a pick'em line in a market no sportsbook priced anywhere, and says it is the market", () => {
     const r = normalizeProplineEvent(event, "basketball", BEFORE)
     // Rebounds is suspended on the only book that posts it, so no rebounds
-    // quote survives anywhere in this fixture.
+    // quote survives anywhere in this fixture: that is a fact about the market
+    // list, not about this line's game.
     const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
     const { lines, dropped } = usablePickemLines([...r.pickemLines, rebounds], r.quotes)
     expect(lines).toHaveLength(r.pickemLines.length)
     expect(dropped.map((d) => d.line.market)).toEqual(["REB"])
+    expect(dropped.map((d) => d.reason)).toEqual(["market-unpriced-slate"])
+  })
+
+  it("tells a market nothing prices apart from one this game happens to miss", () => {
+    // The same market, priced in a DIFFERENT game. Now the market list is
+    // fine and this one game is thin, which is a different fact with no
+    // action attached — so it must not read as the market-list problem.
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
+    const elsewhere = [...r.quotes, priced("Someone Else", "REB", "BOS@NYK")]
+    const { dropped } = usablePickemLines([rebounds], elsewhere)
     expect(dropped.map((d) => d.reason)).toEqual(["market-unpriced"])
+    expect(unpricedPickemNote(dropped)!).not.toContain("Settings")
   })
 
   it("keeps a line for a player the books skipped when it is the app's only evidence of that market", () => {
@@ -513,14 +526,31 @@ describe("usablePickemLines", () => {
     expect(usablePickemLines(r.pickemLines, [priced("Anthony Edwards (MIN)", "PTS")]).lines).toHaveLength(0)
   })
 
-  it("names the markets it left out instead of just shrinking the list", () => {
+  it("reports a market no book prices as one fact with one fix, not as N casualties", () => {
+    // What a real pull produced: 85 PrizePicks Turnovers lines and not one
+    // sportsbook turnovers quote, reported as "85 because no sportsbook priced
+    // Turnovers in the game they cover" — the same sentence eighty-five times
+    // about a market no book posts at all, with no action attached. Pick'em
+    // apps post markets the books do not, and turnovers is the archetype.
     const r = normalizeProplineEvent(event, "basketball", BEFORE)
-    const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
-    const { dropped } = usablePickemLines([...r.pickemLines, rebounds], r.quotes)
+    const turnovers = Array.from({ length: 85 }, (_, i) => ({
+      ...r.pickemLines[0],
+      player: `Player ${i}`,
+      playerKey: `player ${i}`,
+      market: "TOV" as never,
+      line: 2.5,
+    }))
+    const { dropped } = usablePickemLines(turnovers, r.quotes)
+    expect(dropped).toHaveLength(85)
+    expect(new Set(dropped.map((d) => d.reason))).toEqual(new Set(["market-unpriced-slate"]))
+
     const note = unpricedPickemNote(dropped)!
-    expect(note).toContain("1 pick'em line")
-    expect(note).toContain("Rebounds")
-    expect(note).toContain("in the game it covers")
+    expect(note).toContain("Turnovers")
+    expect(note).toContain("no sportsbook on this slate prices at all")
+    // The whole point: it names the one setting that stops it.
+    expect(note).toContain("Settings → Markets")
+    // And it does not blame the game, which is not what is wrong.
+    expect(note).not.toContain("in the game they cover")
     expect(unpricedPickemNote([])).toBeNull()
   })
 
@@ -544,13 +574,13 @@ describe("usablePickemLines", () => {
     const bench = { ...r.pickemLines[0], player: "Josh Minott", playerKey: "josh minott" }
     const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
     const { dropped } = usablePickemLines([bench, rebounds], r.quotes)
-    expect(dropped.map((d) => d.reason).sort()).toEqual(["market-unpriced", "player-unpriced"])
+    expect(dropped.map((d) => d.reason).sort()).toEqual(["market-unpriced-slate", "player-unpriced"])
     const note = unpricedPickemNote(dropped)!
     // One clause per reason, never one sentence covering both: they are
     // different facts and the loudest one is false about the other.
     expect(note).toContain("2 pick'em lines")
     expect(note).toContain("1 because no sportsbook priced Josh Minott at all")
-    expect(note).toContain("1 because no sportsbook priced Rebounds in the game it covers")
+    expect(note).toContain("1 for Rebounds, which no sportsbook on this slate prices at all")
   })
 })
 

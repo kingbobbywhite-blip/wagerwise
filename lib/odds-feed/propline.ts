@@ -589,7 +589,18 @@ interface PricedProp {
 export type PickemDropReason =
   /** No sportsbook priced this player at all, in any market, anywhere on the slate. */
   | "player-unpriced"
-  /** The player is priced, but nothing priced THIS market in the game the line covers. */
+  /**
+   * No sportsbook priced this MARKET anywhere on the slate.
+   *
+   * A different kind of fact from the others, and the only one that is about
+   * the market list rather than about a player or a game. Pick'em apps post
+   * markets the sportsbooks do not — turnovers is the archetype, loved by DFS
+   * as a fade-the-star pick and rarely hung by a book — and asking for one
+   * produces lines nothing can ever price, by construction. Reported per line
+   * it reads as eighty-five separate failures; it is one fact with one fix.
+   */
+  | "market-unpriced-slate"
+  /** The market is priced somewhere on the slate, just not in this line's game. */
   | "market-unpriced"
   /** The player is priced in more than one game and the line names neither of them. */
   | "game-unmatched"
@@ -606,6 +617,10 @@ export function usablePickemLines(
   const gamesByPlayer = new Map<string, Set<string>>()
   const pricedProps = new Set<string>()
   const pricedGameMarkets = new Set<string>()
+  // Every market any sportsbook priced anywhere on this slate. A market
+  // missing from here is missing from the whole pull, which is a statement
+  // about what was asked for rather than about any one line.
+  const pricedMarkets = new Set<MarketKey>()
   for (const q of quotes) {
     // The same derivation pickemCoverage uses, deliberately: if the two ever
     // disagreed this filter would shed a line that pass would have counted.
@@ -615,6 +630,7 @@ export function usablePickemLines(
     gamesByPlayer.set(who, set)
     pricedProps.add(`${who}|${q.market}`)
     pricedGameMarkets.add(`${q.gameId}|${q.market}`)
+    pricedMarkets.add(q.market)
   }
 
   const kept: PickemLine[] = []
@@ -635,11 +651,13 @@ export function usablePickemLines(
     // that very market for that very game directly underneath it.
     dropped.push({
       line: l,
-      reason: !gamesByPlayer.has(who)
-        ? "player-unpriced"
-        : games.length === 0
-          ? "game-unmatched"
-          : "market-unpriced",
+      reason: !pricedMarkets.has(l.market)
+        ? "market-unpriced-slate"
+        : !gamesByPlayer.has(who)
+          ? "player-unpriced"
+          : games.length === 0
+            ? "game-unmatched"
+            : "market-unpriced",
     })
   }
   return { lines: kept, dropped }
@@ -663,6 +681,17 @@ export function unpricedPickemNote(dropped: DroppedPickemLine[]): string | null 
     Array.from(new Set(ds.map((d) => MARKETS[d.line.market]?.label ?? d.line.market))).sort()
 
   const clauses: string[] = []
+  // The market-list fact first, and phrased as one: it is the only clause here
+  // with an action attached, and the only one whose count says nothing useful.
+  // "85 because no sportsbook priced Turnovers in the game they cover" is the
+  // same sentence eighty-five times about a market no book posts at all.
+  const slate = of("market-unpriced-slate")
+  const slateMarkets = marketsOf(slate)
+  if (slate.length > 0) {
+    clauses.push(
+      `${slate.length} for ${slateMarkets.join(", ")}, which no sportsbook on this slate prices at all — the apps post ${slateMarkets.length === 1 ? "it" : "them"} and the books do not, so nothing here can ever price ${slateMarkets.length === 1 ? "that market" : "those markets"}`,
+    )
+  }
   const strangers = of("player-unpriced")
   if (strangers.length > 0) {
     const who = names(strangers)
@@ -684,9 +713,16 @@ export function unpricedPickemNote(dropped: DroppedPickemLine[]): string | null 
     )
   }
 
+  // The action belongs with the only clause that has one, and only when that
+  // clause is there: nobody can do anything about a bench player the books
+  // ignore, but a market the books never post is a line in the Markets box.
+  const fix =
+    slate.length > 0
+      ? ` Drop ${slateMarkets.join(", ")} from Settings → Markets to stop pulling ${slateMarkets.length === 1 ? "it" : "them"}.`
+      : ""
   return `${dropped.length} pick'em line${dropped.length === 1 ? "" : "s"} from ${apps.join(", ")} ${
     dropped.length === 1 ? "was" : "were"
-  } left out: ${clauses.join("; ")}. Nothing on this slate could price ${dropped.length === 1 ? "it" : "them"}, so nothing could have been built at ${dropped.length === 1 ? "it" : "them"}.`
+  } left out: ${clauses.join("; ")}. Nothing on this slate could price ${dropped.length === 1 ? "it" : "them"}.${fix}`
 }
 
 /**
