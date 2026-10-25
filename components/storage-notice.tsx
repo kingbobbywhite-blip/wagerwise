@@ -10,14 +10,16 @@ import { useStore } from "@/lib/store/provider"
  * Lives in the header rather than on a page, because the two screens that
  * cause a full-storage failure were the two that never showed it: a slate pull
  * is the biggest write in the app and settling legs is the most frequent, and
- * both read `saveError` from a store that nobody asked. The pull looked
- * successful, lived in React state, and was gone on the next reload along with
- * the feed credits that paid for it. One banner everywhere cannot be forgotten
- * by a new page.
+ * both read `saveError` from a store that nobody asked. One banner everywhere
+ * cannot be forgotten by a new page.
+ *
+ * What it reports is never gone from the screen. A save that does not fit
+ * leaves the state alone, so the notice is about the next reload, not about
+ * anything already missing.
  */
 export function StorageNotice() {
-  const { saveError, saveDropped, ready } = useStore()
-  if (!ready || (!saveError && saveDropped.length === 0)) return null
+  const { saveError, unsaved, ready } = useStore()
+  if (!ready || (!saveError && unsaved.length === 0)) return null
   return (
     <div
       role="status"
@@ -32,8 +34,8 @@ export function StorageNotice() {
         <span>
           {saveError ? (
             <>
-              <strong className="font-semibold">{saveError}</strong> Nothing has been written to this browser since,
-              so anything on screen will be lost on reload.{" "}
+              <strong className="font-semibold">{saveError}</strong> What is on screen is still here, but what was
+              not saved will be lost on reload.{" "}
               <Link href="/settings" className="underline underline-offset-2">
                 Export your data now
               </Link>
@@ -41,12 +43,13 @@ export function StorageNotice() {
             </>
           ) : (
             <>
-              Browser storage filled up, so {saveDropped.join(", then ")} {saveDropped.length === 1 ? "was" : "were"}{" "}
-              dropped to keep the rest. Your slips were not touched. Export from{" "}
+              Browser storage is full, so {unsaved.join(", then ")} could not be saved.{" "}
+              {unsaved.length === 1 ? "It is" : "They are"} still on screen, but will be gone after a reload. Export
+              from{" "}
               <Link href="/settings" className="underline underline-offset-2">
                 Settings
               </Link>{" "}
-              if you want the history off this machine.
+              to keep a copy.
             </>
           )}
         </span>

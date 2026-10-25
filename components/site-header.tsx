@@ -6,7 +6,10 @@ import { LEAGUES, LEAGUE_IDS } from "@/lib/leagues"
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    // Padded by the status bar's height: added to an iPhone home screen the
+    // page draws under it (viewportFit "cover", status bar "black-translucent"),
+    // and the logo and the nav sat behind the clock and the battery.
+    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="flex size-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-primary/30">

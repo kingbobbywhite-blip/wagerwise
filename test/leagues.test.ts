@@ -119,6 +119,16 @@ describe("league config", () => {
     expect(marketsForLeague("nba", ["player_threes"], { billsPerRequest: true })).toEqual(["player_threes"])
   })
 
+  it("asks only for markets a sportsbook has been seen to price", () => {
+    // Each of these came back from a real pull with pick'em lines and not one
+    // sportsbook quote, which makes every line in them unpriceable by
+    // construction: turnovers first, then field goals and free throws made.
+    for (const k of ["player_turnovers", "player_field_goals", "player_frees_made"]) {
+      expect(LEAGUES.nba.deepMarkets, k).not.toContain(k)
+      expect(LEAGUES.nba.markets, k).not.toContain(k)
+    }
+  })
+
   it("maps and caps every NBA market it asks for", () => {
     // A market the feed map does not know is a credit spent on a response
     // nothing can read; one with no plausibility ceiling can print a

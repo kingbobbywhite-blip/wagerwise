@@ -31,7 +31,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <StoreProvider>
           <SiteHeader />
           <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 md:py-8">{children}</main>
-          <Toaster richColors position="top-right" theme="dark" />
+          {/* Below the status bar on a phone, for the same reason the header is. */}
+          <Toaster
+            richColors
+            position="top-right"
+            theme="dark"
+            mobileOffset={{ top: "calc(env(safe-area-inset-top) + 16px)" }}
+          />
         </StoreProvider>
       </body>
     </html>

@@ -9,8 +9,8 @@ export interface PickInputs {
   leagueId: LeagueId
   /**
    * The stored pull the quotes were taken from, compared by identity. Picks are
-   * shown only while that pull is still the one on screen: storage running out
-   * of room can shed it, and a refresh replaces it.
+   * shown only while that pull is still the one on screen: a refresh replaces
+   * it, and restoring a backup swaps it out.
    */
   pull: unknown
   quotes: FeedQuote[]

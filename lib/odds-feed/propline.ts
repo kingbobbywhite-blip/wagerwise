@@ -6,7 +6,7 @@ import { normalizeName } from "@/lib/quant/correlation"
 export { sameGameId, teamNickname } from "./games"
 import { attributedGames, teamNickname } from "./games"
 import type { PickType } from "@/lib/store/schema"
-import { feedMarketFor, normalizeEventOdds, sportOfFeedKey, type NormalizeResult } from "./theoddsapi"
+import { feedKeyFor, feedMarketFor, normalizeEventOdds, sportOfFeedKey, type NormalizeResult } from "./theoddsapi"
 import { feedErrorText, notStarted } from "./http"
 import { keySourceHint, resolveKey, type ResolvedKey } from "./api-key"
 import type { FeedBookmaker, FeedEvent, FeedEventOdds, FeedOutcome } from "./types"
@@ -671,8 +671,16 @@ export function usablePickemLines(
  * are different facts about different things — a player the books ignore, a
  * market they did not post in that game, a name that fits two fixtures — and
  * collapsing them into the loudest one states something false about the rest.
+ *
+ * `chosen` says whether the market list was typed into Settings. Only then is
+ * dropping a market from it something the user can do; on this app's own list
+ * the fact is still said, without an instruction to edit a box left blank.
  */
-export function unpricedPickemNote(dropped: DroppedPickemLine[]): string | null {
+export function unpricedPickemNote(
+  dropped: DroppedPickemLine[],
+  opts: { chosen?: boolean } = {},
+): string | null {
+  const { chosen = true } = opts
   if (dropped.length === 0) return null
   const apps = Array.from(new Set(dropped.map((d) => d.line.app))).sort()
   const of = (reason: PickemDropReason) => dropped.filter((d) => d.reason === reason)
@@ -715,10 +723,12 @@ export function unpricedPickemNote(dropped: DroppedPickemLine[]): string | null 
 
   // The action belongs with the only clause that has one, and only when that
   // clause is there: nobody can do anything about a bench player the books
-  // ignore, but a market the books never post is a line in the Markets box.
+  // ignore, but a market the books never post is a line in the Markets box —
+  // when the box has a list in it. The box takes feed keys, so it names keys.
+  const slateKeys = Array.from(new Set(slate.map((d) => feedKeyFor(d.line.market) ?? d.line.market))).sort()
   const fix =
-    slate.length > 0
-      ? ` Drop ${slateMarkets.join(", ")} from Settings → Markets to stop pulling ${slateMarkets.length === 1 ? "it" : "them"}.`
+    slate.length > 0 && chosen
+      ? ` Drop ${slateKeys.join(", ")} from Settings → Markets to stop pulling ${slateKeys.length === 1 ? "it" : "them"}.`
       : ""
   return `${dropped.length} pick'em line${dropped.length === 1 ? "" : "s"} from ${apps.join(", ")} ${
     dropped.length === 1 ? "was" : "were"

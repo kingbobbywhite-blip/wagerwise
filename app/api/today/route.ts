@@ -5,6 +5,7 @@ import {
   estimateCredits,
   eventOddsUrl,
   eventsUrl,
+  marketsChosen,
   marketsForCompetition,
   normalizeMany,
   marketCoverageNote,
@@ -370,6 +371,7 @@ export async function POST(request: Request) {
               quotes.filter((q) => (q.competition ?? leagueId) === p.comp.id),
               unknownMarkets,
               p.comp.sport,
+              { chosen: marketsChosen(p.comp, body.markets) },
             ),
           )
           .filter(Boolean)
@@ -728,7 +730,7 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
       pickemNote:
         [
           pickemNoteFor(normalized.pickemLines.length, pull.failures, normalized.closedGames.length),
-          unpricedPickemNote(usable.dropped),
+          unpricedPickemNote(usable.dropped, { chosen: marketsChosen(leagueFor(args.leagueId), args.markets) }),
         ]
           .filter(Boolean)
           .join(" ") || null,
@@ -739,10 +741,14 @@ async function fromPropline(args: PullArgs & { eventsOnly: boolean }) {
           ...pulls.map((p) => narrowedMarketsNote(p.pull.narrowed)),
           ...pulls.map((p) =>
             marketCoverageNote(
-              marketsForCompetition(p.comp, args.markets, { billsPerRequest: true }),
+              // The list the slate was priced at: a market PropLine refused
+              // is already named in the sentence above, and is not also a
+              // market the books declined to price.
+              p.pull.narrowed?.to ?? marketsForCompetition(p.comp, args.markets, { billsPerRequest: true }),
               normalized.quotes.filter((q) => (q.competition ?? args.leagueId) === p.comp.id),
               normalized.unknownMarkets,
               p.comp.sport,
+              { chosen: marketsChosen(p.comp, args.markets), billsPerRequest: true },
             ),
           ),
         ]
@@ -814,7 +820,7 @@ async function pickemFromPropline(
           (unlisted > 0
             ? `PropLine did not list ${unlisted} of the priced game${unlisted === 1 ? "" : "s"}, so props there are at the books' line.`
             : null),
-        unpricedPickemNote(usable.dropped),
+        unpricedPickemNote(usable.dropped, { chosen: marketsChosen(leagueFor(args.leagueId), args.markets) }),
       ]
         .filter(Boolean)
         .join(" ") || null

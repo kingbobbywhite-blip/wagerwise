@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { feedErrorText, headerCount, noneCouldBePriced, notStarted, oddsApiErrorText } from "@/lib/odds-feed/http"
 import { narrowedMarketsNote, pullPropline } from "@/lib/odds-feed/propline"
-import { marketCoverageNote } from "@/lib/odds-feed/theoddsapi"
+import { marketCoverageNote, marketsChosen } from "@/lib/odds-feed/theoddsapi"
+import { LEAGUES } from "@/lib/leagues"
 import { upcomingQuotes } from "@/lib/today/build"
 
 const HOUR = 3600 * 1000
@@ -695,6 +696,42 @@ describe("markets that came back with nothing behind them", () => {
   it("says nothing when every market asked for came back priced", () => {
     const quotes = [{ market: "PTS" as const }, { market: "REB" as const }]
     expect(marketCoverageNote(["player_points", "player_rebounds"], quotes)).toBeNull()
+  })
+
+  it("does not tell you to drop a market you never asked for", () => {
+    // The report: a PropLine NBA pull with the Markets box blank, so on this
+    // app's own list, warned "drop player_field_goals, player_frees_made from
+    // Settings → Markets" on every pull. Nobody had typed them, nobody could
+    // drop them without typing out the rest of the list, and on a feed billed
+    // per request they cost nothing. A warning nobody can act on is noise.
+    const quotes = [{ market: "PTS" as const }, { market: "REB" as const }]
+    const asked = ["player_points", "player_rebounds", "player_field_goals", "player_frees_made"]
+    expect(marketCoverageNote(asked, quotes, [], "basketball", { chosen: false, billsPerRequest: true })).toBeNull()
+    // A list typed into Settings is the user's to trim, whatever the feed.
+    const typed = marketCoverageNote(asked, quotes, [], "basketball", { chosen: true, billsPerRequest: true })!
+    expect(typed).toContain("Settings → Markets")
+    // Where every market is billed per game, credits are being spent on it,
+    // so it is said — with the list to type rather than an order to edit a
+    // blank box.
+    const billed = marketCoverageNote(asked, quotes, [], "basketball", { chosen: false })!
+    expect(billed).toContain("set Settings → Markets to player_points, player_rebounds")
+    expect(billed).not.toContain("Drop")
+  })
+
+  it("names markets in words, and keys only where a key is what to type", () => {
+    const note = marketCoverageNote(["player_points", "player_frees_made"], [{ market: "PTS" as const }])!
+    expect(note).toContain("priced Free Throws Made,")
+    expect(note).toContain("Drop player_frees_made from Settings → Markets")
+  })
+
+  it("knows a typed list from this app's own", () => {
+    expect(marketsChosen(LEAGUES.nba, null)).toBe(false)
+    expect(marketsChosen(LEAGUES.nba, [])).toBe(false)
+    expect(marketsChosen(LEAGUES.nba, ["player_points"])).toBe(true)
+    // A basketball list does not reach the NFL, so the NFL is on its own list.
+    expect(marketsChosen(LEAGUES.nfl, ["player_points"])).toBe(false)
+    // And a companion ignores the box entirely.
+    expect(marketsChosen(LEAGUES.cfb, ["player_pass_yds"])).toBe(false)
   })
 
   it("tells a gap in this app's market map apart from a gap in the book's coverage", () => {
