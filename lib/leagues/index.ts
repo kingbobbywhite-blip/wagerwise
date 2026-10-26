@@ -166,13 +166,18 @@ const NBA_BOOKS = ["pinnacle", "betonlineag", "lowvig", "draftkings", "fanduel",
  * turnovers quote. Every one of those 85 was dropped, correctly and uselessly.
  * It is off the list until there is evidence a book prices it.
  *
+ * Field goals made and free throws made went the same way, on the same kind
+ * of evidence: a real PropLine NBA pull priced every other market on this
+ * list and came back with not one sportsbook quote for either. They are off
+ * until a book is shown to price them, and can be typed into Settings →
+ * Markets by anyone whose books do.
+ *
  * Points, rebounds, assists and threes are the board's spine and every book
  * posts them. The four combos are most of the rest of a PrizePicks NBA board
  * and are widely posted; they are modelled with their own correlation between
  * the components, so they price properly rather than as a sum of independent
- * parts. Steals, blocks, steals+blocks, field goals made and free throws made
- * are thinner, and whether the books behind them hold up is reported per pull
- * rather than assumed here again — see the market-coverage note.
+ * parts. Steals, blocks and steals+blocks are thinner, and came back priced
+ * in that same pull.
  */
 const NBA_DEEP_MARKETS = [
   "player_points",
@@ -186,9 +191,8 @@ const NBA_DEEP_MARKETS = [
   "player_steals",
   "player_blocks",
   "player_blocks_steals",
-  // "player_turnovers" is deliberately absent: see above.
-  "player_field_goals",
-  "player_frees_made",
+  // "player_turnovers", "player_field_goals" and "player_frees_made" are
+  // deliberately absent: see above.
 ]
 
 const FOOTBALL_MARKETS = ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"]

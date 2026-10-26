@@ -582,6 +582,19 @@ describe("usablePickemLines", () => {
     expect(note).toContain("1 because no sportsbook priced Josh Minott at all")
     expect(note).toContain("1 for Rebounds, which no sportsbook on this slate prices at all")
   })
+
+  it("only says to drop a market from Settings when the list there is yours", () => {
+    // Settings → Markets left blank follows this app's own list. Telling that
+    // user to drop a market from it is an instruction to edit an empty box.
+    const r = normalizeProplineEvent(event, "basketball", BEFORE)
+    const rebounds = { ...r.pickemLines[0], market: "REB" as never, line: 11.5 }
+    const { dropped } = usablePickemLines([rebounds], r.quotes)
+    const own = unpricedPickemNote(dropped, { chosen: false })!
+    expect(own).toContain("no sportsbook on this slate prices at all")
+    expect(own).not.toContain("Settings")
+    // On a typed list it names the key, which is what the box takes.
+    expect(unpricedPickemNote(dropped)!).toContain("Drop player_rebounds from Settings → Markets")
+  })
 })
 
 import { parseProplineError, proplineErrorText, resolveProplineKeySource } from "@/lib/odds-feed/propline"

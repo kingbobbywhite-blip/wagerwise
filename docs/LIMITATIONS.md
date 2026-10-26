@@ -109,7 +109,7 @@ rather than continuously.
 
 PropLine bills per request instead: one for the game list and one per game, whatever the
 markets, against 1,000 a day free. Because width is free there, the NBA asks PropLine for its
-whole board — fourteen markets for the price of four — and asks The Odds API for five.
+whole board — eleven markets for the price of four — and asks The Odds API for five.
 
 The trade is the reference price. PropLine's Pinnacle feed carries no basketball or football
 player props, so with PropLine pricing the slate the sharp reference is BetOnline or LowVig, and
@@ -255,15 +255,17 @@ That threshold is judgement. It is now a dial in Settings, what it removes is li
 screen, and a line PropLine shows an app actually posting overrides it — but with no pick'em feed
 attached it is still a guess about what a board would offer.
 
-**Browser storage is the binding constraint, and it was failing silently.** Everything is one
-localStorage blob. A pull stores every book's quote verbatim, so a 14-game NFL Sunday at eight
-books is 1.7-2.8MB of JSON; browsers meter localStorage in UTF-16 code units, so that is 3.4-5.5MiB
-of a roughly 5MiB quota before an NBA cache sits beside it. A full Sunday can therefore
-fail to save outright. A failed save now sheds load — line history, then other leagues' slates,
-then the imported board — and reports what it dropped in a banner every screen shows, instead of
-looking successful while writing nothing. What it does NOT do is make the underlying allocation
-smaller: a verbatim per-book cache is still what the engine needs to re-price without spending
-credits, so a large enough slate will still shed something.
+**Browser storage was the binding constraint, and it took a pull off the screen.** Everything was
+one localStorage blob, capped at roughly 5MiB. A pull stores every book's quote verbatim, so a
+14-game NFL Sunday at eight books is 1.7-2.8MB of JSON, metered as 3.4-5.5MiB in UTF-16, and a
+PropLine NBA pull of the whole board overflows the quota alone. The save shed load to fit and, on
+such a slate, its last step dropped the pull that had just come in — from the state on screen,
+not just from storage — so a successful pull read as "Nothing pulled yet". The state now lives in
+IndexedDB, which is metered against the device's disk, one record per part, and a save that does
+not fit is reported and never takes anything off the screen. What this does NOT do is make the
+allocation smaller: a verbatim per-book cache is still what the engine needs to re-price without
+spending credits. Where IndexedDB is unavailable the old blob is used, and a large slate there is
+on screen until a reload and no longer.
 
 **Whether an empty market costs a credit is unverified.** This app has said it does. Two
 independent transcriptions of The Odds API docs give the per-event cost as unique markets

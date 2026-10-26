@@ -8,6 +8,10 @@ import { EMPTY_STATE, migrate, type AppState } from "./schema"
  * zero configuration, no account and no database, and your betting history never
  * leaves your machine. The cost is that clearing site data wipes it, so the
  * settings page offers a one-click JSON export and import.
+ *
+ * IndexedDB is where it lives now (see idb.ts). What is here is the old home:
+ * one localStorage blob, read once to move an existing install across, and
+ * written to only where IndexedDB cannot be opened at all.
  */
 
 const KEY = "wagerwise.state.v1"
@@ -21,6 +25,29 @@ export function loadState(): AppState {
   } catch {
     // Corrupt or unreadable storage must not take the whole app down.
     return EMPTY_STATE
+  }
+}
+
+/**
+ * True when a storage failure was for want of room.
+ *
+ * Browsers disagree about the name and the message. Safari throws
+ * QuotaExceededError, Firefox NS_ERROR_DOM_QUOTA_REACHED, and the legacy code
+ * 22 is still what some report.
+ */
+export function isQuotaError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e)
+  const name = e instanceof Error ? e.name : ""
+  const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: number }).code : undefined
+  return /quota|NS_ERROR_DOM_QUOTA_REACHED/i.test(`${name} ${msg}`) || code === 22 || name === "QuotaExceededError"
+}
+
+/** Removes the old blob once IndexedDB holds everything it did, freeing its share of the quota. */
+export function clearLegacyState(): void {
+  try {
+    window.localStorage.removeItem(KEY)
+  } catch {
+    // Nothing depends on it going: IndexedDB is read first from now on.
   }
 }
 
@@ -46,13 +73,7 @@ export function saveState(state: AppState): SaveResult {
     return { ok: true }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    // Browsers disagree about the name and the message. Safari throws
-    // QuotaExceededError, Firefox NS_ERROR_DOM_QUOTA_REACHED, and the legacy
-    // code 22 is still what some report.
-    const name = e instanceof Error ? e.name : ""
-    const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: number }).code : undefined
-    const quota =
-      /quota|NS_ERROR_DOM_QUOTA_REACHED/i.test(`${name} ${msg}`) || code === 22 || name === "QuotaExceededError"
+    const quota = isQuotaError(e)
     return {
       ok: false,
       quota,
@@ -77,6 +98,12 @@ export function saveState(state: AppState): SaveResult {
  * research and can be thinned, another league's slate is yesterday's problem,
  * and the pull you just paid for is the last thing to go. Slips are never
  * dropped — they are the only record of what the model got right.
+ *
+ * What is shed is shed from the STORED copy only. It used to be shed from the
+ * state on screen as well, and on a slate too big to store on its own the
+ * last step dropped the pull that had just come in: the pull succeeded, its
+ * warnings showed, and the screen said "Nothing pulled yet". Only used now
+ * where IndexedDB cannot be opened; see saveReduced.
  */
 export function reduceForQuota(
   state: AppState,
@@ -121,4 +148,28 @@ export function exportState(state: AppState): string {
 
 export function importState(json: string): AppState {
   return migrate(JSON.parse(json))
+}
+
+/**
+ * Saves as much of the state as fits, shedding from the stored copy in
+ * reduceForQuota's order, and says what had to be left out.
+ *
+ * The state passed in is never changed: whatever is shed stays on screen
+ * until a reload, which is what the notice that reports it says.
+ */
+export function saveReduced(
+  state: AppState,
+  keep?: LeagueId | null,
+): { ok: boolean; dropped: string[]; error?: string } {
+  const dropped: string[] = []
+  let copy = state
+  for (;;) {
+    const r = saveState(copy)
+    if (r.ok) return { ok: true, dropped }
+    // Shedding is only an answer to a full quota; see SaveResult.quota.
+    const reduced = r.quota ? reduceForQuota(copy, keep) : null
+    if (!reduced) return { ok: false, dropped, error: r.error }
+    dropped.push(reduced.dropped)
+    copy = reduced.state
+  }
 }

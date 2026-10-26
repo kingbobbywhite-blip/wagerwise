@@ -417,15 +417,22 @@ folding them into a guess would report college legs as NFL calibration.
 
 ## When the browser runs out of room
 
-Everything lives in one localStorage blob, and a 14-game NFL pull at eight books is comfortably
-over a megabyte of JSON — enough that a full Sunday could already fail to save. Until now it
-failed **silently** on the one screen that causes it: the slate lived in React state, looked fine,
-and was gone on the next reload along with the credits that bought it.
+Everything lives in this browser, in IndexedDB, as separate records: settings and slips, the line
+history, and one slate per league. It used to be one localStorage blob, and localStorage is capped
+at about 5MiB — which a PropLine NBA pull, the whole board at every book verbatim, overflows on its
+own. The save then shed things to make room and, with nothing else left, shed the pull itself, from
+the screen as well as from storage: the pull succeeded, its warnings showed, and the screen said
+"Nothing pulled yet". IndexedDB is metered against the device's disk instead, so a full slate fits.
+An existing install's blob is moved across on first load, and cleared once it is in.
 
-A failed save now sheds load instead, cheapest first — older line history, then another league's
-slate, then the rest of the history, then the imported board — and says what it dropped, in a
-banner in the header that every screen shows. Slips are never dropped: they are the only record of
-what the model predicted.
+Separate records also mean only what changed is written. Typing in a settings field used to
+re-serialise every cached quote on every keystroke; now it writes the settings record alone.
+
+**Nothing is ever taken off the screen to make a save fit.** If a record still cannot be stored, a
+banner in the header names it and says it will be gone after a reload. Where IndexedDB cannot be
+opened at all, the app falls back to the old blob and sheds from the *stored copy*, cheapest first
+— older line history, then another league's slate, then the rest of the history, then the
+imported board — and slips are never shed: they are the only record of what the model predicted.
 
 ## Leagues
 
@@ -434,7 +441,7 @@ what the model predicted.
 | Tab | NBA | NFL | inside NFL, opt-in |
 | Feed sport key | `basketball_nba` | `americanfootball_nfl` | `americanfootball_ncaaf` |
 | Markets, per-market feed | pts, reb, ast, 3pm, pra | pass yds, rush yds, rec yds, receptions | same as the NFL |
-| Markets, per-request feed | the whole board: 14 | same four | same as the NFL |
+| Markets, per-request feed | the whole board: 11 | same four | same as the NFL |
 | Default game cap | 14 | 14 | 6 |
 | Volatility prior | baseline | its own markets | +20% on the NFL's (unfitted) |
 | One default press | 70 credits | 56 credits | +24, and +1 to rank them |
@@ -443,20 +450,25 @@ what the model predicted.
 its market list is a budget: the NBA's five put a full 14-game night at 70 credits, 14% of a
 500-request month, which is under the share that makes the button stop and ask. PropLine charges
 one request per game whatever the list, so the same budget buys nothing there — on PropLine the
-NBA pulls its whole board, fourteen markets for the price of four. Every market left out is a
+NBA pulls its whole board, eleven markets for the price of four. Every market left out is a
 pick'em line that could have been read and was not, and since an entry is built only at lines an
 app is really posting, a market nobody asked for is a leg you cannot play.
 
 The rest of the NBA board, free on PropLine and addable under Settings → Markets on The Odds API:
-pts+reb, pts+ast, reb+ast, steals, blocks, steals+blocks, field goals made, free throws made.
+pts+reb, pts+ast, reb+ast, steals, blocks, steals+blocks.
 
 **What belongs on that list is decided by the sportsbooks, not by the pick'em apps.** A pick'em
 line with no book behind it cannot be priced, cannot become a target, and tells you nothing you
 did not already know — so asking for it produces lines that are unusable by construction.
 Turnovers is the cautionary case: PrizePicks posts it heavily, no sportsbook in a real pull priced
 it at all, and 85 lines came back that nothing could do anything with. It is off the list until
-there is evidence a book prices it. Every pull now reports which markets it paid for and got
-nothing back on, so the thin ones are checked rather than assumed. The combos carry their components, so the correlation model prices PRA against PTS
+there is evidence a book prices it. Field goals made and free throws made followed on the same
+evidence: a real PropLine pull priced every other market on the list and not one book quoted
+either. Anyone whose books do post them can type `player_field_goals` or `player_frees_made`
+into Settings → Markets. Every pull reports which markets it asked for and got nothing back on,
+but only where someone can act on it: on a list typed into Settings, or where each market is
+billed per game. A gap in this app's own list on a feed where width is free is this app's to fix,
+and telling you to drop a market from a box you left blank was a warning nobody could act on. The combos carry their components, so the correlation model prices PRA against PTS
 for one player properly rather than as unrelated stats, and the entry's one-leg-per-player rule
 already stops both riding together.
 

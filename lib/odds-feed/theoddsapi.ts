@@ -1,4 +1,4 @@
-import { marketSport, type MarketKey, type Sport } from "@/lib/nba/markets"
+import { MARKETS, marketSport, type MarketKey, type Sport } from "@/lib/nba/markets"
 import { DEFAULT_LEAGUE, leagueFor, type LeagueConfig, type LeagueId } from "@/lib/leagues"
 import { normalizeName } from "@/lib/quant/correlation"
 import { sameGameId } from "./games"
@@ -146,13 +146,26 @@ export function marketsForLeague(
   opts: MarketBreadth = {},
 ): string[] {
   const config = leagueFor(league)
-  const sport = config.sport
-  const kept = (requested ?? []).filter((k) => {
+  const kept = keptForSport(config.sport, requested)
+  if (kept.length > 0) return kept
+  return opts.billsPerRequest ? (config.deepMarkets ?? config.markets) : config.markets
+}
+
+/** The keys of a typed market list that belong to a sport. */
+function keptForSport(sport: Sport, requested?: string[] | null): string[] {
+  return (requested ?? []).filter((k) => {
     const m = feedMarketFor(k, sport)
     return !!m && marketSport(m) === sport
   })
-  if (kept.length > 0) return kept
-  return opts.billsPerRequest ? (config.deepMarkets ?? config.markets) : config.markets
+}
+
+/**
+ * True when a competition is asked for the market list typed into Settings,
+ * and false when it follows this app's own. Only the first is the user's to
+ * trim, so only the first can be the subject of "drop it from Settings".
+ */
+export function marketsChosen(competition: LeagueConfig, requested?: string[] | null): boolean {
+  return !competition.companionOnly && keptForSport(competition.sport, requested).length > 0
 }
 
 /**
@@ -201,22 +214,42 @@ export function marketsForCompetition(
  * outside and are not: a market the feed served under a name this app does not
  * map is a mapping bug here, not a gap in the book's coverage, and the fix is
  * the opposite one.
+ *
+ * And it is said only where somebody can act on it. A list typed into
+ * Settings is the user's to trim. This app's own list is not, and on a feed
+ * billed per request an empty market costs nothing either, so there the
+ * sentence was a warning on every pull with nothing anybody could do about
+ * it: a real NBA pull on PropLine told the user to drop field goals and free
+ * throws made from a Markets box they had left blank. A market in this app's
+ * list that no book prices is this app's bug, and is fixed in the list.
  */
 export function marketCoverageNote(
   requested: string[],
   quotes: { market: MarketKey }[],
   unknown: string[] = [],
   sport: Sport = "basketball",
+  opts: { chosen?: boolean; billsPerRequest?: boolean } = {},
 ): string | null {
+  const { chosen = true, billsPerRequest = false } = opts
   const priced = new Set(quotes.map((q) => q.market))
   const bare = requested.filter((k) => {
     const m = feedMarketFor(k, sport)
     return m != null && !priced.has(m)
   })
   const parts: string[] = []
-  if (bare.length > 0) {
+  if (bare.length > 0 && (chosen || !billsPerRequest)) {
+    const one = bare.length === 1
+    const names = bare.map((k) => MARKETS[feedMarketFor(k, sport)!]?.label ?? k)
+    // The box takes feed keys, so the action names keys and the sentence
+    // before it names markets.
+    const rest = requested.filter((k) => !bare.includes(k))
+    const action = chosen
+      ? ` Drop ${bare.join(", ")} from Settings → Markets unless a book you use posts ${one ? "it" : "them"}.`
+      : rest.length > 0
+        ? ` Each is billed per game; to stop paying for ${one ? "it" : "them"}, set Settings → Markets to ${rest.join(", ")}.`
+        : ""
     parts.push(
-      `No sportsbook in this pull priced ${bare.join(", ")}. Nothing can be built on ${bare.length === 1 ? "that market" : "those markets"}, so drop ${bare.length === 1 ? "it" : "them"} from Settings → Markets unless a book you use posts ${bare.length === 1 ? "it" : "them"}.`,
+      `No sportsbook in this pull priced ${names.join(", ")}, so nothing can be built on ${one ? "that market" : "those markets"}.${action}`,
     )
   }
   if (unknown.length > 0) {
