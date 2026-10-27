@@ -112,8 +112,10 @@ markets, against 1,000 a day free. Because width is free there, the NBA asks Pro
 whole board — eleven markets for the price of four — and asks The Odds API for five.
 
 The trade is the reference price. PropLine's Pinnacle feed carries no basketball or football
-player props, so with PropLine pricing the slate the sharp reference is BetOnline or LowVig, and
-a prop neither of them posts is left unpriced while "require a sharp book" is on. Pinnacle via
+player props, so with PropLine pricing the slate the sharp reference is BetOnline (LowVig is the
+same book under another name and counts once), and a prop it does not post is left unpriced while
+"require a sharp book" is on. With no market maker in the room, a side is priced at the lesser of
+the consensus and the retail books' own number, so an edge only BetOnline sees is not one. Pinnacle via
 The Odds API, with PropLine supplying only the pick'em lines, keeps the stronger reference and
 the narrower market list at the same time, which is a real trade rather than a free choice.
 

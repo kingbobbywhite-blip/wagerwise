@@ -85,6 +85,47 @@ const OLD_DEFAULT_BETTABLE = ["fanduel", "draftkings", "betmgm", "williamhill_us
 /** Apps once shipped by default and never used, dropped from stored settings. */
 const RETIRED_APPS = new Set(["dabble", "chalkboard"])
 
+/**
+ * The PrizePicks Power Play table every phone stored before a second real
+ * screen showed a standard 3-pick at 5.5x. Settings keep their own copy of the
+ * tables, so a new default reaches nobody who already has the app: a copy
+ * still exactly this one was never edited and takes the new default, and one
+ * that differs anywhere was set by hand and is left alone.
+ */
+const OLD_PRIZEPICKS_POWER: Record<number, Record<number, number>> = {
+  2: { 2: 3 },
+  3: { 3: 6 },
+  4: { 4: 10 },
+  5: { 5: 20 },
+  6: { 6: 37.5 },
+}
+
+function sameTable(a: Record<number, Record<number, number>>, b: Record<number, Record<number, number>>): boolean {
+  const flat = (t: Record<number, Record<number, number>>) =>
+    JSON.stringify(
+      Object.entries(t)
+        .flatMap(([n, tiers]) => Object.entries(tiers ?? {}).map(([k, v]) => [Number(n), Number(k), v]))
+        .sort((x, y) => x[0] - y[0] || x[1] - y[1]),
+    )
+  return flat(a) === flat(b)
+}
+
+function migrateApps(stored: BookApp[]): BookApp[] {
+  const current = DEFAULT_APPS.find((a) => a.id === "prizepicks")?.modes.find((m) => m.id === "power")
+  return stored
+    .filter((a) => !RETIRED_APPS.has(a.id))
+    .map((a) =>
+      a.id !== "prizepicks" || !current || !Array.isArray(a.modes)
+        ? a
+        : {
+            ...a,
+            modes: a.modes.map((m) =>
+              m.id === "power" && m.table && sameTable(m.table, OLD_PRIZEPICKS_POWER) ? { ...m, table: current.table } : m,
+            ),
+          },
+    )
+}
+
 export interface DailySettings {
   /** Which league the Today screen is showing. */
   league: LeagueId
@@ -448,7 +489,7 @@ export function migrate(raw: unknown): AppState {
       },
       correlation: { ...DEFAULT_CORRELATION, ...(s.correlation ?? {}) },
       constraints: { ...DEFAULT_CONSTRAINTS, ...(s.constraints ?? {}) },
-      apps: Array.isArray(s.apps) && s.apps.length > 0 ? s.apps.filter((a) => !RETIRED_APPS.has(a.id)) : DEFAULT_APPS,
+      apps: Array.isArray(s.apps) && s.apps.length > 0 ? migrateApps(s.apps) : DEFAULT_APPS,
       defaultAppId: s.defaultAppId ?? DEFAULT_SETTINGS.defaultAppId,
       defaultModeId: s.defaultModeId ?? DEFAULT_SETTINGS.defaultModeId,
       capturedPayouts: migrateCapturedPayouts(s.capturedPayouts),

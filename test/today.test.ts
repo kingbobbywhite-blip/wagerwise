@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildDailyPicks, buildDfsTargets, dfsTargetsFor, summariseGames, valueBetsToCandidates } from "@/lib/today/build"
+import { PARLAY_MIN_LEG_PROB, buildDailyPicks, buildDfsTargets, dfsTargetsFor, summariseGames, valueBetsToCandidates } from "@/lib/today/build"
 import { DEFAULT_VALUE_SETTINGS, findValueBets, type FeedQuote } from "@/lib/quant/valuebets"
 import { DEFAULT_CORRELATION } from "@/lib/quant/correlation"
 import { DEFAULT_CONSTRAINTS } from "@/lib/quant/optimizer"
@@ -113,19 +113,21 @@ describe("valueBetsToCandidates", () => {
 })
 
 describe("buildDailyPicks", () => {
-  // Four players across two games. Pinnacle sets each number; DraftKings is
-  // soft on all four, and FanDuel is soft on one, so a single-book parlay is
-  // possible at DraftKings but not at FanDuel.
+  // Four players across two games. Pinnacle sets each number with the over a
+  // modest favourite; DraftKings is soft on all four, offering that over at
+  // even money, and FanDuel is soft on one, so a single-book parlay is
+  // possible at DraftKings but not at FanDuel. Favourites, because a parlay
+  // leg has to be at least a coin flip: see PARLAY_MIN_LEG_PROB.
   const quotes: FeedQuote[] = [
-    q("Anthony Edwards", "PTS", "pinnacle", 25.5, -110, -110),
-    q("Anthony Edwards", "PTS", "draftkings", 25.5, 135, -155),
-    q("Rudy Gobert", "REB", "pinnacle", 11.5, -110, -110),
-    q("Rudy Gobert", "REB", "draftkings", 11.5, 130, -150),
-    q("Rudy Gobert", "REB", "fanduel", 11.5, 128, -148),
-    q("Jalen Brunson", "PTS", "pinnacle", 26.5, -110, -110, "NYK@BOS"),
-    q("Jalen Brunson", "PTS", "draftkings", 26.5, 128, -148, "NYK@BOS"),
-    q("Jayson Tatum", "REB", "pinnacle", 8.5, -110, -110, "NYK@BOS"),
-    q("Jayson Tatum", "REB", "draftkings", 8.5, 132, -152, "NYK@BOS"),
+    q("Anthony Edwards", "PTS", "pinnacle", 25.5, -130, 110),
+    q("Anthony Edwards", "PTS", "draftkings", 25.5, 100, -120),
+    q("Rudy Gobert", "REB", "pinnacle", 11.5, -130, 110),
+    q("Rudy Gobert", "REB", "draftkings", 11.5, 100, -120),
+    q("Rudy Gobert", "REB", "fanduel", 11.5, 100, -120),
+    q("Jalen Brunson", "PTS", "pinnacle", 26.5, -130, 110, "NYK@BOS"),
+    q("Jalen Brunson", "PTS", "draftkings", 26.5, 100, -120, "NYK@BOS"),
+    q("Jayson Tatum", "REB", "pinnacle", 8.5, -130, 110, "NYK@BOS"),
+    q("Jayson Tatum", "REB", "draftkings", 8.5, 100, -120, "NYK@BOS"),
   ]
 
   const picks = buildDailyPicks(quotes, OPTS)
@@ -179,8 +181,28 @@ describe("buildDailyPicks", () => {
 
   it("prices parlays from the legs' own odds", () => {
     const p = picks.parlays[0]
-    // Three legs near +130 pay far more than a DFS 3-pick.
-    expect(p.evaluation.topMultiple).toBeGreaterThan(8)
+    // Three legs at even money pay exactly 2 x 2 x 2.
+    expect(p.evaluation.topMultiple).toBeCloseTo(8, 6)
+    for (const l of p.legs) expect(l.pWin).toBeGreaterThanOrEqual(PARLAY_MIN_LEG_PROB)
+  })
+
+  it("keeps long-odds legs out of parlays, and still lists them as singles", () => {
+    // The parlays this used to build were ones you could see would not hit:
+    // three legs that each land about four times in ten, at +160, hit about
+    // one time in fifteen. Each is a fine single, and stays listed as one.
+    const longshots: FeedQuote[] = [
+      q("Anthony Edwards", "PTS", "pinnacle", 25.5, 130, -150),
+      q("Anthony Edwards", "PTS", "draftkings", 25.5, 160, -190),
+      q("Rudy Gobert", "REB", "pinnacle", 11.5, 130, -150),
+      q("Rudy Gobert", "REB", "draftkings", 11.5, 160, -190),
+      q("Jalen Brunson", "PTS", "pinnacle", 26.5, 130, -150, "NYK@BOS"),
+      q("Jalen Brunson", "PTS", "draftkings", 26.5, 160, -190, "NYK@BOS"),
+    ]
+    const now = buildDailyPicks(longshots, OPTS)
+    expect(now.valueBets.filter((b) => b.side === "OVER" && b.fairProb < 0.5).length).toBeGreaterThanOrEqual(3)
+    expect(now.parlays).toHaveLength(0)
+    // At the old 30% floor the same slate built a parlay of exactly those legs.
+    expect(buildDailyPicks(longshots, { ...OPTS, parlayMinLegProb: 0.3 }).parlays.length).toBeGreaterThan(0)
   })
 
   it("produces DFS targets alongside the sportsbook bets", () => {

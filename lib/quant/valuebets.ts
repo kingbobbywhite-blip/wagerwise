@@ -1,9 +1,9 @@
 import { MARKETS, type MarketKey } from "@/lib/nba/markets"
 import type { LeagueId } from "@/lib/leagues"
-import { resolveLine } from "./distributions"
-import { bookProfile, isSharp } from "./books"
+import { bookProfile, isSharp, sourceOf } from "./books"
 import { americanToDecimal, probToAmerican } from "./odds"
 import {
+  linePrices,
   projectProp,
   DEFAULT_PROJECTION_SETTINGS,
   type BookQuote,
@@ -292,12 +292,18 @@ export function findValueBets(
     if (group.quotes.length < 2) continue
 
     for (const offer of group.quotes) {
-      // Leave-one-out: a book never contributes to the consensus that judges it.
-      const others = group.quotes.filter((q) => q !== offer)
+      // Leave-one-out: a book never contributes to the consensus that judges
+      // it, and neither does its sister book. LowVig hangs BetOnline's lines,
+      // so a LowVig price judged against BetOnline is judged against itself.
+      const others = group.quotes.filter((q) => q !== offer && sourceOf(q.book) !== sourceOf(offer.book))
       const ref = referenceProjection(group, others, settings, now)
       if (!ref || ref.status !== "priced") continue
 
-      const probs = resolveLine(ref.distribution, offer.line)
+      // By every opinion that has to agree: with no market-making book among
+      // the others, the retail books' as well as the consensus's. A retail
+      // offer that only looks good against a lone offshore number is the same
+      // price as the rest of the retail market, not value. See linePrices.
+      const probs = linePrices(ref, offer.line)
       const sides: { side: ValueSide; price: number | null; fairProb: number }[] = [
         { side: "OVER", price: offer.overOdds ?? null, fairProb: probs.over },
         { side: "UNDER", price: offer.underOdds ?? null, fairProb: probs.under },

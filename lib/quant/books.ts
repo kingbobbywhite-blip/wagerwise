@@ -24,6 +24,12 @@ export interface BookProfile {
   /** Relative weight in the consensus. Pinnacle is the reference at 1.0. */
   weight: number
   note: string
+  /**
+   * The odds feed this book's prices come from, when it shares one with
+   * another book here. Books with the same source are one opinion, and count
+   * once: see bookConsensus.
+   */
+  source?: string
 }
 
 export const BOOK_PROFILES: BookProfile[] = [
@@ -47,6 +53,7 @@ export const BOOK_PROFILES: BookProfile[] = [
     tier: "sharp",
     weight: 0.5,
     note: "Posts early and moves fast. Useful, but wider than Pinnacle.",
+    source: "betonline",
   },
   {
     id: "bookmaker",
@@ -60,7 +67,8 @@ export const BOOK_PROFILES: BookProfile[] = [
     name: "LowVig",
     tier: "sharp",
     weight: 0.45,
-    note: "Reduced-margin book, largely mirrors the sharp market.",
+    note: "BetOnline's reduced-margin sister site: the same lines at less juice, so it counts as BetOnline rather than beside it.",
+    source: "betonline",
   },
   {
     id: "draftkings",
@@ -89,6 +97,7 @@ export const BOOK_PROFILES: BookProfile[] = [
     tier: "retail",
     weight: 0.15,
     note: "Retail. Follows the market.",
+    source: "caesars",
   },
   {
     id: "espnbet",
@@ -103,6 +112,7 @@ export const BOOK_PROFILES: BookProfile[] = [
     tier: "retail",
     weight: 0.15,
     note: "Retail. The feed's id for Caesars Sportsbook.",
+    source: "caesars",
   },
   { id: "betrivers", name: "BetRivers", tier: "retail", weight: 0.1, note: "Retail." },
   { id: "fanatics", name: "Fanatics", tier: "retail", weight: 0.1, note: "Retail." },
@@ -144,6 +154,16 @@ export function bookProfile(id: string): BookProfile {
   )
 }
 
+/**
+ * The odds feed behind a book. Two books with the same source are one
+ * opinion: LowVig is BetOnline's sister site, hanging the same lines at less
+ * juice, and Caesars arrives under two ids.
+ */
+export function sourceOf(id: string): string {
+  const p = bookProfile(id)
+  return p.source ?? p.id.toLowerCase()
+}
+
 export function isSharp(id: string): boolean {
   const t = bookProfile(id).tier
   return t === "market-making" || t === "sharp"
@@ -168,6 +188,15 @@ export interface ConsensusResult {
   totalWeight: number
   /** True when at least one market-making or sharp book contributed. */
   hasSharp: boolean
+  /** True when a market-making book (Pinnacle, Circa) contributed, not just a sharp one. */
+  hasMarketMaker: boolean
+  /**
+   * The weighted estimate of each bloc on its own: the sharp books, and the
+   * capped retail bloc. Null for a bloc with nobody in it. Where no market-
+   * making book is present these are two independent opinions, and an edge
+   * that only one of them sees is not one to trust: see projectProp.
+   */
+  blocs: { sharp: number | null; retail: number | null }
   /** Spread between the highest and lowest contributing estimate. */
   disagreement: number
   contributors: { book: string; weight: number; value: number }[]
@@ -177,8 +206,25 @@ export interface ConsensusResult {
  * Weighted consensus across books, with the retail bloc capped.
  */
 export function bookConsensus(inputs: WeightedBookInput[]): ConsensusResult | null {
-  const usable = inputs.filter((i) => Number.isFinite(i.value))
-  if (usable.length === 0) return null
+  const finite = inputs.filter((i) => Number.isFinite(i.value))
+  if (finite.length === 0) return null
+
+  // One opinion per source. LowVig hangs BetOnline's lines, so counted beside
+  // it the one book carried 0.95 of weight, about two thirds of an NBA
+  // consensus on PropLine (which has no Pinnacle props), and its depth pushed
+  // the consensus quality to the maximum. A source is represented by its
+  // heaviest book, at the mean of what its books said.
+  const bySource = new Map<string, WeightedBookInput[]>()
+  for (const i of finite) {
+    const key = sourceOf(i.book)
+    const members = bySource.get(key)
+    if (members) members.push(i)
+    else bySource.set(key, [i])
+  }
+  const usable = Array.from(bySource.values()).map((members) => {
+    const lead = members.reduce((a, b) => (bookProfile(b.book).weight > bookProfile(a.book).weight ? b : a))
+    return { book: lead.book, value: members.reduce((a, m) => a + m.value, 0) / members.length }
+  })
 
   const sharp = usable.filter((i) => isSharp(i.book))
   const retail = usable.filter((i) => !isSharp(i.book))
@@ -202,11 +248,20 @@ export function bookConsensus(inputs: WeightedBookInput[]): ConsensusResult | nu
 
   const value = contributors.reduce((a, c) => a + c.value * c.weight, 0) / totalWeight
   const values = usable.map((i) => i.value)
+  const blocOf = (members: typeof contributors) => {
+    const w = members.reduce((a, c) => a + c.weight, 0)
+    return w > 0 ? members.reduce((a, c) => a + c.value * c.weight, 0) / w : null
+  }
 
   return {
     value,
     totalWeight,
     hasSharp: sharp.length > 0,
+    hasMarketMaker: sharp.some((i) => bookProfile(i.book).tier === "market-making"),
+    blocs: {
+      sharp: blocOf(contributors.filter((c) => isSharp(c.book))),
+      retail: blocOf(contributors.filter((c) => !isSharp(c.book))),
+    },
     disagreement: Math.max(...values) - Math.min(...values),
     contributors: contributors.sort((a, b) => b.weight - a.weight),
   }

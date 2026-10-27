@@ -49,11 +49,29 @@ those numbers with a wider margin and shade them toward public money.
 | Pinnacle | market-making | 1.00 |
 | Circa | market-making | 0.85 |
 | BetOnline, BookMaker | sharp | 0.50 |
-| LowVig | sharp | 0.45 |
+| LowVig | sharp | counts as BetOnline |
 | DraftKings, FanDuel | retail | 0.20 |
 | BetMGM, Caesars | retail | 0.15 |
 | ESPN BET | retail | 0.10 |
 | Anything unrecognised | unknown | 0.10 |
+
+**Books that share a feed count once.** LowVig is BetOnline's reduced-margin sister site,
+hanging the same lines at less juice, and Caesars arrives under two ids. Counted separately,
+BetOnline carried 0.95 of weight on every prop both posted — about two thirds of an NBA
+consensus on PropLine, which carries no Pinnacle player props — and the depth of that one
+opinion pushed the consensus quality to its maximum. A shared source now contributes once, at
+its heaviest book's weight, and in leave-one-out a sister book is left out along with the book
+being judged, so a LowVig price is never measured against BetOnline's.
+
+**Without a market maker, the retail books have to agree.** Where Pinnacle or Circa priced a
+prop, its number is the reference and a retail book lagging it is the classic edge. Where
+neither did, the consensus is one sharp book's opinion blended with the retail market's, and
+the sharp book has the larger say: on PropLine, BetOnline two points under FanDuel, DraftKings,
+Bovada, BetMGM and the pick'em app's own line turned a coin flip at that line into a 58% pick.
+So with no market maker, each side's chance is the lesser of the consensus's and the retail
+books' own, and the row says when the two disagree. An edge the whole market sees survives it;
+an edge one offshore number sees on its own does not. The same rule judges retail offers as
+value bets.
 
 The combined retail weight is capped at 0.45 no matter how many retail books are present.
 That cap matters: retail books copy the same source, so five of them is one opinion counted
@@ -349,10 +367,13 @@ a pushed leg drops out of the parlay rather than losing it. The break-even figur
 beside a parlay's expected value is the per-leg rate an equivalent all-or-nothing entry
 would need, which makes it directly comparable to the pick'em bar.
 
-The leg probability floor is lower for parlays than for pick'em entries, on purpose. On a
-DFS app every leg is roughly even money, so a leg under 50% is close to worthless. On a
-sportsbook the price carries the value: a +160 leg that hits 45% of the time is an
-excellent bet.
+Every parlay leg has to be at least a coin flip. The floor used to be 30%, on the reasoning
+that a sportsbook's price carries the value: a +160 leg that hits 45% of the time is a good bet
+on its own. Three of them hit about one time in eleven, and the parlays that built were ones you
+could see would not hit. A long-odds leg is also where the edge is least believable — its fair
+chance comes from the tail of the consensus, where the devig method and the dispersion prior
+matter most — and a parlay multiplies that error once per leg. Long-odds edges are still listed,
+as single bets.
 
 ### Pick'em targets
 

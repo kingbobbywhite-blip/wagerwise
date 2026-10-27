@@ -56,9 +56,13 @@ export const DEFAULT_APPS: BookApp[] = [
         id: "power",
         label: "Power Play",
         blurb: "Every pick must hit.",
-        // 3-pick is 6x: a standard 3-pick with no goblins or demons paid $2 for
-        // $12 on a real entry screen (Sep 2026). The rest are still unverified.
-        table: allOrNothing([[2, 3], [3, 6], [4, 10], [5, 20], [6, 37.5]]),
+        // A 3-pick is 6x at best and not always. Two real entries of three
+        // standard picks, no goblins or demons: one paid $2 for $12 (Sep 2026),
+        // one $5 for $27.50, which is 5.5x (Oct 2026). PrizePicks varies the
+        // multiplier from entry to entry, so the lower one is stored: this
+        // table is the bar a leg has to clear, and a bar set at a payout the
+        // entry may not get is a bar set too low. The rest are unverified.
+        table: allOrNothing([[2, 3], [3, 5.5], [4, 10], [5, 20], [6, 37.5]]),
       },
       {
         id: "flex",
@@ -363,9 +367,9 @@ export const PLACEHOLDER_LEG_BAR = 0.56
  * Where a captured payout is filed.
  *
  * The entry size is part of the key because a payout read for a 3-pick says
- * nothing about a 5-pick — and the one verified number in this whole registry
- * is proof of that: a 3-pick Power Play was confirmed at 6x and nothing else
- * was.
+ * nothing about a 5-pick — and the only verified numbers in this whole
+ * registry are proof of that: a 3-pick Power Play has been read off real
+ * screens, at 6x and then at 5.5x, and no other size has.
  */
 export function payoutKey(appId: string, modeId: string, picks: number): string {
   return `${appId}|${modeId}|${picks}`
@@ -394,12 +398,66 @@ export function capturedPayoutChanged(
 export interface PickemBar {
   /** Per-leg hit rate an entry has to clear. */
   prob: number
-  /** Where the number came from. "captured" is the only one read off a real screen. */
-  source: "captured" | "stored" | "placeholder"
+  /**
+   * Where the number came from. "captured" and "tracked" are read off real
+   * screens: the payout you read in for this entry, or the lowest your own
+   * logged entries of this size were offered.
+   */
+  source: "captured" | "tracked" | "stored" | "placeholder"
   /** Has anyone checked the table this came from against a real entry screen? */
   verified: boolean
   /** When the capture was read, for a bar that came from one. */
   capturedAt: string | null
+  /** For a tracked bar: the multiple it was set at, and how many entries were read. */
+  tracked?: { multiple: number; entries: number }
+}
+
+/** The fields of a logged entry that say what the app offered for it. */
+export interface OfferedEntry {
+  appId: string
+  modeId: string
+  createdAt: string
+  source?: "built" | "logged"
+  topMultiple: number | null
+  legs: { pickType?: string }[]
+}
+
+/**
+ * What the app actually offered on your own logged entries of this kind:
+ * the "if every leg hits" multiple of each one, newest first.
+ *
+ * Only entries logged from the app, because a built entry's multiple came
+ * from a table here rather than off a screen, and only entries of standard
+ * picks, because a goblin or demon moves the whole entry's multiplier. A leg
+ * logged before pick types were recorded is taken as standard.
+ *
+ * This is the evidence the stored tables never had. PrizePicks varies its
+ * multipliers from entry to entry: a standard 3-pick Power Play has paid 6x
+ * on one real screen and 5.5x on another, and a bar set at the 6x a table
+ * promises is two points easier than one set at the 5.5x the app gave.
+ */
+export function offeredMultiples(
+  entries: OfferedEntry[],
+  appId: string,
+  modeId: string,
+  picks: number,
+  limit = 5,
+): number[] {
+  return entries
+    .filter(
+      (e) =>
+        e.source === "logged" &&
+        e.appId === appId &&
+        e.modeId === modeId &&
+        e.legs.length === picks &&
+        e.topMultiple != null &&
+        Number.isFinite(e.topMultiple) &&
+        e.topMultiple > 1 &&
+        e.legs.every((l) => (l.pickType ?? "standard") === "standard"),
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit)
+    .map((e) => e.topMultiple as number)
 }
 
 /**
@@ -416,6 +474,8 @@ export function pickemBar(
   mode: PayoutMode | undefined,
   picks: number,
   captured?: CapturedPayout | null,
+  /** What your own logged entries of this kind were offered: see offeredMultiples. */
+  offered: number[] = [],
 ): PickemBar {
   // A capture is the only payout here anybody has actually read, so it wins
   // outright — but only once it is confirmed, valid, and for THIS entry size.
@@ -430,6 +490,23 @@ export function pickemBar(
   }
   const verified = payoutVerified(app)
   const stored = mode ? breakEvenLegProb(mode, picks) : null
+  // Your own entries next, where they were offered less than the table says.
+  // Only on an all-or-nothing table, which is the one an "if every leg hits"
+  // multiple describes in full; a flex table's lower tiers are not on that
+  // screen. The lowest of them, because the multiplier varies from entry to
+  // entry and a leg has to clear the bar at the payout it may actually get.
+  const tiers = mode?.table[picks]
+  const top = tiers && Object.keys(tiers).length === 1 ? tiers[picks] : undefined
+  const lowest = offered.length > 0 ? Math.min(...offered) : null
+  if (top != null && lowest != null && lowest > 1 && lowest < top) {
+    return {
+      prob: Math.pow(lowest, -1 / picks),
+      source: "tracked",
+      verified: true,
+      capturedAt: null,
+      tracked: { multiple: lowest, entries: offered.length },
+    }
+  }
   if (stored != null) return { prob: stored, source: "stored", verified, capturedAt: null }
   return { prob: PLACEHOLDER_LEG_BAR, source: "placeholder", verified, capturedAt: null }
 }

@@ -1,6 +1,7 @@
 import { MARKETS, type MarketKey } from "@/lib/nba/markets"
 import type { LeagueId } from "@/lib/leagues"
-import { resolveLine } from "@/lib/quant/distributions"
+import { resolveLine, type LineProbabilities } from "@/lib/quant/distributions"
+import { linePrices } from "@/lib/quant/projection"
 import { probToAmerican } from "@/lib/quant/odds"
 import { optimizeSlips, type BuiltSlip, type CandidateLeg, type OptimizerConstraints } from "@/lib/quant/optimizer"
 import { normalizeName, playerKeyIn, type CorrelationSettings } from "@/lib/quant/correlation"
@@ -181,14 +182,7 @@ export interface BuildOptions {
    */
   pickemMaxProb?: number
   /**
-   * Minimum leg probability for parlay construction.
-   *
-   * Deliberately lower than the pick'em default. On a DFS app every leg is
-   * roughly even money, so a leg under 50% is close to worthless. On a
-   * sportsbook the price carries the value: a +160 leg that hits 45% of the
-   * time is an excellent bet. Legs here have already been filtered on edge,
-   * which is the thing that actually matters, so the probability floor only
-   * needs to keep out the far tail where the model is least reliable.
+   * Minimum leg probability for parlay construction. See PARLAY_MIN_LEG_PROB.
    */
   parlayMinLegProb?: number
   /** Commission charged on parlay winnings, for exchanges. */
@@ -205,6 +199,21 @@ export interface BuildOptions {
   pickemLines?: PickemLine[]
   now?: number
 }
+
+/**
+ * The least likely a parlay leg may be: a coin flip.
+ *
+ * It was 30%, on the reasoning that a sportsbook's price carries the value, so
+ * a +160 leg that hits 45% of the time is a good bet. Alone it is. Three of
+ * them hit about one time in eleven, and the parlays this built were ones you
+ * could see would not hit. Worse, a long-odds leg is exactly where the edge is
+ * least believable: its fair chance comes from the consensus's tail, where
+ * the devig method and the dispersion prior matter most, and a parlay
+ * multiplies that error once per leg. So a leg has to be at least as likely
+ * to land as not. Singles at longer prices are still listed as value bets,
+ * one at a time, which is where a long-odds edge belongs.
+ */
+export const PARLAY_MIN_LEG_PROB = 0.5
 
 export function summariseGames(quotes: FeedQuote[]): GameSummary[] {
   const map = new Map<string, GameSummary>()
@@ -243,6 +252,12 @@ export function dfsTargetsFor(
      * search covers the board rather than the whole number line: see below.
      */
     postedLines?: number[]
+    /**
+     * Each side's chance at a line, when that is not simply the distribution's:
+     * a prop the retail books have to agree on too (see linePrices). The fair
+     * line is still read off the distribution, which is the market's centre.
+     */
+    prices?: (line: number) => LineProbabilities
   } = {},
 ): {
   fairLine: number
@@ -309,10 +324,11 @@ export function dfsTargetsFor(
   steps.sort((a, b) => a - b)
 
   for (const step of steps) {
-    const { over, under, push } = resolveLine(distribution as never, step)
+    const centre = resolveLine(distribution as never, step)
+    const { over, under, push } = opts.prices ? opts.prices(step) : centre
     ladder.push({ line: step, over, under, push })
 
-    const gap = Math.abs(over - 0.5)
+    const gap = Math.abs(centre.over - 0.5)
     if (gap < bestGap) {
       bestGap = gap
       fairLine = step
@@ -466,13 +482,13 @@ export function pickemLinesFor(
 export function priceAppLines(
   lines: PickemLine[],
   distribution: { pAtLeast(k: number): number; pmf(k: number): number },
-  opts: { now?: number; staleMinutes?: number } = {},
+  opts: { now?: number; staleMinutes?: number; prices?: (line: number) => LineProbabilities } = {},
 ): AppLine[] {
   const now = opts.now ?? Date.now()
   const staleAfter = opts.staleMinutes ?? DEFAULT_PICKEM_STALE_MINUTES
   return lines
     .map((l) => {
-      const p = resolveLine(distribution as never, l.line)
+      const p = opts.prices ? opts.prices(l.line) : resolveLine(distribution as never, l.line)
       const posted = l.fetchedAt ? Date.parse(l.fetchedAt) : Number.NaN
       const ageMinutes = Number.isFinite(posted) ? Math.max(0, (now - posted) / 60_000) : null
       return {
@@ -557,10 +573,11 @@ export function boardLine(
   mean: number,
   distribution: { pAtLeast(k: number): number; pmf(k: number): number },
   ceiling: number = PICKEM_MAX_PROB,
+  prices?: (line: number) => LineProbabilities,
 ): { line: number; prob: number; overCeiling: boolean } | null {
   if (postedLines.length === 0) return null
   const probOf = (line: number) => {
-    const p = resolveLine(distribution as never, line)
+    const p = prices ? prices(line) : resolveLine(distribution as never, line)
     return Math.max(p.over, p.under)
   }
   const modal = marketLineOf(postedLines, mean)
@@ -605,7 +622,11 @@ export function buildDfsBoard(quotes: FeedQuote[], opts: BuildOptions): DfsBoard
     if (!ref || ref.status !== "priced") continue
 
     const postedLines = Array.from(new Set(group.quotes.map((q) => q.line)))
-    const t = dfsTargetsFor(ref.mean, ref.distribution, opts.dfsBreakEven, { postedLines })
+    // Every chance on this row, at every line, by every opinion that has to
+    // agree: with no market-making book, the retail books' as well as the
+    // consensus's. See linePrices.
+    const prices = (line: number) => linePrices(ref, line)
+    const t = dfsTargetsFor(ref.mean, ref.distribution, opts.dfsBreakEven, { postedLines, prices })
     // A prop where neither side clears is not a target, it is a pass.
     if (t.overAt == null && t.underAt == null) continue
 
@@ -618,12 +639,16 @@ export function buildDfsBoard(quotes: FeedQuote[], opts: BuildOptions): DfsBoard
     const appLines = priceAppLines(resolved.lines, ref.distribution, {
       now,
       staleMinutes: opts.value.projection.staleQuoteMinutes,
+      prices,
     })
     const warnings = [
       nameIsAmbiguous
         ? `Another player on this slate normalises to the same name. This row is ${group.gameId.replace("@", " at ")} only.`
         : null,
       resolved.warning,
+      // The books splitting is why a row's chance can sit below what its mean
+      // suggests, so the row says so rather than leaving it to be guessed.
+      ref.retailCheck?.warning ?? null,
     ].filter((w): w is string => !!w)
 
     // The line a pick'em app would hang: the one the books post most often,
@@ -632,7 +657,7 @@ export function buildDfsBoard(quotes: FeedQuote[], opts: BuildOptions): DfsBoard
     // If no posted line is one a board could plausibly show, this is not a
     // pick'em target at any line — unless an app is demonstrably posting one,
     // because a real line beats a prior about what the line would be.
-    const board = boardLine(postedLines, ref.mean, ref.distribution, ceiling)
+    const board = boardLine(postedLines, ref.mean, ref.distribution, ceiling, prices)
     if (board?.overCeiling && appLines.length === 0) {
       // Counted and named rather than quietly missing: see LopsidedProp.
       lopsided.push({
@@ -648,7 +673,7 @@ export function buildDfsBoard(quotes: FeedQuote[], opts: BuildOptions): DfsBoard
       continue
     }
     const marketLine = board?.line ?? marketLineOf(postedLines, ref.mean)
-    const atMarket = resolveLine(ref.distribution as never, marketLine)
+    const atMarket = prices(marketLine)
     const marketSide = atMarket.over >= atMarket.under ? "OVER" : "UNDER"
 
     out.push({
@@ -949,7 +974,7 @@ export function buildDailyPicks(quotes: FeedQuote[], opts: BuildOptions): DailyP
   // combination of bad bets that becomes a good one.
   const parlayConstraints: OptimizerConstraints = {
     ...opts.constraints,
-    minLegProb: opts.parlayMinLegProb ?? 0.3,
+    minLegProb: opts.parlayMinLegProb ?? PARLAY_MIN_LEG_PROB,
   }
 
   // Parlays are built one book at a time, because you cannot combine a leg at
