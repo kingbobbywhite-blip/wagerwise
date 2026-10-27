@@ -178,9 +178,10 @@ and at least one market-making book has to remain, otherwise a room full of copy
 becomes its own reference. Each row shows the price, the fair price, the edge and a
 stake sized by fractional Kelly.
 
-**Best parlays.** Built only from legs that are individually positive expected value,
-and only within a single book, because a leg at DraftKings cannot be combined with a leg
-at FanDuel onto one ticket. Correlation between legs is priced rather than ignored.
+**Best parlays.** Built only from legs that are individually positive expected value and
+at least as likely to hit as not, and only within a single book, because a leg at DraftKings
+cannot be combined with a leg at FanDuel onto one ticket. Correlation between legs is priced
+rather than ignored.
 
 **Pick'em entry.** The likeliest targets that clear the bar: one leg per player, at most two
 per game, with the chance they all hit and the expected return at your default app's payout
@@ -265,7 +266,7 @@ The per-leg hit rate you need just to break even, summed across every paying tie
 | Entry | Top pays | Break-even per leg | All-hit shortcut would say |
 | --- | --- | --- | --- |
 | Power 2-pick | 3x | 57.7% | 57.7% |
-| Power 3-pick | 6x | 55.0% | 55.0% |
+| Power 3-pick | 5.5x | 56.7% | 56.7% |
 | Power 4-pick | 10x | 56.2% | 56.2% |
 | Power 5-pick | 20x | 54.9% | 54.9% |
 | Power 6-pick | 37.5x | 54.7% | 54.7% |
@@ -361,13 +362,21 @@ before any of this, because that question is about what arrived rather than what
 
 **A goblin or demon changes the multiplier for the whole entry, not for its leg.** So a standard
 payout table cannot describe an entry that holds one, and the bar it produces errs low every time.
-Four real settled Power Plays paid 8x, 8.5x, 4.5x and 3.75x where the stored tables say 10x, 10x,
+Four real settled Power Plays paid 8x, 8.5x, 4.5x and 3.75x where the stored tables said 10x, 10x,
 6x and 6x — a per-leg break-even of 59-64% where the app was showing 55-56%, understating the
 worst of them by **nine points**. Eight of those fourteen legs were goblins or demons. Whenever
 your app is posting a flavoured line on the board, the bar is labelled a floor rather than the
 bar, and the fix is on the same card: read the "$X for $Y" off your own entry screen and it
 becomes the real bar, the expected value appears, and it is remembered for that app, mode and
 entry size.
+
+**PrizePicks varies the multiplier on standard entries too.** Two real Power Plays of three
+standard picks, no goblins or demons, paid 6x and 5.5x. So the stored 3-pick is the lower of the
+two, and below a payout you read in, the bar comes from your own logged entries: the lowest "if
+every leg hits" payout among your last five logged entries of the same app, mode and size, of
+standard picks only, wherever that is below the stored table. A leg has to clear the bar at the
+payout the entry may actually get, and the heading on the entry card says which number the bar
+is using.
 
 **The entry's expected value, when no payout table has been confirmed.** An expected value is the
 payout table's number as much as the legs' — it is a sum over the table's tiers — and every table

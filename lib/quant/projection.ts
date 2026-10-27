@@ -1,7 +1,7 @@
 import { distributionFor, distributionWithVariance, normalizeMarket, MARKETS, type DispersionOverrides, type MarketKey } from "@/lib/nba/markets"
 import { DEFAULT_LEAGUE, leagueFor, type LeagueId } from "@/lib/leagues"
 import { bookConsensus, bookProfile, consensusQuality, type ConsensusResult } from "./books"
-import { meanImpliedByLine, resolveLine, type OutcomeDistribution } from "./distributions"
+import { meanImpliedByLine, resolveLine, type LineProbabilities, type OutcomeDistribution } from "./distributions"
 import { estimateFromGameLog, parseGameLog, type GameLogEntry, type MinutesContext } from "./gamelog"
 import { clamp } from "./math"
 import { fairTwoWay, probToAmerican, type DevigMethod } from "./odds"
@@ -132,6 +132,24 @@ export interface ProjectedProp {
   meanUncertainty: number
   sd: number
   distribution: OutcomeDistribution
+  /**
+   * The retail books' own outcome distribution, when they have to agree too.
+   *
+   * Set only when a sharp book priced the prop, retail books did as well, and
+   * no market-making book did. The consensus is then one sharp book's opinion
+   * blended with the retail market's, and the sharp book has the larger say,
+   * so a single offshore number could carry a prop on its own: on PropLine,
+   * which has no Pinnacle player props, BetOnline two points under FanDuel,
+   * DraftKings, Bovada, BetMGM and the pick'em app's own line turned a coin
+   * flip at that line into a 58% "under". Where Pinnacle or Circa is present
+   * its number is the reference and this stays null. See linePrices.
+   */
+  retailCheck: {
+    mean: number
+    distribution: OutcomeDistribution
+    /** What to say on the row, when the two blocs are far enough apart to change a pick. */
+    warning: string | null
+  } | null
 
   pOver: number
   pUnder: number
@@ -157,6 +175,25 @@ export interface ProjectedProp {
   quoteAgeMinutes: number | null
   isStale: boolean
   warnings: string[]
+}
+
+/**
+ * Each side's chance at a line, by every opinion that has to agree.
+ *
+ * With a retail check, a side is only as likely as the less favourable of the
+ * consensus and the retail books on their own: an edge one bloc sees and the
+ * other does not is a disagreement about the number, not a price. The push is
+ * the consensus's. The two sides can then sum to less than one, which is the
+ * honest reading: neither bloc is confident of either side.
+ */
+export function linePrices(
+  p: { distribution: OutcomeDistribution; retailCheck?: ProjectedProp["retailCheck"] },
+  line: number,
+): LineProbabilities {
+  const a = resolveLine(p.distribution, line)
+  if (!p.retailCheck) return a
+  const b = resolveLine(p.retailCheck.distribution, line)
+  return { over: Math.min(a.over, b.over), under: Math.min(a.under, b.under), push: a.push }
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +496,9 @@ export function projectProp(
   let holdPct: number | null = null
   let quoteAgeMinutes: number | null = null
   let isStale = false
+  // Where the retail books' own number has to agree as well: see retailCheck.
+  let retailMean: number | null = null
+  let splitWarning: string | null = null
 
   if (market && (!settings.requireSharpBook || market.consensus.hasSharp)) {
     status = "priced"
@@ -479,6 +519,17 @@ export function projectProp(
     const quality = consensusQuality(market.consensus)
     const floor = (1 - quality) * 0.5 * dist.sd
     meanUncertainty = Math.sqrt(Math.pow(bookDisagreement / 2, 2) + floor * floor)
+
+    const { blocs } = market.consensus
+    if (!market.consensus.hasMarketMaker && blocs.sharp != null && blocs.retail != null) {
+      retailMean = blocs.retail
+      // Named when it is big enough to change a pick, so the row says why its
+      // chance is lower than the mean beside it suggests.
+      if (Math.abs(blocs.sharp - blocs.retail) >= 0.15 * dist.sd) {
+        splitWarning = `No market-making book priced this, and the sharp books (${blocs.sharp.toFixed(1)}) and the retail books (${blocs.retail.toFixed(1)}) disagree. Each side is priced at whichever of the two is less favourable.`
+        warnings.push(splitWarning)
+      }
+    }
   } else {
     status = "unpriced"
 
@@ -531,8 +582,22 @@ export function projectProp(
   // game-log spread survives instead of being overwritten by the default.
   const predictiveVariance = baseVariance + meanUncertainty * meanUncertainty
   const distribution = distributionWithVariance(norm.key, mean, predictiveVariance)
+  // The retail books' distribution, widened by the same uncertainty about the
+  // centre, so the two are compared like for like.
+  const retailCheck =
+    retailMean != null
+      ? {
+          mean: retailMean,
+          distribution: distributionWithVariance(
+            norm.key,
+            retailMean,
+            build(retailMean).variance + meanUncertainty * meanUncertainty,
+          ),
+          warning: splitWarning,
+        }
+      : null
 
-  const { over, under, push } = resolveLine(distribution, line)
+  const { over, under, push } = linePrices({ distribution, retailCheck }, line)
 
   const side: "OVER" | "UNDER" = over >= under ? "OVER" : "UNDER"
   const pWin = side === "OVER" ? over : under
@@ -580,6 +645,7 @@ export function projectProp(
     meanUncertainty,
     sd: distribution.sd,
     distribution,
+    retailCheck,
     pOver: over,
     pUnder: under,
     pPush: push,

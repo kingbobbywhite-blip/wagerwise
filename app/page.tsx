@@ -32,6 +32,7 @@ import {
   findApp,
   findMode,
   capturedPayoutChanged,
+  offeredMultiples,
   payoutKey,
   pickemBar,
   validateCapture,
@@ -257,9 +258,18 @@ export default function TodayPage() {
   // has confirmed against a real entry screen. Because that bar decides which
   // props become targets at all and which side each row recommends, where it
   // came from travels with it and is printed beside it.
+  //
+  // Below a capture, the bar comes from your own logged entries of this size
+  // where they were offered less than the stored table: PrizePicks varies the
+  // multiplier from entry to entry, and a leg has to clear the bar at the
+  // payout the entry may actually get.
+  const offered = React.useMemo(
+    () => offeredMultiples(state.slips, s.defaultAppId, s.defaultModeId, s.constraints.picks),
+    [state.slips, s.defaultAppId, s.defaultModeId, s.constraints.picks],
+  )
   const bar = React.useMemo(
-    () => pickemBar(entryApp, entryMode, s.constraints.picks, savedPayout),
-    [entryApp, entryMode, s.constraints.picks, savedPayout],
+    () => pickemBar(entryApp, entryMode, s.constraints.picks, savedPayout, offered),
+    [entryApp, entryMode, s.constraints.picks, savedPayout, offered],
   )
   // An expected value is the table's number as much as the legs', so it is
   // withheld when no table has been checked. Null here is the point.
@@ -869,6 +879,10 @@ export default function TodayPage() {
                     <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-primary">
                       payout read {shortDate(bar.capturedAt ?? "")}
                     </span>
+                  ) : bar.source === "tracked" && bar.tracked ? (
+                    <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-primary">
+                      bar at {bar.tracked.multiple}x, the lowest of your last {bar.tracked.entries} logged
+                    </span>
                   ) : bar.source === "placeholder" ? (
                     <span className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-accent">
                       <TriangleAlert className="size-3" /> no payout table
@@ -1002,6 +1016,9 @@ export default function TodayPage() {
                   of the two always loses. The bar is a {pct(bar.prob)} per-leg hit rate, from your default{" "}
                   {s.constraints.picks}-pick entry, for standard picks; a goblin or demon pays differently and needs
                   its own bar.
+                  {bar.source === "tracked" && bar.tracked
+                    ? ` It is set at ${bar.tracked.multiple}x, the lowest "if every leg hits" payout among your last ${bar.tracked.entries} logged ${entryApp?.name ?? ""} ${s.constraints.picks}-pick entries of standard picks, rather than the stored table's: the multiplier varies from entry to entry, and a leg has to clear the bar at the payout it may actually get.`
+                    : ""}
                   {bar.source === "placeholder"
                     ? ` No stored payout table covers that entry size, so the bar is a placeholder and the line between a target and a pass is softer than it looks.`
                     : !bar.verified

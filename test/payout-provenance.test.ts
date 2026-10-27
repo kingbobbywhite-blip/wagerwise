@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
+import { migrate } from "@/lib/store/schema"
 import {
   DEFAULT_APPS,
   capturedPayoutChanged,
   PLACEHOLDER_LEG_BAR,
   findApp,
   findMode,
+  offeredMultiples,
   payoutMultiple,
   payoutVerified,
   pickemBar,
@@ -12,6 +14,7 @@ import {
   pickemPricingModeFor,
   type BookApp,
   type CapturedPayout,
+  type OfferedEntry,
 } from "@/lib/quant/payouts"
 
 /**
@@ -55,8 +58,8 @@ describe("the bar the pick'em section is judged against", () => {
     const bar = pickemBar(prizepicks, power, 3)
     expect(bar.source).toBe("stored")
     expect(bar.verified).toBe(false)
-    // A 3-pick Power Play at 6x: the break-even is the cube root of 1/6.
-    expect(bar.prob).toBeCloseTo(Math.cbrt(1 / 6), 6)
+    // A 3-pick Power Play at 5.5x: the break-even is the cube root of 1/5.5.
+    expect(bar.prob).toBeCloseTo(Math.cbrt(1 / 5.5), 6)
     expect(pickemBar(dated(prizepicks, "2026-09-15"), power, 3).verified).toBe(true)
   })
 
@@ -102,8 +105,8 @@ describe("a payout read off a real entry screen", () => {
   const SETTLED: [label: string, picks: number, multiple: number, storedBar: number][] = [
     ["$5 for $40", 4, 8, Math.pow(1 / 10, 1 / 4)],
     ["$5 for $42.50", 4, 8.5, Math.pow(1 / 10, 1 / 4)],
-    ["$2.50 for $11.25", 3, 4.5, Math.pow(1 / 6, 1 / 3)],
-    ["$2.50 for $9.38", 3, 3.752, Math.pow(1 / 6, 1 / 3)],
+    ["$2.50 for $11.25", 3, 4.5, Math.pow(1 / 5.5, 1 / 3)],
+    ["$2.50 for $9.38", 3, 3.752, Math.pow(1 / 5.5, 1 / 3)],
   ]
 
   it("raises the bar to what the entry really had to clear", () => {
@@ -119,13 +122,17 @@ describe("a payout read off a real entry screen", () => {
     }
   })
 
-  it("was understating the worst of them by nine points", () => {
+  it("was understating the worst of them by nine points, and the stored table still would by eight", () => {
+    // At the 6x the table used to store, the bar was 55.0% against a real
+    // 64.4%. At the 5.5x it stores now it is 56.7%: closer, and still nearly
+    // eight points easy, which is why a payout read off a screen always wins.
     const [, picks, multiple] = SETTLED[3]
     const stored = pickemBar(prizepicks, findMode(prizepicks, "power"), picks)
     const captured = pickemBar(prizepicks, findMode(prizepicks, "power"), picks, read(picks, multiple))
-    expect(stored.prob).toBeCloseTo(0.5503, 3)
+    expect(Math.cbrt(1 / 6)).toBeCloseTo(0.5503, 3)
+    expect(stored.prob).toBeCloseTo(0.5665, 3)
     expect(captured.prob).toBeCloseTo(0.6437, 3)
-    expect(captured.prob - stored.prob).toBeGreaterThan(0.09)
+    expect(captured.prob - stored.prob).toBeGreaterThan(0.07)
   })
 
   it("prices the entry once a payout has been read, and not before", () => {
@@ -191,10 +198,100 @@ describe("deciding whether a capture is worth a write", () => {
 })
 
 describe("the one number in the registry anybody has confirmed", () => {
-  it("still pays 6x on a 3-pick Power Play", () => {
-    // A real entry screen paid $2 for $12 in Sep 2026, which is the only
-    // verified datum in the whole table and the reason the comment above it
-    // exists. If this is ever edited, that comment has become a lie.
+  it("stores the lower of the two standard 3-pick Power Plays read off real screens", () => {
+    // $2 for $12 in Sep 2026 and $5 for $27.50 in Oct 2026, both three
+    // standard picks: 6x and 5.5x. PrizePicks varies the multiplier from entry
+    // to entry, and the bar has to hold at the payout the entry may get. If
+    // this is ever edited, the comment above the table has become a lie.
+    expect(payoutMultiple(power, 3, 3)).toBe(5.5)
+  })
+})
+
+describe("the bar your own logged entries set", () => {
+  const entry = (
+    topMultiple: number | null,
+    over: Partial<OfferedEntry> = {},
+    pickTypes: (string | undefined)[] = ["standard", "standard", "standard"],
+  ): OfferedEntry => ({
+    appId: "prizepicks",
+    modeId: "power",
+    createdAt: "2026-10-26T23:00:00Z",
+    source: "logged",
+    topMultiple,
+    legs: pickTypes.map((pickType) => ({ pickType })),
+    ...over,
+  })
+
+  it("reads only standard entries logged off the app, of this kind, newest first", () => {
+    const entries = [
+      entry(5.5, { createdAt: "2026-10-26T23:00:00Z" }),
+      entry(6, { createdAt: "2026-09-15T23:00:00Z" }),
+      // A built entry's multiple came from a table here, not off a screen.
+      entry(4, { source: "built" }),
+      // A goblin moves the whole entry's multiplier.
+      entry(3.75, {}, ["standard", "goblin", "standard"]),
+      entry(4, { modeId: "flex" }),
+      entry(4, { appId: "underdog" }),
+      entry(10, {}, ["standard", "standard", "standard", "standard"]),
+      entry(null),
+      // Logged before pick types were recorded: taken as standard.
+      entry(5.8, { createdAt: "2026-10-01T23:00:00Z" }, [undefined, undefined, undefined]),
+    ]
+    expect(offeredMultiples(entries, "prizepicks", "power", 3)).toEqual([5.5, 5.8, 6])
+    expect(offeredMultiples(entries, "prizepicks", "power", 3, 2)).toEqual([5.5, 5.8])
+  })
+
+  it("raises the bar to the lowest payout you were offered", () => {
+    // A 3-pick Power Play that paid 5 for 25: the bar is the cube root of 1/5,
+    // not the stored table's 1/5.5.
+    const bar = pickemBar(prizepicks, power, 3, null, [5, 6])
+    expect(bar.source).toBe("tracked")
+    expect(bar.verified).toBe(true)
+    expect(bar.tracked).toEqual({ multiple: 5, entries: 2 })
+    expect(bar.prob).toBeCloseTo(Math.cbrt(1 / 5), 6)
+    expect(bar.prob).toBeGreaterThan(pickemBar(prizepicks, power, 3).prob)
+  })
+
+  it("never lowers the bar below the stored table's", () => {
+    // Paid more than the table once is not a promise to again.
+    expect(pickemBar(prizepicks, power, 3, null, [6]).source).toBe("stored")
+  })
+
+  it("gives way to a payout read in for this entry", () => {
+    const read: CapturedPayout = { picks: 3, tiers: { 3: 5.8 }, confirmed: true, capturedAt: "2026-10-26T22:00:00Z" }
+    expect(pickemBar(prizepicks, power, 3, read, [5]).source).toBe("captured")
+  })
+
+  it("leaves a flex table alone, which one multiple cannot describe", () => {
+    const flex = findMode(prizepicks, "flex")!
+    expect(pickemBar(prizepicks, flex, 3, null, [1.5]).source).toBe("stored")
+  })
+})
+
+describe("a phone that already has the app", () => {
+  it("takes the 5.5x 3-pick when its stored Power Play table was never edited", () => {
+    // Settings keep their own copy of the tables, so without this the new
+    // default would reach only fresh installs.
+    const old = {
+      ...prizepicks,
+      modes: prizepicks.modes.map((m) =>
+        m.id === "power" ? { ...m, table: { 2: { 2: 3 }, 3: { 3: 6 }, 4: { 4: 10 }, 5: { 5: 20 }, 6: { 6: 37.5 } } } : m,
+      ),
+    }
+    const migrated = migrate({ version: 1, settings: { apps: [old] } })
+    expect(payoutMultiple(findMode(findApp(migrated.settings.apps, "prizepicks"), "power")!, 3, 3)).toBe(5.5)
+  })
+
+  it("leaves a table you set by hand alone", () => {
+    const edited = {
+      ...prizepicks,
+      modes: prizepicks.modes.map((m) =>
+        m.id === "power" ? { ...m, table: { 2: { 2: 3 }, 3: { 3: 6 }, 4: { 4: 9 }, 5: { 5: 20 }, 6: { 6: 37.5 } } } : m,
+      ),
+    }
+    const migrated = migrate({ version: 1, settings: { apps: [edited] } })
+    const power = findMode(findApp(migrated.settings.apps, "prizepicks"), "power")!
     expect(payoutMultiple(power, 3, 3)).toBe(6)
+    expect(payoutMultiple(power, 4, 4)).toBe(9)
   })
 })
